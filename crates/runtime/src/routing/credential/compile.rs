@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use any2api_domain::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountId, ProviderCredentialConfiguration,
     ProviderEndpointConfiguration, ProviderEndpointId, ProviderKind, ProxyConfiguration,
-    ProxyProfileId, UpstreamModelName,
+    UpstreamModelName,
 };
 use any2api_provider::api::{ProviderRegistry, decode_oauth_account_document};
 use any2api_storage::api::{SecretBytes, StoredOAuthAccountMaterial, StoredOAuthAccountMaterials};
@@ -101,7 +101,7 @@ fn compile_provider_credentials(
                 endpoint.provider_kind(),
             ));
         }
-        let proxy = proxies.resolve(credential.proxy_profile_id()).ok_or(
+        let proxy = proxies.get(credential.proxy_profile_id()).ok_or(
             RoutingCredentialCompileError::MissingCredentialProxy(credential.id()),
         )?;
         let auth = credential_auth.take_for(credential)?;
@@ -155,7 +155,7 @@ fn compile_oauth_accounts(
         let profile = driver
             .oauth_routing_profile(&token)
             .map_err(|_| RoutingCredentialCompileError::InvalidOAuthRoutingProfile(account.id()))?;
-        let proxy = proxies.resolve(ProxyProfileId::DIRECT).ok_or(
+        let proxy = proxies.resolve_oauth(account.proxy_selection()).ok_or(
             RoutingCredentialCompileError::MissingOAuthProxy(account.id()),
         )?;
         let available_models = profile.models().to_vec();

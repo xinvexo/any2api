@@ -1,4 +1,4 @@
-import { Bot, Edit3, ListChecks, Trash2 } from "lucide-react";
+import { Bot, Edit3, ListChecks, Network, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { OAuthAccountPresentation } from "../model/oauth-account-presentation";
@@ -9,6 +9,7 @@ import { Switch } from "@/shared/ui/Switch";
 
 interface OAuthAccountCardProps {
   presentation: OAuthAccountPresentation;
+  proxyLabel: string;
   pending: boolean;
   onToggleEnabled: (enabled: boolean) => void;
   onViewModels: () => void;
@@ -23,6 +24,7 @@ interface OAuthAccountCardProps {
  */
 export function OAuthAccountCard({
   presentation,
+  proxyLabel,
   pending,
   onToggleEnabled,
   onViewModels,
@@ -70,6 +72,10 @@ export function OAuthAccountCard({
           </div>
           <p className="mt-0.5 truncate text-[12px] text-secondary" title={presentation.subtitle}>
             {presentation.subtitle}
+          </p>
+          <p className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-secondary">
+            <Network size={11} className="shrink-0" aria-hidden="true" />
+            <span className="truncate" title={proxyLabel}>{proxyLabel}</span>
           </p>
         </div>
         {/* Plan + switch stay pinned on the right; title truncation won't shove them. */}

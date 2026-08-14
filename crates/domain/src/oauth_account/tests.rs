@@ -1,7 +1,7 @@
 use crate::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
-    OAuthAccountValidationError, ProviderKind, ProxyConfiguration, ProxyProfile, ProxyProfileId,
-    RequestsPerMinute,
+    OAuthAccountValidationError, OAuthProxySelection, ProviderKind, ProxyConfiguration,
+    ProxyProfile, ProxyProfileId, RequestsPerMinute,
 };
 
 fn account(provider: ProviderKind, label: &str) -> OAuthAccount {
@@ -14,6 +14,7 @@ fn account(provider: ProviderKind, label: &str) -> OAuthAccount {
             true,
         )
         .expect("valid draft"),
+        OAuthProxySelection::Global,
         Some("owner@example.com".into()),
         Some(100),
         "2026-08-05 00:00:00",
@@ -48,6 +49,7 @@ fn reauthorization_preserves_local_settings_and_versions_model_changes() {
     let account = account(ProviderKind::Codex, "Primary");
     let reauthorized = account
         .reauthorized(
+            OAuthProxySelection::Profile(ProxyProfileId::DIRECT),
             Some("new@example.com".into()),
             Some(200),
             vec!["other-model".into()],
@@ -62,8 +64,12 @@ fn reauthorization_preserves_local_settings_and_versions_model_changes() {
     );
     assert_eq!(reauthorized.enabled(), account.enabled());
     assert_eq!(reauthorized.token_version(), 2);
-    assert_eq!(reauthorized.account_generation(), 1);
+    assert_eq!(reauthorized.account_generation(), 2);
     assert_eq!(reauthorized.config_version(), 2);
+    assert_eq!(
+        reauthorized.proxy_selection(),
+        OAuthProxySelection::Profile(ProxyProfileId::DIRECT)
+    );
     assert_eq!(reauthorized.models()[0].as_str(), "other-model");
 }
 
@@ -71,10 +77,16 @@ fn reauthorization_preserves_local_settings_and_versions_model_changes() {
 fn reenable_changes_account_generation_and_refresh_preserves_it() {
     let account = account(ProviderKind::Codex, "Primary");
     let disabled = account
-        .updated(OAuthAccountDraft::new("Primary", None, false).expect("disabled draft"))
+        .updated(
+            OAuthAccountDraft::new("Primary", None, false).expect("disabled draft"),
+            OAuthProxySelection::Global,
+        )
         .expect("disable account");
     let enabled = disabled
-        .updated(OAuthAccountDraft::new("Primary", None, true).expect("enabled draft"))
+        .updated(
+            OAuthAccountDraft::new("Primary", None, true).expect("enabled draft"),
+            OAuthProxySelection::Global,
+        )
         .expect("reenable account");
     let refreshed = enabled.refreshed(None, Some(200)).expect("refresh account");
 
@@ -111,5 +123,5 @@ fn grok_can_be_constructed_as_an_independent_oauth_account() {
     let account = account(ProviderKind::Grok, "Grok");
 
     assert_eq!(account.provider_kind(), ProviderKind::Grok);
-    assert_eq!(account.proxy_profile_id(), ProxyProfileId::DIRECT);
+    assert_eq!(account.proxy_selection(), OAuthProxySelection::Global);
 }

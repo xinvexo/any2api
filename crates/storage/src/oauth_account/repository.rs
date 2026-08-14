@@ -76,6 +76,7 @@ pub(crate) async fn mutate_create_batch(
                 id: account.id,
                 provider_kind: account.provider_kind,
                 draft: account.draft,
+                proxy_selection: account.proxy_selection,
                 safe_account_email: account.safe_account_email,
                 expires_at: account.expires_at,
                 created_at: created_at.clone(),

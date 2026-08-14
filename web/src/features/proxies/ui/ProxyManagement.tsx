@@ -183,7 +183,7 @@ export function ProxyManagement() {
       { id: proxy.id, expectedRevision: configuration.configRevision },
       {
         onSuccess: () => {
-          notify.success(`已将「${proxy.name}」设为全局出口`);
+          notify.success(`已将「${proxy.name}」设为 OAuth 全局出口`);
         },
         onError: (error) => {
           notify.danger(getProxyErrorMessage(error));

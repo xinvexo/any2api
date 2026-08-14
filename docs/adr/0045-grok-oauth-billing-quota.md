@@ -26,7 +26,7 @@ xAI 官方 rate-limit 文档把推理响应中的请求和 Token 限额定义为
 5. billing 没有可解析使用率但包含有效周期、金额或账单形态时仍返回有效快照，但官方使用率窗口保持缺失。`isUnifiedBillingUser` 和有效周期都不用于猜测官方使用率。
 6. 管理额度刷新只执行 billing 与 user 两个只读 GET；禁止调用 `/v1/chat/completions`、Responses 或其他生成端点获取限流 Header。xAI Management API `GET /v1/billing/teams/{team_id}/prepaid/balance` 只适用于独立 Management Key，不属于 OAuthAccount 额度查询路径。
 7. 当前 Grok access token 的 JWT 只做本地、只读、安全派生：`bot_flag_source` 为数值 `1` 时返回已标记状态，为明确数值 `0` 时返回未标记状态，缺失、非数值或其他值保持未知。管理 API 禁止返回其他 claim、JWT payload 或 Token 原文。Web 只在已标记时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字；未标记或未知不占展示位置。
-8. 查询复用现有 OAuth quota Runtime：固定 DIRECT/全局代理、严格 SSRF、禁用重定向、有界响应体和读取超时；401 最多刷新 Token 一次并完整重试一次。两次均被拒绝时返回明确认证失效错误；403 只按 Provider 声明证据区分账号限制、出口限制与未分类失败。Provider 差异通过查询计划与解析结果表达，中央 Runtime 不增加 Provider `match`。
+8. 查询复用现有 OAuth quota Runtime：使用账号保存的 `Global | Profile(id)` 选择、严格 SSRF、禁用重定向、有界响应体和读取超时；401 最多刷新 Token 一次并完整重试一次。两次均被拒绝时返回明确认证失效错误；403 只按 Provider 声明证据区分账号限制、出口限制与未分类失败。Provider 差异通过查询计划与解析结果表达，中央 Runtime 不增加 Provider `match`。
 9. Free Token 数字只接受真实数据面 `subscription:free-usage-exhausted` 响应中通过安全整数校验的 `actual/limit`；没有实际数据面证据时保持未知，不从 billing 金额、本地 usage、请求数或其他 Header 猜测。
 10. Grok 数据面错误分类可以识别稳定错误码 `subscription:free-usage-exhausted`，并只在真实响应出现时记录当前运行代际的内存耗尽观测。若正文包含 `tokens (actual/limit)`，只接受非负安全整数并随观测时间展示；该观测不得改写客户端收到的上游状态、正文或类型。成功数据面请求清除此观测。
 11. Grok quota、Token 余额与账号诊断是只读安全快照，按 ADR-0111 把最后一次成功结果写入独立 SQLite 表；不写 RequestLog、OAuth JSON、PublishedSnapshot 或浏览器持久化，也不参与账号启停或启动时路由健康恢复。ADR-0070 与 ADR-0095 允许真实数据面明确耗尽临时影响当前账号 `routing_generation` 的内存健康，并跨仅替换认证材料的 Token refresh 保留；主动 Header 探测由 ADR-0106 废止。

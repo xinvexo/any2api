@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
@@ -263,6 +263,7 @@ impl RefreshTestContext {
                     provider_kind: ProviderKind::Codex,
                     draft: OAuthAccountDraft::new(format!("Codex OAuth {sequence}"), None, enabled)
                         .expect("OAuth draft"),
+                    proxy_selection: OAuthProxySelection::Global,
                     safe_account_email: Some("person@example.com".into()),
                     expires_at: Some(0),
                     models: vec!["gpt-5.5".into()],

@@ -16,7 +16,7 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 - 额度重置能力仅适用于 Codex OAuthAccount；Claude 与 Grok 只提供各自的只读额度查询，不实现重置。
 - 管理 API 使用 `GET /api/admin/oauth/accounts/{id}/quota` 读取最后一次安全快照，使用 `POST /api/admin/oauth/accounts/{id}/quota/refresh` 查询上游并持久化，使用 `POST /api/admin/oauth/accounts/{id}/quota/reset` 消耗一次重置次数；三者都受单管理员鉴权和 `no-store` 约束。
 - Codex Driver 固定构造 `/backend-api/wham/usage`、`/backend-api/wham/rate-limit-reset-credits` 与 `/consume` 请求，注入 Bearer、`chatgpt-account-id` 和 Codex quota 所需固定头，并把受限响应解析成安全类型。Provider 不执行网络请求。
-- Runtime 使用 OAuthAccount 固定 DIRECT 绑定解析出的全局代理和当前严格 SSRF 设置；不允许专属代理、重定向或隐式直连回退。响应正文按固定上限读取，错误正文不进入日志或管理响应。
+- Runtime 使用 OAuthAccount 保存的 `Global | Profile(id)` 选择和当前严格 SSRF 设置；不允许重定向或任何隐式代理/直连回退。响应正文按固定上限读取，错误正文不进入日志或管理响应。
 - 查询遇到 401 时沿用 OAuth per-account refresh singleflight，最多刷新并重试一次。额度详情查询失败只允许回退到同次 usage 响应中明确给出的 reset credit 数据；缺失时保持未知，禁止猜测为可用。
 - 重置与额度 refresh 共用 OAuthAccount 级操作门闩。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才调用 consume；不相信客户端提交的次数。Web 在用户确认时生成 UUID v4 `redeem_request_id`，失败后的同次重试继续复用且不写浏览器持久存储；Server 只接受合法 UUID，Runtime 在额度复核、401 后重试和 consume 中始终透传同一个值，使上游可以幂等识别浏览器超时后的重复提交。
 - consume 成功且响应确认至少重置一个窗口后，清除该账号当前运行代际的 credential/model 临时冷却并推进 scheduler epoch。认证错误、Endpoint/Proxy 状态和其他账号不受影响。
@@ -37,6 +37,6 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 ## 验证
 
 - Provider 单元测试覆盖固定 URL/认证头、usage 主次窗口、reset credit 多种响应形状、非 Codex credit 过滤和 consume 响应校验。
-- Runtime 测试覆盖 DIRECT/全局代理、严格 SSRF、正文上限、401 单次刷新、无次数拒绝、refresh/reset 串行、同一 `redeem_request_id` 透传和成功后的临时冷却清理。
+- Runtime 测试覆盖 OAuth 全局/指定 Profile、严格 SSRF、正文上限、401 单次刷新、无次数拒绝、refresh/reset 串行、同一 `redeem_request_id` 透传和成功后的临时冷却清理。
 - 管理契约测试覆盖鉴权、Codex 查询/重置、Claude/Grok 无重置能力、DTO 脱敏和 Token 不出现在响应。
 - Web 测试覆盖额度展示、零次数禁用、确认消费、成功后重新查询和错误状态。

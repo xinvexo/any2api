@@ -42,10 +42,16 @@ async fn update(
     AdminJson(payload): AdminJson<OAuthAccountUpdateRequest>,
 ) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, draft) = payload.into_domain()?;
+    let (expected, expected_config_version, draft, proxy_selection) = payload.into_domain()?;
     let snapshot = state
         .publisher()
-        .update_oauth_account(expected, id, expected_config_version, draft)
+        .update_oauth_account(
+            expected,
+            id,
+            expected_config_version,
+            draft,
+            proxy_selection,
+        )
         .await?;
     Ok(accounts_response(&state, &snapshot).await)
 }

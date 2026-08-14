@@ -6,9 +6,11 @@ import {
   parseOAuthDevicePollResult,
   parseOAuthImportResult,
   parseOAuthStartResult,
+  serializeOAuthProxySelection,
   type OAuthAccountModelsInput,
   type OAuthAccountUpdateInput,
   type OAuthProvider,
+  type OAuthProxySelection,
 } from "./oauth-contracts";
 import {
   parseNullableOAuthQuotaSnapshot,
@@ -16,10 +18,16 @@ import {
   parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
 
-export function startOAuthLogin(provider: OAuthProvider) {
+export function startOAuthLogin(
+  provider: OAuthProvider,
+  proxySelection: OAuthProxySelection,
+) {
   return requestJson<unknown>("/api/admin/oauth/start", {
     method: "POST",
-    body: { provider },
+    body: {
+      provider,
+      proxy_selection: serializeOAuthProxySelection(proxySelection),
+    },
     timeoutMs: 35_000,
   }).then(parseOAuthStartResult);
 }
@@ -72,6 +80,7 @@ export function updateOAuthAccount(id: string, input: OAuthAccountUpdateInput) {
       expected_config_version: input.expectedConfigVersion,
       label: input.label,
       requests_per_minute: input.requestsPerMinute,
+      proxy_selection: serializeOAuthProxySelection(input.proxySelection),
       enabled: input.enabled,
     },
   }).then(parseOAuthAccountConfiguration);

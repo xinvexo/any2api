@@ -1,7 +1,7 @@
 use any2api_domain::{
     CredentialId, GatewayApiKeyDraft, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyDraft,
-    ProxyProfileId, SettingOverrideChange,
+    OAuthProxySelection, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyDraft, ProxyProfileId, SettingOverrideChange,
 };
 
 use crate::{
@@ -74,6 +74,7 @@ pub enum ConfigurationMutation {
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
@@ -85,6 +86,7 @@ pub enum ConfigurationMutation {
     ReauthorizeOAuthAccount {
         id: OAuthAccountId,
         expected_token_version: u64,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
@@ -94,6 +96,7 @@ pub enum ConfigurationMutation {
         id: OAuthAccountId,
         expected_config_version: u64,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
     },
     SetOAuthAccountModels {
         id: OAuthAccountId,

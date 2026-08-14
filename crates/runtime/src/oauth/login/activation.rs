@@ -1,4 +1,4 @@
-use any2api_domain::{OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::api::{OAuthTokenMaterial, ProviderRegistry};
 
 use crate::configuration::{ConfigPublisher, OAuthAccountActivation};
@@ -11,6 +11,7 @@ pub(in crate::oauth) async fn publish(
     providers: &ProviderRegistry,
     publisher: &ConfigPublisher,
     provider: ProviderKind,
+    proxy_selection: OAuthProxySelection,
     token: OAuthTokenMaterial,
 ) -> Result<OAuthActivationResult, OAuthError> {
     if token.provider() != provider {
@@ -29,6 +30,7 @@ pub(in crate::oauth) async fn publish(
     let activation = OAuthAccountActivation {
         id: OAuthAccountId::new(),
         provider_kind: provider,
+        proxy_selection,
         preferred_label: token.email().map(str::to_owned),
         safe_account_email: token.email().map(str::to_owned),
         expires_at: token.expires_at(),

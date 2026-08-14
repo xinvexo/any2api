@@ -17,7 +17,7 @@ import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
 import { ProviderCredentialListSkeleton } from "./ProviderCredentialListSkeleton";
 import { ProviderCredentialModels } from "./ProviderCredentialModels";
-import { useCredentialProxyOptions } from "@/features/proxies";
+import { useProxyConfiguration } from "@/features/proxies";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -39,7 +39,7 @@ export function ProviderCredentialManagement({
   onRevealList?: () => void;
 }) {
   const credentials = useProviderCredentials(endpoint.id);
-  const proxies = useCredentialProxyOptions();
+  const proxies = useProxyConfiguration();
   const mutations = useProviderCredentialMutations(endpoint.id);
   const secretActions = useProviderSecretActions(endpoint.id);
   const [searchParams, setSearchParams] = useSearchParams();

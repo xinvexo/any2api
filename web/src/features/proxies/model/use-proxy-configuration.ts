@@ -1,5 +1,5 @@
 import { useProxies } from "./use-proxies";
 
-export function useCredentialProxyOptions() {
+export function useProxyConfiguration() {
   return useProxies();
 }

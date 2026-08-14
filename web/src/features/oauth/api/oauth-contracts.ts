@@ -18,6 +18,10 @@ export type {
 
 export type OAuthProvider = "codex" | "claude" | "grok";
 
+export type OAuthProxySelection =
+  | { mode: "global" }
+  | { mode: "profile"; proxyProfileId: string };
+
 interface OAuthStartCommon {
   provider: OAuthProvider;
   sessionId: string;
@@ -47,6 +51,7 @@ export interface OAuthActivationResult {
   accountId: string;
   label: string;
   requestsPerMinute: number | null;
+  proxySelection: OAuthProxySelection;
   enabled: boolean;
   safeAccountEmail: string | null;
   expiresAt: number | null;
@@ -60,6 +65,7 @@ export interface OAuthAccount {
   providerKind: OAuthProvider;
   label: string;
   requestsPerMinute: number | null;
+  proxySelection: OAuthProxySelection;
   enabled: boolean;
   safeAccountEmail: string | null;
   expiresAt: number | null;
@@ -89,6 +95,7 @@ export interface OAuthAccountUpdateInput {
   expectedConfigVersion: number;
   label: string;
   requestsPerMinute: number | null;
+  proxySelection: OAuthProxySelection;
   enabled: boolean;
 }
 
@@ -103,6 +110,7 @@ interface OAuthImportedAccount {
   providerKind: OAuthProvider;
   label: string;
   requestsPerMinute: number | null;
+  proxySelection: OAuthProxySelection;
   enabled: boolean;
   safeAccountEmail: string | null;
   expiresAt: number | null;
@@ -180,6 +188,7 @@ export function parseOAuthActivationResult(value: unknown): OAuthActivationResul
     accountId: readString(value.account_id),
     label: readString(value.label),
     requestsPerMinute: readOptionalRpm(value.requests_per_minute),
+    proxySelection: parseOAuthProxySelection(value.proxy_selection),
     enabled: readBoolean(value.enabled),
     safeAccountEmail: readOptionalString(value.safe_account_email),
     expiresAt: readOptionalInteger(value.expires_at, 0),
@@ -224,6 +233,7 @@ function parseOAuthImportedAccount(value: unknown): OAuthImportedAccount {
     providerKind: readOAuthProvider(value.provider_kind),
     label: readString(value.label),
     requestsPerMinute: readOptionalRpm(value.requests_per_minute),
+    proxySelection: parseOAuthProxySelection(value.proxy_selection),
     enabled: readBoolean(value.enabled),
     safeAccountEmail: readOptionalString(value.safe_account_email),
     expiresAt: readOptionalInteger(value.expires_at, 0),
@@ -255,6 +265,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     providerKind,
     label: readString(value.label),
     requestsPerMinute: readOptionalRpm(value.requests_per_minute),
+    proxySelection: parseOAuthProxySelection(value.proxy_selection),
     enabled: readBoolean(value.enabled),
     safeAccountEmail: readOptionalString(value.safe_account_email),
     expiresAt: readOptionalInteger(value.expires_at, 0),
@@ -269,6 +280,31 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     tokenRefreshFailure: parseOAuthRefreshFailure(value.token_refresh_failure),
     usage: parseRequestUsage(value.usage),
   };
+}
+
+export function serializeOAuthProxySelection(selection: OAuthProxySelection) {
+  return selection.mode === "global"
+    ? { mode: "global" as const }
+    : {
+        mode: "profile" as const,
+        proxy_profile_id: selection.proxyProfileId,
+      };
+}
+
+function parseOAuthProxySelection(value: unknown): OAuthProxySelection {
+  if (!isRecord(value)) {
+    throw invalidResponse();
+  }
+  if (value.mode === "global") {
+    return { mode: "global" };
+  }
+  if (value.mode === "profile") {
+    return {
+      mode: "profile",
+      proxyProfileId: readString(value.proxy_profile_id),
+    };
+  }
+  throw invalidResponse();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

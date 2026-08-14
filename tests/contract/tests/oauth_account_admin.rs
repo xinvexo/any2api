@@ -3,7 +3,8 @@ use std::{net::SocketAddr, sync::Arc};
 use any2api_contract_tests::TestApplication;
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
-    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
+    OAuthProxySelection, ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId,
+    RequestId, RequestLog,
 };
 use any2api_runtime::api::RequestTelemetry;
 use any2api_storage::api::{
@@ -68,6 +69,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(account["label"], "Primary Codex OAuth");
     assert_eq!(account["requests_per_minute"], Value::Null);
     assert_eq!(account["enabled"], true);
+    assert_eq!(account["proxy_selection"]["mode"], "global");
     assert_eq!(account["safe_account_email"], "person@example.com");
     assert_eq!(account["token_version"], 1);
     assert_eq!(account["account_generation"], 1);
@@ -119,6 +121,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "label": "Renamed OAuth",
             "requests_per_minute": 3,
             "enabled": false,
+            "proxy_selection": {"mode": "global"},
             "oauth_json": {"access_token": "replacement"}
         })),
         loopback,
@@ -136,7 +139,11 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "expected_config_version": 1,
             "label": "Renamed OAuth",
             "requests_per_minute": 3,
-            "enabled": false
+            "enabled": false,
+            "proxy_selection": {
+                "mode": "profile",
+                "proxy_profile_id": ProxyProfileId::DIRECT
+            }
         })),
         loopback,
     )
@@ -146,8 +153,13 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(updated["items"][0]["label"], "Renamed OAuth");
     assert_eq!(updated["items"][0]["requests_per_minute"], 3);
     assert_eq!(updated["items"][0]["enabled"], false);
+    assert_eq!(updated["items"][0]["proxy_selection"]["mode"], "profile");
+    assert_eq!(
+        updated["items"][0]["proxy_selection"]["proxy_profile_id"],
+        ProxyProfileId::DIRECT.to_string()
+    );
     assert_eq!(updated["items"][0]["config_version"], 2);
-    assert_eq!(updated["items"][0]["account_generation"], 1);
+    assert_eq!(updated["items"][0]["account_generation"], 2);
 
     let (status, unavailable) = request_json(
         app.clone(),
@@ -194,7 +206,11 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "expected_config_version": 2,
             "label": "Stale OAuth",
             "requests_per_minute": 1,
-            "enabled": true
+            "enabled": true,
+            "proxy_selection": {
+                "mode": "profile",
+                "proxy_profile_id": ProxyProfileId::DIRECT
+            }
         })),
         loopback,
     )
@@ -246,6 +262,7 @@ async fn oauth_account_admin_lists_oldest_accounts_first() {
                 id,
                 ProviderKind::Codex,
                 OAuthAccountDraft::new(label, None, true).expect("OAuth account draft"),
+                OAuthProxySelection::Global,
                 Some(email.to_owned()),
                 Some(1_800_000_000),
                 vec!["gpt-5.5".to_owned()],
@@ -307,6 +324,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
             ProviderKind::Codex,
             OAuthAccountDraft::new("Primary Codex OAuth", None, true)
             .expect("OAuth account draft"),
+            OAuthProxySelection::Global,
             Some("person@example.com".to_owned()),
             Some(1_800_000_000),
             vec!["gpt-5.5".to_owned()],

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use any2api_domain::{ConfigRevision, OAuthAccountId, ProviderKind, ProxyProfileId};
+use any2api_domain::{
+    ConfigRevision, OAuthAccountId, OAuthProxySelection, ProviderKind, ProxyProfileId,
+};
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, StorageError};
 
 use super::{TestContext, oauth_account_draft, proxy_draft};
@@ -119,6 +121,7 @@ async fn legacy_oauth_candidate_rolls_back_before_commit_and_snapshot_switch() {
             account_id,
             ProviderKind::Codex,
             oauth_account_draft("Rejected OAuth"),
+            OAuthProxySelection::Global,
             None,
             None,
             Vec::new(),

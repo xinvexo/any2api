@@ -46,7 +46,7 @@ test("ignores an older request that finishes after a newer request", async () =>
   expect(result.current.results[CREDENTIAL_ID]?.models).toEqual(["new-model"]);
 });
 
-test("keys probe state to the credential's effective resources instead of global revision", () => {
+test("keys probe state to the credential's bound proxy instead of the OAuth global proxy", () => {
   const current = providerCredentialTestScope(ENDPOINT, CREDENTIAL, PROXIES);
   const unrelatedRevision = providerCredentialTestScope(ENDPOINT, CREDENTIAL, {
     ...PROXIES,
@@ -65,17 +65,29 @@ test("keys probe state to the credential's effective resources instead of global
     { ...CREDENTIAL, secretVersion: CREDENTIAL.secretVersion + 1 },
     PROXIES,
   );
-  const effectiveProxyChanged = providerCredentialTestScope(ENDPOINT, CREDENTIAL, {
+  const oauthGlobalProxyChanged = providerCredentialTestScope(ENDPOINT, CREDENTIAL, {
     ...PROXIES,
     items: PROXIES.items.map((proxy) =>
       proxy.id === GLOBAL_PROXY_ID ? { ...proxy, configVersion: proxy.configVersion + 1 } : proxy,
+    ),
+  });
+  const oauthGlobalSelectionChanged = providerCredentialTestScope(ENDPOINT, CREDENTIAL, {
+    ...PROXIES,
+    globalProxyId: UNUSED_PROXY_ID,
+  });
+  const boundProxyChanged = providerCredentialTestScope(ENDPOINT, CREDENTIAL, {
+    ...PROXIES,
+    items: PROXIES.items.map((proxy) =>
+      proxy.id === DIRECT_PROXY_ID ? { ...proxy, configVersion: proxy.configVersion + 1 } : proxy,
     ),
   });
 
   expect(unrelatedRevision).toBe(current);
   expect(endpointChanged).not.toBe(current);
   expect(credentialChanged).not.toBe(current);
-  expect(effectiveProxyChanged).not.toBe(current);
+  expect(oauthGlobalProxyChanged).toBe(current);
+  expect(oauthGlobalSelectionChanged).toBe(current);
+  expect(boundProxyChanged).not.toBe(current);
 });
 
 const CREDENTIAL_ID = "75072ca7-d922-428d-a4f8-86401567da32";

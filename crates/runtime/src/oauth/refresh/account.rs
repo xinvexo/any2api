@@ -308,7 +308,7 @@ impl OAuthRefresher {
             .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
             .map_err(OAuthRefreshError::RequestBuild)?;
         let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
+            .resolved_transport_proxy_for_oauth_account(id)
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let isolation = snapshot

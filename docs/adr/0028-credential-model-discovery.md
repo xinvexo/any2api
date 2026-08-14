@@ -29,7 +29,7 @@
 - API Key 轮换继续清空该 Credential 的模型集合；差异同步只保留仍由其他 Credential 提供的 Target。不能把“路由 ID 不含 Secret”误解为模型集合不受轮换影响。
 - 普通 Web 导航移除独立“模型路由”页面；Provider API Key 编辑流程负责模型发现、手工添加、选择和后续刷新。
   发现正在进行或失败只影响目录状态与“重新拉取”，不禁用手工添加、已选列表编辑或保存。
-- Web 只把未保存的发现结果绑定到当前 Endpoint、当前 Credential 和按 DIRECT 继承规则解析出的实际代理版本。全局配置 revision 及无关资源发布不属于该 scope；相关资源版本变化时隐藏旧结果。
+- Web 只把未保存的发现结果绑定到当前 Endpoint、当前 Credential 和该 Credential 显式绑定的实际代理版本。OAuth 默认出口与无关资源发布不属于该 scope；相关资源版本变化时隐藏旧结果。
 - 同一编辑器的探测请求使用单调序号。只有 scope 和序号均仍匹配的最新请求可以结算结果、错误与 loading 状态，迟到请求不得覆盖较新的目录。
 
 ## 后果

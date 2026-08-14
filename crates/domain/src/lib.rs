@@ -35,6 +35,7 @@ pub use kind::{
 pub use network::{canonical_ip, is_loopback_ip};
 pub use oauth_account::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountValidationError,
+    OAuthProxySelection,
 };
 pub use provider::{
     ProviderBaseUrl, ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,

@@ -246,7 +246,7 @@ impl OAuthQuotaService {
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let (usage_plan, supplement_plan, credits_plan) = plan.into_parts();
         let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
+            .resolved_transport_proxy_for_oauth_account(id)
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
@@ -363,7 +363,7 @@ impl OAuthQuotaService {
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
+            .resolved_transport_proxy_for_oauth_account(id)
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());

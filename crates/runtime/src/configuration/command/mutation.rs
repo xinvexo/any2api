@@ -88,6 +88,7 @@ impl ConfigCommand {
                 id,
                 provider_kind,
                 draft,
+                proxy_selection,
                 safe_account_email,
                 expires_at,
                 models,
@@ -96,6 +97,7 @@ impl ConfigCommand {
                 id,
                 provider_kind,
                 draft,
+                proxy_selection,
                 safe_account_email,
                 expires_at,
                 models,
@@ -105,10 +107,12 @@ impl ConfigCommand {
                 id,
                 expected_config_version,
                 draft,
+                proxy_selection,
             } => ConfigurationMutation::UpdateOAuthAccount {
                 id,
                 expected_config_version,
                 draft,
+                proxy_selection,
             },
             Self::SetOAuthAccountModels {
                 id,

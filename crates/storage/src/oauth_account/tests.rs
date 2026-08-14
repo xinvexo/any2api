@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind, RequestsPerMinute,
+    ConfigRevision, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind,
+    RequestsPerMinute,
 };
 use tempfile::tempdir;
 
@@ -26,6 +27,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             id: account_id,
             provider_kind: ProviderKind::Codex,
             draft: draft("Primary", Some(10), true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: Some("owner@example.com".into()),
             expires_at: Some(100),
             models: vec!["gpt-b".into(), "gpt-a".into()],
@@ -46,10 +48,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
         account.requests_per_minute().map(|value| value.get()),
         Some(10)
     );
-    assert_eq!(
-        account.proxy_profile_id(),
-        any2api_domain::ProxyProfileId::DIRECT
-    );
+    assert_eq!(account.proxy_selection(), OAuthProxySelection::Global);
     assert_eq!(account.models()[0].as_str(), "gpt-a");
     assert_eq!(
         created
@@ -69,6 +68,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             id: account_id,
             expected_config_version: 1,
             draft: draft("Primary", Some(10), true),
+            proxy_selection: OAuthProxySelection::Global,
         },
     )
     .await
@@ -82,6 +82,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             id: account_id,
             expected_config_version: 1,
             draft: draft("Primary", None, false),
+            proxy_selection: OAuthProxySelection::Global,
         },
     )
     .await
@@ -98,6 +99,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             id: account_id,
             expected_config_version: 2,
             draft: draft("Primary", Some(20), true),
+            proxy_selection: OAuthProxySelection::Global,
         },
     )
     .await
@@ -220,6 +222,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             id: OAuthAccountId::new(),
             provider_kind: ProviderKind::Codex,
             draft: draft("Primary", Some(10), true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt".into()],
@@ -235,6 +238,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             id: OAuthAccountId::new(),
             provider_kind: ProviderKind::Claude,
             draft: draft("Primary", Some(10), true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["claude".into()],
@@ -251,6 +255,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             id: OAuthAccountId::new(),
             provider_kind: ProviderKind::Codex,
             draft: draft("Primary", Some(10), true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt".into()],
@@ -275,6 +280,7 @@ async fn grok_oauth_account_round_trips_as_plaintext_sqlite_json() {
             id: account_id,
             provider_kind: ProviderKind::Grok,
             draft: draft("Grok Primary", None, true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: Some("grok@example.com".into()),
             expires_at: Some(1_900_000_000),
             models: vec!["grok-4.5".into()],
@@ -324,6 +330,7 @@ async fn corrupt_oauth_json_fails_closed_without_exposing_token_data() {
             id: account_id,
             provider_kind: ProviderKind::Codex,
             draft: draft("Primary", None, true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt".into()],
@@ -366,6 +373,7 @@ fn create(id: OAuthAccountId, provider: ProviderKind, label: &str) -> OAuthAccou
         id,
         provider,
         draft(label, None, true),
+        OAuthProxySelection::Global,
         None,
         None,
         vec![format!("{provider:?}-model").to_lowercase()],

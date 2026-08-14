@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind, RequestsPerMinute,
+    ConfigRevision, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind,
+    ProxyProfileId, RequestsPerMinute,
 };
 use tempfile::tempdir;
 
@@ -11,7 +12,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn preserves_local_configuration_persists_models_and_uses_token_cas() {
+async fn reauthorization_updates_proxy_persists_models_and_uses_token_cas() {
     let directory = tempdir().expect("temporary directory");
     let database = directory.path().join("config.sqlite3");
     let store = SqliteStore::connect(&database).await.expect("store");
@@ -23,6 +24,7 @@ async fn preserves_local_configuration_persists_models_and_uses_token_cas() {
             id: account_id,
             provider_kind: ProviderKind::Codex,
             draft: draft("Local settings", Some(17), false),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: Some("old@example.com".into()),
             expires_at: Some(100),
             models: vec!["keep-model".into(), "removed-model".into()],
@@ -38,6 +40,7 @@ async fn preserves_local_configuration_persists_models_and_uses_token_cas() {
         ConfigurationMutation::ReauthorizeOAuthAccount {
             id: account_id,
             expected_token_version: 1,
+            proxy_selection: OAuthProxySelection::Profile(ProxyProfileId::DIRECT),
             safe_account_email: Some("new@example.com".into()),
             expires_at: Some(200),
             models: vec!["keep-model".into()],
@@ -54,6 +57,7 @@ async fn preserves_local_configuration_persists_models_and_uses_token_cas() {
         ConfigurationMutation::ReauthorizeOAuthAccount {
             id: account_id,
             expected_token_version: 1,
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec![],
@@ -95,8 +99,12 @@ fn assert_reauthorized(
     );
     assert!(!account.enabled());
     assert_eq!(account.token_version(), 2);
-    assert_eq!(account.account_generation(), 1);
+    assert_eq!(account.account_generation(), 2);
     assert_eq!(account.config_version(), 2);
+    assert_eq!(
+        account.proxy_selection(),
+        OAuthProxySelection::Profile(ProxyProfileId::DIRECT)
+    );
     assert_eq!(account.safe_account_email(), Some("new@example.com"));
     assert_eq!(account.expires_at(), Some(200));
     assert_eq!(account.models().len(), 1);

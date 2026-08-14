@@ -8,7 +8,7 @@
 ## 背景
 
 OAuth 额度请求过去把所有 `403 Forbidden` 直接映射为账号访问受限。这个状态码也可能由 Provider 的区域策略、
-IP 信誉或边缘访问策略产生；当 OAuthAccount 固定继承全局代理时，实际故障可能只是当前网络出口不被 OpenAI
+IP 信誉或边缘访问策略产生；无论 OAuthAccount 跟随 OAuth 默认出口还是指定 Profile，实际故障都可能只是当前网络出口不被 OpenAI
 接受。把二者合并会向管理员错误宣称账号被封禁，并可能诱导其停用或删除仍然有效的账号。
 
 现有代理测试只访问 `https://example.com/`，只能证明通用 DNS、代理握手、TLS 和响应头可达，不能证明同一
@@ -30,14 +30,14 @@ IP 信誉或边缘访问策略产生；当 OAuthAccount 固定继承全局代理
 5. Provider 出口诊断不再需要 Runtime 单飞缓存、revision 键或额外网络请求；分类只依赖当前响应，不更新
    Proxy、Endpoint 或 Credential 健康。通用 `example.com` 代理测试继续只表示公网连通性。
 6. 管理 API 分别返回 `oauth_account_restricted`、`oauth_provider_egress_restricted` 和
-   `oauth_quota_upstream_failed`。Web 文案必须分别描述账号限制、当前网络/全局代理出口拒绝和未知上游失败，
+   `oauth_quota_upstream_failed`。Web 文案必须分别描述账号限制、当前账号的 OAuth 出口拒绝和未知上游失败，
    不得使用“限制或封禁”覆盖多个原因。
 7. “删除失效账号”仍只接受 `oauth_account_authentication_failed`。账号限制、出口拒绝、未分类 `403`、
    刷新无法确认和其他额度错误都不是删除候选。
 
 ## 后果
 
-- 全局代理出口被 OpenAI 拒绝时，管理员会得到可操作的代理诊断，不再看到账号封禁误报。
+- 账号选择的 OAuth 出口被 OpenAI 拒绝时，管理员会得到可操作的代理诊断，不再看到账号封禁误报。
 - 明确账号限制仍保留独立诊断，但必须有 Provider 声明的结构化证据。
 - 未分类 403 不再触发额外请求，因此不会制造探测延迟、并发洪峰或无认证边缘请求。
 - Provider 新增或调整拒绝码时只修改自身 Driver 与契约测试，Runtime 不增加 Provider 分支。

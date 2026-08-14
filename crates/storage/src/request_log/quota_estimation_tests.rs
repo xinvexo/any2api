@@ -1,7 +1,8 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
-    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, QuotaCostUnit,
-    QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost, RequestTelemetryPosition,
+    OAuthProxySelection, ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId,
+    QuotaCostUnit, QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost,
+    RequestTelemetryPosition,
 };
 use tempfile::tempdir;
 
@@ -96,6 +97,7 @@ async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId
             id,
             provider_kind: ProviderKind::Codex,
             draft: OAuthAccountDraft::new("OAuth", None, true).expect("OAuth draft"),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt-5.5".into()],

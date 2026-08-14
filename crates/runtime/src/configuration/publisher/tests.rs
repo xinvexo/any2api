@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, OAuthAccountDraft, OAuthAccountId,
-    ProtocolDialect, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId, SettingKey, SettingValue,
+    OAuthProxySelection, ProtocolDialect, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
+    SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::{TempDir, tempdir};
@@ -159,11 +160,13 @@ async fn provider_credential_publish_switches_the_complete_snapshot() {
 }
 
 #[tokio::test]
-async fn direct_credential_binding_resolves_the_published_global_proxy() {
+async fn global_proxy_applies_to_oauth_but_not_direct_api_keys() {
     let context = TestContext::new().await;
     let proxy_id = ProxyProfileId::new();
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
+    let global_oauth_account_id = OAuthAccountId::new();
+    let direct_oauth_account_id = OAuthAccountId::new();
     let proxy = context
         .publisher
         .create_proxy(ConfigRevision::INITIAL, proxy_id, proxy_draft("Hong Kong"))
@@ -179,7 +182,7 @@ async fn direct_credential_binding_resolves_the_published_global_proxy() {
         .create_provider_endpoint(global.revision(), endpoint_id, codex_endpoint_draft())
         .await
         .expect("publish endpoint");
-    let credential = context
+    context
         .publisher
         .create_provider_credential(
             endpoint.revision(),
@@ -190,18 +193,76 @@ async fn direct_credential_binding_resolves_the_published_global_proxy() {
         )
         .await
         .expect("publish credential");
+    context
+        .publisher
+        .activate_oauth_account(
+            global_oauth_account_id,
+            ProviderKind::Codex,
+            oauth_account_draft("Global OAuth"),
+            OAuthProxySelection::Global,
+            None,
+            None,
+            Vec::new(),
+            oauth_document(ProviderKind::Codex, "global-oauth-token", None),
+        )
+        .await
+        .expect("publish global OAuth account");
+    let published = context
+        .publisher
+        .activate_oauth_account(
+            direct_oauth_account_id,
+            ProviderKind::Codex,
+            oauth_account_draft("Direct OAuth"),
+            OAuthProxySelection::Profile(ProxyProfileId::DIRECT),
+            None,
+            None,
+            Vec::new(),
+            oauth_document(ProviderKind::Codex, "direct-oauth-token", None),
+        )
+        .await
+        .expect("publish direct OAuth account");
 
     assert_eq!(
-        credential
+        published
             .resolved_proxy_for_credential(credential_id)
             .map(|profile| profile.id()),
+        Some(ProxyProfileId::DIRECT)
+    );
+    assert_eq!(
+        published
+            .resolved_transport_proxy_for_oauth_account(global_oauth_account_id)
+            .map(|proxy| proxy.profile().id()),
         Some(proxy_id)
     );
     assert_eq!(
-        credential
-            .resolved_transport_proxy_for_oauth_account()
+        published
+            .resolved_transport_proxy_for_oauth_account(direct_oauth_account_id)
             .map(|proxy| proxy.profile().id()),
+        Some(ProxyProfileId::DIRECT)
+    );
+    assert_eq!(
+        published
+            .routing_credentials()
+            .iter()
+            .find(|routing| routing.id() == credential_id.into())
+            .map(|routing| routing.proxy_id()),
+        Some(ProxyProfileId::DIRECT)
+    );
+    assert_eq!(
+        published
+            .routing_credentials()
+            .iter()
+            .find(|routing| routing.id() == global_oauth_account_id.into())
+            .map(|routing| routing.proxy_id()),
         Some(proxy_id)
+    );
+    assert_eq!(
+        published
+            .routing_credentials()
+            .iter()
+            .find(|routing| routing.id() == direct_oauth_account_id.into())
+            .map(|routing| routing.proxy_id()),
+        Some(ProxyProfileId::DIRECT)
     );
 }
 
@@ -257,6 +318,7 @@ async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
             first_id,
             ProviderKind::Codex,
             oauth_account_draft("First OAuth"),
+            OAuthProxySelection::Global,
             None,
             None,
             Vec::new(),
@@ -266,6 +328,7 @@ async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
             second_id,
             ProviderKind::Claude,
             oauth_account_draft("Second OAuth"),
+            OAuthProxySelection::Global,
             Some("person@example.com".to_owned()),
             Some(1_800_000_000),
             Vec::new(),

@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import type { OAuthAccount, OAuthProvider } from "../api/oauth-contracts";
 import { presentOAuthAccount } from "../model/oauth-account-presentation";
 import { getOAuthErrorMessage } from "../model/oauth-error";
+import { describeOAuthProxySelection } from "../model/oauth-proxy-presentation";
 import { useOAuthAccountMutations } from "../model/use-oauth-account-mutations";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
 import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
@@ -13,6 +14,7 @@ import { OAuthAccountCard } from "./OAuthAccountCard";
 import { OAuthAccountEditor } from "./OAuthAccountEditor";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
 import { OAuthRefreshFailureNotice } from "./OAuthRefreshFailureNotice";
+import type { ProxyConfiguration } from "@/features/proxies";
 import { notify } from "@/shared/notifications";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -23,6 +25,7 @@ interface OAuthAccountsProps {
   provider: OAuthProvider;
   accounts: OAuthAccount[];
   configRevision: number;
+  proxyConfiguration: ProxyConfiguration;
   quotaRefreshPending?: boolean;
 }
 
@@ -31,6 +34,7 @@ export function OAuthAccounts({
   provider,
   accounts,
   configRevision,
+  proxyConfiguration,
   quotaRefreshPending = false,
 }: OAuthAccountsProps) {
   const mutations = useOAuthAccountMutations();
@@ -78,6 +82,7 @@ export function OAuthAccounts({
           expectedConfigVersion: account.configVersion,
           label: account.label,
           requestsPerMinute: account.requestsPerMinute,
+          proxySelection: account.proxySelection,
           enabled,
         },
       },
@@ -110,6 +115,7 @@ export function OAuthAccounts({
           renderItem={(account) => (
             <OAuthAccountItem
               account={account}
+              proxyConfiguration={proxyConfiguration}
               pending={pending}
               quotaRefreshPending={quotaRefreshPending}
               onToggleEnabled={(enabled) => toggleAccount(account, enabled)}
@@ -144,6 +150,7 @@ export function OAuthAccounts({
           <OAuthAccountEditor
             key={`${selected.id}:${selected.configVersion}:${mode}`}
             account={selected}
+            proxyConfiguration={proxyConfiguration}
             mode={mode}
             pending={pending}
             error={editorError}
@@ -207,6 +214,7 @@ export function OAuthAccounts({
 
 function OAuthAccountItem({
   account,
+  proxyConfiguration,
   pending,
   quotaRefreshPending,
   onToggleEnabled,
@@ -215,6 +223,7 @@ function OAuthAccountItem({
   onDelete,
 }: {
   account: OAuthAccount;
+  proxyConfiguration: ProxyConfiguration;
   pending: boolean;
   quotaRefreshPending: boolean;
   onToggleEnabled: (enabled: boolean) => void;
@@ -227,6 +236,7 @@ function OAuthAccountItem({
   return (
     <OAuthAccountCard
       presentation={presentOAuthAccount(account, quota)}
+      proxyLabel={describeOAuthProxySelection(account.proxySelection, proxyConfiguration)}
       pending={pending}
       onToggleEnabled={onToggleEnabled}
       onViewModels={onViewModels}

@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { resetOAuthAccountQuota } from "./oauth-api";
+import { resetOAuthAccountQuota, startOAuthLogin } from "./oauth-api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,4 +35,37 @@ test("reuses the quota reset request id after an ambiguous client failure", asyn
   );
   expect(requestIds[0]).toMatch(/^[0-9a-f-]{36}$/);
   expect(requestIds[1]).toBe(requestIds[0]);
+});
+
+test("starts OAuth login with the manually selected proxy", async () => {
+  let requestInit: RequestInit | undefined;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    expect(String(input)).toContain("/admin/oauth/start");
+    requestInit = init;
+    return new Response(
+      JSON.stringify({
+        flow: "authorization_code",
+        provider: "codex",
+        session_id: "session",
+        authorization_url: "https://auth.example.com/authorize",
+        redirect_uri: "http://localhost:1455/auth/callback",
+        expires_in_seconds: 600,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await startOAuthLogin("codex", {
+    mode: "profile",
+    proxyProfileId: "proxy-1",
+  });
+
+  expect(JSON.parse(String(requestInit?.body))).toEqual({
+    provider: "codex",
+    proxy_selection: {
+      mode: "profile",
+      proxy_profile_id: "proxy-1",
+    },
+  });
 });

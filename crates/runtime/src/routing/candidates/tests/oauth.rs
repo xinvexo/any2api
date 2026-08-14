@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use any2api_domain::{
     FallbackTier, ModelRoute, ModelRouteConfiguration, ModelRouteDraft, ModelRouteId,
-    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderEndpoint,
-    ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    PublicModelName, RouteTargetDraft, RouteTargetId, TransportMode,
+    OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProtocolDialect, ProtocolOperation,
+    ProviderEndpoint, ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, PublicModelName, RouteTargetDraft, RouteTargetId, TransportMode,
 };
 use any2api_protocol::{
     OpenAiResponsesAdapter,
@@ -80,6 +80,7 @@ async fn grok_oauth_routes_responses_but_not_compact() {
             account_id,
             ProviderKind::Grok,
             OAuthAccountDraft::new("Grok OAuth", None, true).expect("OAuth draft"),
+            OAuthProxySelection::Global,
             Some("grok@example.com".into()),
             None,
             vec!["grok-4.5".into()],

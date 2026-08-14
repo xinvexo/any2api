@@ -2,6 +2,7 @@ mod account;
 mod events;
 mod import;
 mod login;
+mod proxy_selection;
 mod quota;
 mod refresh_diagnostic;
 

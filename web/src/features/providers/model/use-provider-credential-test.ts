@@ -98,10 +98,6 @@ export function providerCredentialTestScope(
   }
 
   const boundProxy = proxies.items.find((proxy) => proxy.id === credential.proxyProfileId);
-  const effectiveProxyId = boundProxy?.kind === "direct"
-    ? proxies.globalProxyId
-    : credential.proxyProfileId;
-  const effectiveProxy = proxies.items.find((proxy) => proxy.id === effectiveProxyId);
 
   return [
     endpointScope,
@@ -112,8 +108,7 @@ export function providerCredentialTestScope(
     credential.secretVersion,
     credential.proxyProfileId,
     "proxy",
-    effectiveProxyId,
-    effectiveProxy?.configVersion ?? "missing",
-    effectiveProxy?.authenticationVersion ?? "missing",
+    boundProxy?.configVersion ?? "missing",
+    boundProxy?.authenticationVersion ?? "missing",
   ].join(":");
 }

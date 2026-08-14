@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
@@ -142,6 +142,7 @@ impl QuotaTestContext {
                 id: account_id,
                 provider_kind: provider,
                 draft: OAuthAccountDraft::new(label, None, true).expect("OAuth draft"),
+                proxy_selection: OAuthProxySelection::Global,
                 safe_account_email: email,
                 expires_at: None,
                 models,

@@ -82,9 +82,12 @@ pub(super) fn map(error: OAuthError) -> AdminApiError {
                 "OAuth2 login completed but the account could not be activated",
             )
         }
-        OAuthError::RandomGeneration
-        | OAuthError::PublishedProxyUnavailable
-        | OAuthError::DocumentSerialization => {
+        OAuthError::PublishedProxyUnavailable => AdminApiError::new(
+            StatusCode::BAD_REQUEST,
+            "oauth_proxy_unavailable",
+            "the selected OAuth proxy is unavailable",
+        ),
+        OAuthError::RandomGeneration | OAuthError::DocumentSerialization => {
             tracing::error!(error = ?error, "OAuth2 login could not be completed");
             AdminApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

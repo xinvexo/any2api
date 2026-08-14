@@ -1,8 +1,8 @@
 use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
-    OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId, ProviderKind,
-    ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
+    OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
+    OAuthProxySelection, ProviderKind, ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
 };
 use sqlx::{FromRow, SqliteConnection};
 
@@ -22,7 +22,7 @@ struct OAuthAccountRow {
     token_version: i64,
     account_generation: i64,
     config_version: i64,
-    proxy_profile_id: String,
+    proxy_profile_id: Option<String>,
     requests_per_minute: Option<i64>,
     enabled: i64,
     safe_account_email: Option<String>,
@@ -76,8 +76,13 @@ fn parse_row(
 ) -> Result<(OAuthAccount, StoredOAuthAccountMaterial), StorageError> {
     let id = OAuthAccountId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_kind = parse_provider_kind(&row.provider_kind)?;
-    let proxy_profile_id = ProxyProfileId::from_str(&row.proxy_profile_id)
-        .map_err(|_| StorageError::CorruptConfiguration)?;
+    let proxy_profile_id = row
+        .proxy_profile_id
+        .map(|value| {
+            ProxyProfileId::from_str(&value).map_err(|_| StorageError::CorruptConfiguration)
+        })
+        .transpose()?;
+    let proxy_selection = OAuthProxySelection::from_profile_id(proxy_profile_id);
     let requests_per_minute = row
         .requests_per_minute
         .map(|value| {
@@ -97,7 +102,7 @@ fn parse_row(
         id,
         provider_kind,
         draft,
-        proxy_profile_id,
+        proxy_selection,
         row.safe_account_email,
         row.expires_at,
         row.created_at,

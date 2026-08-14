@@ -94,6 +94,10 @@ impl DevicePollLease {
         self.session().device_code()
     }
 
+    pub(in crate::oauth) fn proxy_selection(&self) -> any2api_domain::OAuthProxySelection {
+        self.session().proxy_selection()
+    }
+
     pub(in crate::oauth) fn restore(mut self, slow_down: bool) -> Result<u64, OAuthError> {
         let mut session = self.session.take().expect("active device poll lease");
         match session.defer(Instant::now(), slow_down) {

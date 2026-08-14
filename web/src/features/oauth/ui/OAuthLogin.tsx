@@ -7,9 +7,15 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-import type { OAuthProvider, OAuthStartResult } from "../api/oauth-contracts";
+import type {
+  OAuthProvider,
+  OAuthProxySelection,
+  OAuthStartResult,
+} from "../api/oauth-contracts";
 import { getOAuthErrorMessage } from "../model/oauth-error";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
+import { OAuthProxySelect } from "./OAuthProxySelect";
+import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { Field } from "@/shared/ui/form-field";
 import { controlClass } from "@/shared/ui/form-control";
@@ -18,11 +24,14 @@ import { SideDrawer } from "@/shared/ui/SideDrawer";
 interface OAuthLoginDrawerProps {
   open: boolean;
   provider: OAuthProvider;
+  proxySelection: OAuthProxySelection;
+  proxyConfiguration: ProxyConfiguration;
   session: OAuthStartResult | null;
   pending: "start" | "exchange" | "poll" | null;
   error: unknown;
   onClose: () => void;
-  onRestart: () => void;
+  onProxySelectionChange: (selection: OAuthProxySelection) => void;
+  onStart: () => void;
   onExchange: (callbackUrl: string) => Promise<void>;
 }
 
@@ -33,11 +42,14 @@ interface OAuthLoginDrawerProps {
 export function OAuthLoginDrawer({
   open,
   provider,
+  proxySelection,
+  proxyConfiguration,
   session,
   pending,
   error,
   onClose,
-  onRestart,
+  onProxySelectionChange,
+  onStart,
   onExchange,
 }: OAuthLoginDrawerProps) {
   const [callbackUrl, setCallbackUrl] = useState("");
@@ -68,7 +80,7 @@ export function OAuthLoginDrawer({
 
   function restart() {
     setCallbackUrl("");
-    onRestart();
+    onStart();
   }
 
   return (
@@ -83,6 +95,16 @@ export function OAuthLoginDrawer({
       onClose={close}
     >
       <div className="space-y-5" aria-busy={pending !== null}>
+        <Field label="OAuth 出口" htmlFor="oauth-proxy-selection">
+          <OAuthProxySelect
+            id="oauth-proxy-selection"
+            selection={proxySelection}
+            configuration={proxyConfiguration}
+            disabled={pending !== null || activeSession !== null}
+            onChange={onProxySelectionChange}
+          />
+        </Field>
+
         {pending === "start" && !activeSession ? (
           <div className="flex min-h-32 flex-col items-center justify-center gap-2 text-sm text-secondary">
             <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
@@ -176,10 +198,9 @@ export function OAuthLoginDrawer({
 
         {!activeSession && pending !== "start" ? (
           <div className="space-y-4">
-            <p className="text-sm text-secondary">授权会话尚未创建。可重试生成一次性链接。</p>
             <Button variant="primary" disabled={pending !== null} onClick={restart}>
               <LogIn size={14} aria-hidden="true" />
-              重新生成
+              开始认证
             </Button>
           </div>
         ) : null}

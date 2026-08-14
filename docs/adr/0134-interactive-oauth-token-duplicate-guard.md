@@ -35,7 +35,7 @@ access、refresh 或 ID Token，这已经足以证明它们是同一认证材料
 
 - 无稳定身份的重复登录不会再扩大同一官方凭据的路由、刷新、额度或连接隔离对象数量。
 - 精确 Token 证据不足以唯一定位时显式返回冲突，管理员可以先清理历史重复记录。
-- 不改变 OAuth Provider Endpoint、DIRECT/全局代理、Transport wire profile、Header
+- 不改变 OAuth Provider Endpoint、账号保存的代理选择、Transport wire profile、Header
   persona 或任何随机化策略；这是认证身份一致性修复，不是隐藏网关或规避 Provider 风控的层。
 
 ## 验证

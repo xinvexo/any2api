@@ -124,6 +124,7 @@ fn create_mutation(
             id: account_id,
             provider_kind: activation.provider_kind,
             draft,
+            proxy_selection: activation.proxy_selection,
             safe_account_email: activation.safe_account_email,
             expires_at: activation.expires_at,
             models: activation.models,
@@ -161,6 +162,7 @@ fn reauthorize_mutation(
         ConfigurationMutation::ReauthorizeOAuthAccount {
             id: account_id,
             expected_token_version: account.token_version(),
+            proxy_selection: activation.proxy_selection,
             safe_account_email,
             expires_at: activation.expires_at,
             models,

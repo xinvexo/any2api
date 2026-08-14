@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use any2api_domain::ProviderKind;
+use any2api_domain::{OAuthProxySelection, ProviderKind};
 use any2api_provider::api::OAuthTokenMaterial;
 
 use super::{
@@ -15,6 +15,7 @@ use super::{
 fn oauth_session_is_consumed_once() {
     let prepared = AuthorizationCodeSession::prepare(
         ProviderKind::Codex,
+        OAuthProxySelection::Global,
         "http://localhost:1455/auth/callback",
         Instant::now(),
     )
@@ -34,8 +35,15 @@ fn oauth_session_is_consumed_once() {
 #[test]
 fn device_session_is_rate_gated_and_keeps_flow_types_separate() {
     let now = Instant::now();
-    let prepared = DeviceCodeSession::prepare(ProviderKind::Grok, "device-secret", 1_800, 5, now)
-        .expect("device session should be prepared");
+    let prepared = DeviceCodeSession::prepare(
+        ProviderKind::Grok,
+        OAuthProxySelection::Global,
+        "device-secret",
+        1_800,
+        5,
+        now,
+    )
+    .expect("device session should be prepared");
     let id = prepared.id.clone();
     let store = OAuthSessionRegistry::default();
     store
@@ -50,6 +58,7 @@ fn device_session_is_rate_gated_and_keeps_flow_types_separate() {
         panic!("first poll must be ready");
     };
     assert_eq!(lease.device_code(), "device-secret");
+    assert_eq!(lease.proxy_selection(), OAuthProxySelection::Global);
     assert_eq!(lease.restore(false).expect("pending poll"), 5);
 
     assert!(matches!(
@@ -65,8 +74,15 @@ fn device_session_is_rate_gated_and_keeps_flow_types_separate() {
 #[test]
 fn dropped_device_poll_lease_restores_and_serializes_the_session() {
     let now = Instant::now();
-    let prepared = DeviceCodeSession::prepare(ProviderKind::Grok, "device-secret", 1_800, 5, now)
-        .expect("device session");
+    let prepared = DeviceCodeSession::prepare(
+        ProviderKind::Grok,
+        OAuthProxySelection::Global,
+        "device-secret",
+        1_800,
+        5,
+        now,
+    )
+    .expect("device session");
     let id = prepared.id.clone();
     let store = OAuthSessionRegistry::default();
     store
@@ -106,6 +122,7 @@ fn device_poll_leases_remain_inside_the_global_session_capacity() {
     for index in 0..MAX_ACTIVE_SESSIONS {
         let prepared = DeviceCodeSession::prepare(
             ProviderKind::Grok,
+            OAuthProxySelection::Global,
             &format!("device-secret-{index}"),
             1_800,
             5,
@@ -129,9 +146,15 @@ fn device_poll_leases_remain_inside_the_global_session_capacity() {
         .collect::<Vec<_>>();
     assert_eq!(store.active_len(), MAX_ACTIVE_SESSIONS);
 
-    let overflow =
-        DeviceCodeSession::prepare(ProviderKind::Grok, "overflow-device-secret", 1_800, 5, now)
-            .expect("overflow session");
+    let overflow = DeviceCodeSession::prepare(
+        ProviderKind::Grok,
+        OAuthProxySelection::Global,
+        "overflow-device-secret",
+        1_800,
+        5,
+        now,
+    )
+    .expect("overflow session");
     assert!(matches!(
         store.insert_device_code(overflow.id, overflow.session, now),
         Err(crate::oauth::error::OAuthError::SessionCapacity)

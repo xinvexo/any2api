@@ -23,6 +23,14 @@ describe("OAuth error messages", () => {
       getOAuthErrorMessage(
         new ApiError(502, "oauth_provider_egress_restricted", "egress"),
       ),
-    ).toBe("当前网络出口被上游拒绝，请检查或更换全局代理。");
+    ).toBe("当前账号的 OAuth 出口被上游拒绝，请检查或更换该账号的出口代理。");
+  });
+
+  it("identifies an unavailable selected OAuth proxy", () => {
+    expect(
+      getOAuthErrorMessage(
+        new ApiError(400, "oauth_proxy_unavailable", "proxy unavailable"),
+      ),
+    ).toBe("所选 OAuth 出口不可用，请选择已启用的出口代理。");
   });
 });

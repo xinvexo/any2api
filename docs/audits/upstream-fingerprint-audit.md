@@ -15,7 +15,7 @@
 >
 > 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。ADR-0131 进一步提交 Codex 0.147.0 macOS arm64 的 `codex exec` 与交互 TUI 两份独立 loopback HTTP/1 Responses 基线；清空环境后两者分别使用 `codex_exec` 与 `codex-tui` persona，继承 Desktop originator override 的试采已明确作废。当前仍缺 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和长期流官方基线；仍不得声称与官方客户端完全一致或不可被识别。
 >
-> OAuth 专项复核进一步确认：连接隔离并不会改变多个官方账号继承同一全局出口这一事实，但原定时刷新和 activity quota Worker 会让同一 Provider 最多 6 条控制面请求在同一 tick 起跑。ADR-0132 现在让登录、Device Code、Token 刷新、quota 查询与 reset 共用 Provider 级 500 ms 最小起始间隔，只错开 Transport 开始时刻，不串行响应、不限制数据面并发。ADR-0133 同时在发布锁内原子拒绝稳定身份或任一完全相同 Token 可证明重复的导入，避免一个官方账号被复制成多条路由凭据；E-12 已闭环。共享出口 IP 仍可见，项目没有加入随机化、身份伪造或风控规避层。
+> OAuth 专项复核进一步确认：连接隔离不会隐藏选择同一出口的多个官方账号所共享的公网出口，但原定时刷新和 activity quota Worker 会让同一 Provider 最多 6 条控制面请求在同一 tick 起跑。ADR-0132 现在让登录、Device Code、Token 刷新、quota 查询与 reset 共用 Provider 级 500 ms 最小起始间隔，只错开 Transport 开始时刻，不串行响应、不限制数据面并发。ADR-0133 同时在发布锁内原子拒绝稳定身份或任一完全相同 Token 可证明重复的导入，避免一个官方账号被复制成多条路由凭据；E-12 已闭环。共享出口 IP 仍可见，项目没有加入随机化、身份伪造或风控规避层。ADR-0150 后，OAuthAccount 可跟随 OAuth 默认出口或指定 Profile，ProviderCredential 的 DIRECT 固定为本机直连。
 >
 > ADR-0134 又补齐交互式 OAuth 登录：当 Provider 未返回稳定 account ID/邮箱，但 access、refresh 或 ID Token 与一条现有记录完全相同时，登录复用原 `OAuthAccount`，不会创建第二个路由、刷新、额度和连接隔离对象；稳定身份与精确 Token 指向不同记录或 Token 命中多条历史记录时，在发布锁内返回冲突且不改变 SQLite、Runtime 或 PublishedSnapshot。E-13 已闭环。这项修复只消除本地账号重复和跨记录歧义，不试图隐藏共享出口或 generic Rust transport。
 
@@ -260,7 +260,7 @@ Token endpoint、quota endpoint 和 inference data plane 应有显式的 traffic
 
 在 transport API 中加入与 Provider 业务解耦的 `TrafficClass::{DataPlane, OAuthToken, OAuthQuota, Diagnostic}` 和 `TransportIsolationKey`。默认按 `account + traffic class + auth generation` 隔离；如某 Provider 确实允许合并，应通过显式 profile 声明并由契约测试证明，而不是依赖相同 origin。
 
-> 修复状态（2026-08-11）：**Fixed after baseline**。ADR-0123 已按账号、认证代际和 traffic class 隔离 Client、连接与 TLS resumption。OAuth 专项复核又确认登录、刷新和 quota 的所有实际网络调用都进入同一个 Provider 级起始门闩；ADR-0132 以固定 500 ms 间隔消除了同 Provider 的同步控制面起跑，但响应仍可并发。ADR-0133 则阻止重复导入把同一官方身份或完全相同 Token 扩成多个本地候选。多个 OAuthAccount 固定继承全局出口的架构没有改变，因此公网 IP 层面的关联能力仍然存在。
+> 修复状态（2026-08-11，代理语义于 2026-08-14 由 ADR-0150 修订）：**Fixed after baseline**。ADR-0123 已按账号、认证代际和 traffic class 隔离 Client、连接与 TLS resumption。OAuth 专项复核又确认登录、刷新和 quota 的所有实际网络调用都进入同一个 Provider 级起始门闩；ADR-0132 以固定 500 ms 间隔消除了同 Provider 的同步控制面起跑，但响应仍可并发。ADR-0133 则阻止重复导入把同一官方身份或完全相同 Token 扩成多个本地候选。OAuthAccount 现在可跟随 OAuth 默认出口或指定 Profile；选择同一出口时，公网 IP 层面的关联能力仍然存在。
 
 ### F-004 — 多种客户端/设备/会话标识没有 Credential ownership，可随换号继续上行
 
@@ -973,7 +973,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | HTTP/2 connection | **Isolated across accounts** | 不同 Credential 不进入同一 H2 connection；同 Credential/代际/class 可复用。 |
 | HTTP/2 stream namespace | **Isolated across accounts** | flow control、GOAWAY/PING state 只在同一 isolation domain 内共享。 |
 | HTTP/1.1 keep-alive | **Isolated across accounts** | keep-alive 只在同一 isolation domain/pool/origin 内复用。 |
-| Proxy | **Configuration-dependent** | 专属代理可隔离；绑定 DIRECT 继承 global；OAuth 固定 DIRECT，因此多个 OAuth 账号通常同代理。 |
+| Proxy | **Configuration-dependent** | ProviderCredential 的 DIRECT 固定本机直连；OAuthAccount 可跟随 OAuth 默认出口或指定 Profile，选择同一出口的账号仍共享该出口。 |
 | DNS cache | **Shared in strict/local paths** | 进程级 30 秒 cache；这是解析复用，不是 auth 泄漏。 |
 | Cookie jar | **None** | 不存在可共享 cookie store。 |
 | Installation ID | **Credential-owned** | 同方言首 Attempt 可透传；Credential switch 后删除。 |
@@ -1085,7 +1085,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 
 1. **F-001：不同账号真实共享同一条 TCP/TLS/H2 连接。** 已实验，不是理论。
 2. **F-002：不同缓存 Client 仍共享 TLS session resumption。** 只改 cache key 会留下漏洞。
-3. **F-003：OAuth token/quota/data 原先共用全局 transport，控制面还会同 tick 批量起跑。** 连接与 resumption 已按账号/class 隔离，控制面已按 Provider 错峰；OAuth 共享全局出口仍是明确边界。
+3. **F-003：OAuth token/quota/data 原先共用全局 transport，控制面还会同 tick 批量起跑。** 连接与 resumption 已按账号/class 隔离，控制面已按 Provider 错峰；选择同一 OAuth 出口的账号仍共享公网出口，这是明确边界。
 4. **F-011：安全重试可零延迟换 Credential，并落回同一 H2 connection。** 已由 ADR-0123/0128 完整修复。
 5. **F-004：installation/session/trace 等稳定 ID 缺少 Credential ownership，可随 failover 换号上行。**
 6. **F-005：Kimi 没有一等 Provider 身份，只能继承 Codex/Grok 的错误画像和能力。**

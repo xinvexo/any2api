@@ -98,6 +98,7 @@ function imported(id: string, provider: "codex" | "claude") {
     provider_kind: provider,
     label: `${provider} imported`,
     requests_per_minute: null,
+    proxy_selection: { mode: "global" },
     enabled: true,
     safe_account_email: null,
     expires_at: null,

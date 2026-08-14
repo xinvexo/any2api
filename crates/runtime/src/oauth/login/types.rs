@@ -1,7 +1,8 @@
 //! Safe response types returned by OAuth login flows.
 
 use any2api_domain::{
-    ConfigRevision, OAuthAccount, OAuthAccountId, ProviderKind, RequestsPerMinute,
+    ConfigRevision, OAuthAccount, OAuthAccountId, OAuthProxySelection, ProviderKind,
+    RequestsPerMinute,
 };
 
 pub struct OAuthStartResult {
@@ -110,6 +111,11 @@ impl OAuthActivationResult {
     #[must_use]
     pub fn label(&self) -> &str {
         self.account.label()
+    }
+
+    #[must_use]
+    pub const fn proxy_selection(&self) -> OAuthProxySelection {
+        self.account.proxy_selection()
     }
 
     #[must_use]

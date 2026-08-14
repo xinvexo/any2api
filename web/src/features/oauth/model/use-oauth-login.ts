@@ -9,6 +9,7 @@ import {
 import type {
   OAuthActivationResult,
   OAuthProvider,
+  OAuthProxySelection,
   OAuthStartResult,
 } from "../api/oauth-contracts";
 import { oauthQueryKeys } from "./oauth-query-keys";
@@ -68,13 +69,16 @@ export function useOAuthLogin() {
     };
   }, [queryClient, session]);
 
-  async function start(provider: OAuthProvider) {
+  async function start(
+    provider: OAuthProvider,
+    proxySelection: OAuthProxySelection,
+  ) {
     setPending("start");
     setError(null);
     setCompletedAccount(null);
     setSession(null);
     try {
-      const result = await startOAuthLogin(provider);
+      const result = await startOAuthLogin(provider, proxySelection);
       setSession(result);
       return result;
     } catch (nextError) {

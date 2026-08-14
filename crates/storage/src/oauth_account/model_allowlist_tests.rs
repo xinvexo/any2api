@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, ModelAccess, OAuthAccountDraft, OAuthAccountId, ProviderKind, SettingKey,
-    SettingOverrideChange, SettingValue,
+    ConfigRevision, ModelAccess, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection,
+    ProviderKind, SettingKey, SettingOverrideChange, SettingValue,
 };
 use tempfile::tempdir;
 
@@ -23,6 +23,7 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
             id: account_id,
             provider_kind: ProviderKind::Codex,
             draft: draft(true),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt-a".into(), "gpt-b".into()],
@@ -54,6 +55,7 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
             id: account_id,
             expected_config_version: 1,
             draft: draft(false),
+            proxy_selection: OAuthProxySelection::Global,
         },
     )
     .await

@@ -1,6 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
-use any2api_domain::{ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{
+    ConfigRevision, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind,
+};
 use any2api_provider::api::OAuthTokenMaterial;
 use any2api_storage::api::{
     ConfigurationMutation, OAuthAccountCreate, OAuthAccountDocument, OAuthAccountRefresh,
@@ -15,6 +17,7 @@ use crate::configuration::{
 pub(crate) struct OAuthAccountActivation {
     pub(crate) id: OAuthAccountId,
     pub(crate) provider_kind: ProviderKind,
+    pub(crate) proxy_selection: OAuthProxySelection,
     pub(crate) preferred_label: Option<String>,
     pub(crate) safe_account_email: Option<String>,
     pub(crate) expires_at: Option<i64>,
@@ -54,6 +57,7 @@ impl ConfigPublisher {
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
@@ -63,6 +67,7 @@ impl ConfigPublisher {
             id,
             provider_kind,
             draft,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,
@@ -117,6 +122,7 @@ impl ConfigPublisher {
                 activation.id,
                 activation.provider_kind,
                 draft,
+                activation.proxy_selection,
                 activation.safe_account_email,
                 activation.expires_at,
                 activation.models,
@@ -139,6 +145,7 @@ impl ConfigPublisher {
         id: OAuthAccountId,
         expected_config_version: u64,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish(
             expected,
@@ -146,6 +153,7 @@ impl ConfigPublisher {
                 id,
                 expected_config_version,
                 draft,
+                proxy_selection,
             },
         )
         .await

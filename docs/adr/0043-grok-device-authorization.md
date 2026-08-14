@@ -15,7 +15,7 @@ Grok OAuthAccount 使用 xAI OIDC Discovery 公布的 Device Authorization Grant
 3. `device_code` 使用 Secret 类型，只存在于服务端内存 session，不进入 SQLite、日志、Debug、管理 DTO 或浏览器。浏览器只获得 session ID、user code、验证地址、有效期和安全轮询间隔。
 4. Runtime 使用显式管理 poll 端点。一次 poll 原子消费 session；pending 或 slow_down 时更新下一次允许时间并恢复 session，成功、拒绝、过期或不可恢复错误时终止 session。`slow_down` 每次增加 5 秒间隔。
 5. Web 打开验证地址、突出显示 user code，并自动使用服务端给出的间隔轮询；Grok 不显示 callback URL 输入。Codex 与 Claude 继续使用现有 Authorization Code + PKCE 流程。
-6. Device session 使用 xAI 返回的有效期，最长 30 分钟；所有设备授权和 Token 请求继续走 OAuthAccount 的 DIRECT/全局代理解析结果，禁用重定向且不回退本机直连。
+6. Device session 使用 xAI 返回的有效期，最长 30 分钟；所有设备授权和 Token 请求使用登录时手动选择的 `Global | Profile(id)` 解析结果，禁用重定向且不回退其他代理或本机直连。
 7. Token 成功后复用现有 Provider 解析、SQLite 激活、Runtime reconcile、PublishedSnapshot 切换和通用 `RoutingCredential` 投影。Grok API Key 与 OAuthAccount 的存储和管理模型仍严格分离。
 8. Grok refresh grant、SQLite OAuth JSON、固定 `https://cli-chat-proxy.grok.com/v1` 数据面、Bearer 和 xAI CLI 身份头遵循 ADR-0041。
 

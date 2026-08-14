@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::{
-    ModelNameValidationError, OAuthAccountId, ProviderKind, ProxyProfileId, RequestsPerMinute,
+    ModelNameValidationError, OAuthAccountId, OAuthProxySelection, ProviderKind, RequestsPerMinute,
     UpstreamModelName,
 };
 
@@ -50,7 +50,7 @@ pub struct OAuthAccount {
     id: OAuthAccountId,
     provider_kind: ProviderKind,
     label: String,
-    proxy_profile_id: ProxyProfileId,
+    proxy_selection: OAuthProxySelection,
     requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
     safe_account_email: Option<String>,
@@ -63,10 +63,12 @@ pub struct OAuthAccount {
 }
 
 impl OAuthAccount {
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         created_at: impl Into<String>,
@@ -76,7 +78,7 @@ impl OAuthAccount {
             id,
             provider_kind,
             draft,
-            ProxyProfileId::DIRECT,
+            proxy_selection,
             safe_account_email,
             expires_at,
             created_at.into(),
@@ -92,7 +94,7 @@ impl OAuthAccount {
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
-        proxy_profile_id: ProxyProfileId,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         created_at: String,
@@ -103,9 +105,6 @@ impl OAuthAccount {
     ) -> Result<Self, OAuthAccountValidationError> {
         if !provider_kind.supports_oauth() {
             return Err(OAuthAccountValidationError::UnsupportedProvider);
-        }
-        if proxy_profile_id != ProxyProfileId::DIRECT {
-            return Err(OAuthAccountValidationError::ProxyMustBeDirect);
         }
         if !valid_version(token_version)
             || !valid_version(account_generation)
@@ -120,7 +119,7 @@ impl OAuthAccount {
             id,
             provider_kind,
             label: draft.label,
-            proxy_profile_id,
+            proxy_selection,
             requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             safe_account_email: validate_safe_email(safe_account_email)?,
@@ -133,22 +132,29 @@ impl OAuthAccount {
         })
     }
 
-    pub fn updated(&self, draft: OAuthAccountDraft) -> Result<Self, OAuthAccountValidationError> {
+    pub fn updated(
+        &self,
+        draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
+    ) -> Result<Self, OAuthAccountValidationError> {
         if self.label == draft.label
             && self.requests_per_minute == draft.requests_per_minute
             && self.enabled == draft.enabled
+            && self.proxy_selection == proxy_selection
         {
             return Ok(self.clone());
         }
-        let account_generation = if !self.enabled && draft.enabled {
-            next_version(self.account_generation)?
-        } else {
-            self.account_generation
-        };
+        let account_generation =
+            if (!self.enabled && draft.enabled) || self.proxy_selection != proxy_selection {
+                next_version(self.account_generation)?
+            } else {
+                self.account_generation
+            };
         Ok(Self {
             label: draft.label,
             requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
+            proxy_selection,
             account_generation,
             config_version: next_version(self.config_version)?,
             ..self.clone()
@@ -185,12 +191,36 @@ impl OAuthAccount {
 
     pub fn reauthorized(
         &self,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
     ) -> Result<Self, OAuthAccountValidationError> {
-        self.refreshed(safe_account_email, expires_at)?
-            .with_models(models)
+        if expires_at.is_some_and(|value| value < 0) {
+            return Err(OAuthAccountValidationError::InvalidExpiry);
+        }
+        let safe_account_email = validate_safe_email(safe_account_email)?;
+        let models = validate_models(models)?;
+        let route_changed = self.proxy_selection != proxy_selection;
+        let config_changed = route_changed || self.models != models;
+        Ok(Self {
+            proxy_selection,
+            safe_account_email,
+            expires_at,
+            models,
+            token_version: next_version(self.token_version)?,
+            account_generation: if route_changed {
+                next_version(self.account_generation)?
+            } else {
+                self.account_generation
+            },
+            config_version: if config_changed {
+                next_version(self.config_version)?
+            } else {
+                self.config_version
+            },
+            ..self.clone()
+        })
     }
 
     #[must_use]
@@ -214,8 +244,8 @@ impl OAuthAccount {
     }
 
     #[must_use]
-    pub const fn proxy_profile_id(&self) -> ProxyProfileId {
-        self.proxy_profile_id
+    pub const fn proxy_selection(&self) -> OAuthProxySelection {
+        self.proxy_selection
     }
 
     #[must_use]
@@ -287,8 +317,6 @@ pub enum OAuthAccountValidationError {
     InvalidCreatedAt,
     #[error("OAuth account email is invalid")]
     InvalidEmail,
-    #[error("OAuth account must bind to DIRECT")]
-    ProxyMustBeDirect,
     #[error("OAuth account id is duplicated")]
     DuplicateId,
     #[error("OAuth account label is duplicated for this provider")]

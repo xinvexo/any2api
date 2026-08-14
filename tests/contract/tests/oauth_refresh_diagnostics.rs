@@ -7,7 +7,9 @@ use std::{
 };
 
 use any2api_contract_tests::TestApplication;
-use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind, ProxyProfileId};
+use any2api_domain::{
+    OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind, ProxyProfileId,
+};
 use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::OAuthAccountDocument;
 use any2api_transport::api::{
@@ -37,6 +39,7 @@ async fn refresh_rejection_exposes_one_safe_diagnostic_across_error_account_and_
             account_id,
             ProviderKind::Codex,
             OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
+            OAuthProxySelection::Global,
             Some("person@example.com".into()),
             None,
             vec!["gpt-5.5".into()],

@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId, ModelRoute,
-    ModelRouteConfiguration, OAuthAccountConfiguration, ProviderCredentialConfiguration,
-    ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile, RoutingCredentialId,
-    SettingsConfiguration, validate_gateway_token,
+    ModelRouteConfiguration, OAuthAccountConfiguration, OAuthAccountId, OAuthProxySelection,
+    ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProxyConfiguration,
+    ProxyProfile, RoutingCredentialId, SettingsConfiguration, validate_gateway_token,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
@@ -231,7 +231,7 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn resolved_proxy_for_credential(&self, id: CredentialId) -> Option<&ProxyProfile> {
         let credential = self.provider_credentials.get(id)?;
-        self.proxies.resolve(credential.proxy_profile_id())
+        self.proxies.get(credential.proxy_profile_id())
     }
 
     pub(crate) fn transport_proxy(
@@ -256,13 +256,25 @@ impl PublishedSnapshot {
         ))
     }
 
-    pub(crate) fn resolved_transport_proxy_for_oauth_account(&self) -> Option<TransportProxy<'_>> {
-        let profile = self
-            .proxies
-            .resolve(any2api_domain::ProxyProfileId::DIRECT)?;
+    pub(crate) fn resolved_transport_proxy_for_oauth_selection(
+        &self,
+        selection: OAuthProxySelection,
+    ) -> Option<TransportProxy<'_>> {
+        let profile = self.proxies.resolve_oauth(selection)?;
+        if !profile.enabled() {
+            return None;
+        }
         Some(TransportProxy::new(
             profile,
             self.proxy_auth.credentials_for(profile),
         ))
+    }
+
+    pub(crate) fn resolved_transport_proxy_for_oauth_account(
+        &self,
+        id: OAuthAccountId,
+    ) -> Option<TransportProxy<'_>> {
+        let selection = self.oauth_accounts.get(id)?.proxy_selection();
+        self.resolved_transport_proxy_for_oauth_selection(selection)
     }
 }

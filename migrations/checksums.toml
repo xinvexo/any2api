@@ -29,3 +29,4 @@
 "0028_single_consumer_quota_estimator_state.sql" = "319aaab3eedb2775ec8a03c3797bc416b4285ec4058ff3aae93f32c9924e03ee"
 "0029_accumulate_codex_quota_statistics.sql" = "aaeaefc0e11eca93aaca72e9fd8b19608eff7bd215882682c23802586d5e98ef"
 "0030_add_request_log_cache_creation_tokens.sql" = "dca9c2118444a41756c4f264b706861910594da81d1c2fe2472d970547bbe431"
+"0031_add_oauth_account_proxy_selection.sql" = "a80b995ca1247c97affee91aa91ff50b4c335920a6b8f13f798bde5fff567758"

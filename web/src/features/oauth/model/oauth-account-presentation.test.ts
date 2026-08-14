@@ -21,6 +21,7 @@ function account(): OAuthAccount {
     providerKind: "codex",
     label: "Primary Codex",
     requestsPerMinute: null,
+    proxySelection: { mode: "global" },
     enabled: true,
     safeAccountEmail: null,
     expiresAt: null,

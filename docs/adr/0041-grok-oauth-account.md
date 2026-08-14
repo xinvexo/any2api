@@ -12,7 +12,7 @@ Grok 订阅账号必须作为独立 OAuthAccount 接入，不能把 OAuth JSON �
 
 1. `ProviderKind::Grok` 支持独立 `OAuthAccount`。Grok OAuth JSON 明文保存在 `oauth_accounts.oauth_json`，不进入 ProviderCredential、Provider Endpoint、管理 DTO、日志、浏览器存储或导出接口。
 2. 登录使用 `POST https://auth.x.ai/oauth2/device/code` 和 `https://auth.x.ai/oauth2/token`，公共客户端 ID 为 `b1a00492-073a-47ea-816f-4c329264a828`，scope 为 `openid profile email offline_access grok-cli:access api:access`。Device Code 只保存在服务端内存，浏览器只获得 session ID、user code、验证地址、有效期和安全轮询间隔；刷新使用同一客户端与 Refresh Token grant。完整轮询契约见 ADR-0043。
-3. 登录兑换、刷新和数据面固定使用 OAuthAccount 的 DIRECT/全局代理解析结果，禁用自动重定向，不增加 Grok 专用代理或隐式本机直连回退。
+3. 登录兑换、刷新和数据面固定使用 OAuthAccount 的 `Global | Profile(id)` 选择解析结果，禁用自动重定向，不增加 Grok 专用代理或隐式本机直连回退。
 4. Grok OAuth 的固定数据面为 `https://cli-chat-proxy.grok.com/v1`。Driver 注入 `Authorization: Bearer`、`X-XAI-Token-Auth: xai-grok-cli`、稳定的 Grok CLI 版本头和对应 User-Agent。Grok API Key 仍使用管理员配置的 Endpoint，二者不共享存储模型。
 5. Grok OAuth 只参与 OpenAI Responses 操作。订阅数据面没有原生 `/responses/compact`，因此 Grok OAuth 不进入 Responses Compact 或 Chat Completions 候选；Grok API Key 的能力不变。
 6. Grok OAuth 使用 Provider 内置且可测试的文本模型目录，不发布媒体模型。

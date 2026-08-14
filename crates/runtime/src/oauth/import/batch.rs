@@ -1,4 +1,4 @@
-use any2api_domain::{ConfigRevision, OAuthAccount, OAuthAccountId};
+use any2api_domain::{ConfigRevision, OAuthAccount, OAuthAccountId, OAuthProxySelection};
 use any2api_provider::api::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
     ProviderRegistry, parse_oauth_import_document,
@@ -116,6 +116,7 @@ pub(in crate::oauth) async fn publish(
         activations.push(OAuthAccountActivation {
             id,
             provider_kind: provider,
+            proxy_selection: OAuthProxySelection::Global,
             preferred_label: preferred_label.or_else(|| token.email().map(str::to_owned)),
             safe_account_email: token.email().map(str::to_owned),
             expires_at: token.expires_at(),

@@ -25,6 +25,9 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
     if (path === "/api/admin/oauth/accounts") {
       return jsonResponse({ config_revision: 1, items });
     }
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
     const quotaPrefix = "/api/admin/oauth/accounts/";
     if (path.startsWith(quotaPrefix) && path.endsWith("/quota") && init?.method === "GET") {
       return jsonResponse(null);
@@ -89,6 +92,9 @@ test("limits refresh-all concurrency and keeps card spinners stable", async () =
     const path = String(input);
     if (path === "/api/admin/oauth/accounts") {
       return jsonResponse({ config_revision: 1, items });
+    }
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
     }
     if (path.endsWith("/quota") && init?.method === "GET") {
       return jsonResponse(null);
@@ -170,6 +176,7 @@ function oauthAccountJson(
     provider_kind: providerKind,
     label,
     requests_per_minute: null,
+    proxy_selection: { mode: "global" },
     enabled,
     safe_account_email: null,
     expires_at: null,
@@ -184,6 +191,28 @@ function oauthAccountJson(
     bot_flagged: null,
     token_refresh_failure: null,
     usage: usage(),
+  };
+}
+
+function proxyConfiguration() {
+  return {
+    config_revision: 1,
+    global_proxy_id: "00000000-0000-0000-0000-000000000000",
+    items: [
+      {
+        id: "00000000-0000-0000-0000-000000000000",
+        name: "DIRECT",
+        kind: "direct",
+        host: null,
+        port: null,
+        username: null,
+        password_configured: false,
+        authentication_version: 0,
+        enabled: true,
+        built_in: true,
+        config_version: 1,
+      },
+    ],
   };
 }
 

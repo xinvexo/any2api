@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use any2api_domain::{
-    ConfigRevision, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation,
-    ProviderKind, ProxyProfileId, RequestId,
+    ConfigRevision, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection,
+    ProtocolOperation, ProviderKind, ProxyProfileId, RequestId,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -45,6 +45,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             provider_kind: ProviderKind::Codex,
             draft: OAuthAccountDraft::new("Codex OAuth", None, true)
                 .expect("OAuth account draft"),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: Some("person@example.com".into()),
             expires_at: None,
             models: vec!["gpt-5.5".into()],

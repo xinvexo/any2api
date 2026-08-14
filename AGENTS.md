@@ -51,10 +51,11 @@
 
 - 仅支持 `DIRECT`、`HTTP`、`SOCKS5`。
 - 内置 `DIRECT` 不可删除、不可禁用。
-- Credential 绑定 HTTP/SOCKS5：使用专属代理。
-- Credential 绑定 DIRECT：继承全局代理。
-- OAuth 账号固定绑定 DIRECT，因此继承全局代理；登录交换、刷新和数据面均禁止另设隐式回退路径。
-- 全局代理也是 DIRECT：最终本机直连。
+- ProviderCredential 绑定 HTTP/SOCKS5：使用专属代理；绑定 DIRECT：始终从本机直连，不受全局代理影响。
+- 全局代理只作为 OAuth 默认出口。OAuthAccount 的代理选择必须显式区分“跟随 OAuth 全局路由”和“使用指定 Profile”，禁止复用 DIRECT 表达继承。
+- OAuthAccount 选择指定 DIRECT 时固定本机直连；选择指定 HTTP/SOCKS5 时固定使用该代理；选择跟随全局时才解析 OAuth 默认出口。
+- OAuth 登录必须手动选择“跟随全局”或指定 Profile；该选择写入新建或重新授权后的账号。Token 刷新、额度操作和 OAuth 数据面始终复用账号选择，禁止另设隐式回退路径。
+- OAuth 默认出口也是 DIRECT 时，只有选择跟随全局的 OAuth 流量最终从本机直连。
 - 专属代理失败必须 Fail-Closed，禁止悄悄回退全局代理或本机直连。
 - SOCKS5 默认使用远端 DNS；严格 SSRF 模式下禁止远端 DNS。
 - Provider Base URL 只要求是结构合法的 HTTP(S) 地址；管理员填写的 URL 是受信任目标，不再提供或持久化普通 HTTP/内网地址授权开关。

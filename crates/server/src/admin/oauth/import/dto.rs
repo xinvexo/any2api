@@ -4,6 +4,8 @@ use any2api_domain::{OAuthAccount, RequestsPerMinute};
 use any2api_runtime::api::OAuthImportResult;
 use serde::Serialize;
 
+use super::super::proxy_selection::OAuthProxySelectionDto;
+
 #[derive(Serialize)]
 pub(super) struct OAuthImportResponse {
     imported_count: usize,
@@ -31,6 +33,7 @@ struct OAuthImportedAccountResponse {
     id: any2api_domain::OAuthAccountId,
     provider_kind: any2api_domain::ProviderKind,
     label: String,
+    proxy_selection: OAuthProxySelectionDto,
     requests_per_minute: Option<u32>,
     enabled: bool,
     safe_account_email: Option<String>,
@@ -45,6 +48,7 @@ impl From<&OAuthAccount> for OAuthImportedAccountResponse {
             id: account.id(),
             provider_kind: account.provider_kind(),
             label: account.label().to_owned(),
+            proxy_selection: account.proxy_selection().into(),
             requests_per_minute: account.requests_per_minute().map(RequestsPerMinute::get),
             enabled: account.enabled(),
             safe_account_email: account.safe_account_email().map(str::to_owned),

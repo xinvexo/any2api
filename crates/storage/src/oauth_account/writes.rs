@@ -60,7 +60,12 @@ async fn insert(
     .bind(to_i64(account.token_version())?)
     .bind(to_i64(account.account_generation())?)
     .bind(to_i64(account.config_version())?)
-    .bind(account.proxy_profile_id().to_string())
+    .bind(
+        account
+            .proxy_selection()
+            .profile_id()
+            .map(|id| id.to_string()),
+    )
     .bind(
         account
             .requests_per_minute()
@@ -80,11 +85,18 @@ async fn update_metadata(
     account: &OAuthAccount,
 ) -> Result<(), StorageError> {
     let result = sqlx::query(concat!(
-        "UPDATE oauth_accounts SET label = ?, label_key = ?, requests_per_minute = ?, enabled = ?, ",
-        "account_generation = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        "UPDATE oauth_accounts SET label = ?, label_key = ?, proxy_profile_id = ?, ",
+        "requests_per_minute = ?, enabled = ?, account_generation = ?, config_version = ?, ",
+        "updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     ))
     .bind(account.label())
     .bind(account.label_key())
+    .bind(
+        account
+            .proxy_selection()
+            .profile_id()
+            .map(|id| id.to_string()),
+    )
     .bind(
         account
             .requests_per_minute()
@@ -108,13 +120,20 @@ async fn refresh(
     let bytes = document_bytes(document);
     let result = sqlx::query(concat!(
         "UPDATE oauth_accounts SET oauth_json = ?, token_version = ?, account_generation = ?, ",
-        "config_version = ?, safe_account_email = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP ",
+        "config_version = ?, proxy_profile_id = ?, safe_account_email = ?, expires_at = ?, ",
+        "updated_at = CURRENT_TIMESTAMP ",
         "WHERE id = ? AND token_version = ?"
     ))
     .bind(bytes)
     .bind(to_i64(account.token_version())?)
     .bind(to_i64(account.account_generation())?)
     .bind(to_i64(account.config_version())?)
+    .bind(
+        account
+            .proxy_selection()
+            .profile_id()
+            .map(|id| id.to_string()),
+    )
     .bind(account.safe_account_email())
     .bind(account.expires_at())
     .bind(account.id().to_string())

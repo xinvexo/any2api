@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    OAuthAccount, OAuthAccountId, OAuthAccountValidationError, ProviderKind, ProxyConfiguration,
+    OAuthAccount, OAuthAccountId, OAuthAccountValidationError, OAuthProxySelection, ProviderKind,
+    ProxyConfiguration,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -26,7 +27,10 @@ impl OAuthAccountConfiguration {
             {
                 return Err(OAuthAccountValidationError::DuplicateLabel);
             }
-            if proxies.get(account.proxy_profile_id()).is_none() {
+            if matches!(
+                account.proxy_selection(),
+                OAuthProxySelection::Profile(id) if proxies.get(id).is_none()
+            ) {
                 return Err(OAuthAccountValidationError::MissingProxyProfile);
             }
         }

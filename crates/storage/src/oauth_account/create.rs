@@ -1,4 +1,4 @@
-use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
 
 use super::document::OAuthAccountDocument;
 
@@ -6,6 +6,7 @@ pub struct OAuthAccountCreate {
     pub(crate) id: OAuthAccountId,
     pub(crate) provider_kind: ProviderKind,
     pub(crate) draft: OAuthAccountDraft,
+    pub(crate) proxy_selection: OAuthProxySelection,
     pub(crate) safe_account_email: Option<String>,
     pub(crate) expires_at: Option<i64>,
     pub(crate) models: Vec<String>,
@@ -19,6 +20,7 @@ impl OAuthAccountCreate {
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
@@ -28,6 +30,7 @@ impl OAuthAccountCreate {
             id,
             provider_kind,
             draft,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,

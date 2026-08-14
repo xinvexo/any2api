@@ -15,7 +15,7 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 - 首版 Transport 使用 `reqwest` + Rustls，并只通过 `transport::api` 暴露 any2api 自有请求、响应和错误类型。Rustls 使用宿主系统证书根，避免把另一套固定根证书打包进二进制，也允许自托管环境使用其显式安装的企业根证书。
 - Client Builder 禁用系统代理、Cookie Store、自动重定向和 `reqwest` 内建协议重试；Provider 认证头只允许逐请求注入，不进入 Client 默认 Header。所有重试必须由 Runtime 的 Attempt、RetrySafety 和预算状态机决定。
 - DIRECT 明确调用 `no_proxy()`；HTTP 使用结构化 `http://host:port` 代理 URL；SOCKS5 使用 `socks5h://host:port`，默认由远端代理解析目标域名。
-- Runtime 在调用 Transport 前完成 `Credential DIRECT -> global proxy -> local DIRECT` 解析。Transport 只执行传入的实际 `ProxyProfile`，没有代理回退分支。
+- Runtime 在调用 Transport 前完成出口解析：`ProviderCredential` 严格使用其绑定 Profile，OAuthAccount 按 ADR-0150 的 `Global | Profile(id)` 选择解析。Transport 只执行传入的实际 `ProxyProfile`，没有代理回退分支。
 - Client 缓存键包含 `ProxyProfileId + config_version + ProxyKind`，以及连接超时、TLS 策略版本、HTTP 版本策略、池空闲超时、每目标空闲连接上限和池策略版本。相同完整策略代际共享连接池；代理或网络策略变化后使用新 key，已开始请求继续持有其捕获 Client 的 `Arc`。
 - 缓存使用有界强引用 LRU。淘汰只移除 Manager 的缓存引用，不中断仍持有 Client 的请求。
 - 每次 `TransportManager::execute` 开始时把 Client 代际中的 `connect_timeout` 转换为一个绝对 deadline。手工 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 共享该 deadline，不允许各阶段重新获得完整 timeout。同步 Client 构造不可被异步 timer 中断，但构造返回后必须先检查同一 deadline，过期时不得启动 I/O。直到请求 Body 首次被连接层消费前都属于连接阶段；边界到达后停止连接 deadline，再启动请求级 `read_timeout` 等待响应头。

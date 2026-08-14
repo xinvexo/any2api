@@ -15,7 +15,7 @@ SQLite is already the configuration truth, so storing OAuth material in addition
 
 `OAuthAccount` is a separate aggregate managed only through the OAuth page and OAuth admin API. It is not a `ProviderCredential` and is never nested beneath an administrator-configured Provider Endpoint.
 
-SQLite stores the complete Provider OAuth JSON as plaintext together with stable ID, Provider, label, enabled state, fixed DIRECT proxy binding, optional `requests_per_minute`, selected models, token version, account generation, configuration version, safe account metadata, and timestamps. ADR-0074 applies the same plaintext persistence boundary to API Keys and proxy passwords.
+SQLite stores the complete Provider OAuth JSON as plaintext together with stable ID, Provider, label, enabled state, the ADR-0150 OAuth proxy selection, optional `requests_per_minute`, selected models, token version, account generation, configuration version, safe account metadata, and timestamps. ADR-0074 applies the same plaintext persistence boundary to API Keys and proxy passwords.
 
 SQLite is the only OAuth account truth source. A first interactive login and Provider-specific import create an account directly; an interactive login that uniquely matches the same stable Provider identity reauthorizes the existing account according to ADR-0087. The service does not return attachments, create server-local auth files, maintain a download cache, or expose a read/export endpoint. Generic Secret import/export remains prohibited.
 
@@ -32,10 +32,10 @@ OAuth accounts use Provider-owned fixed routing profiles rather than administrat
 - Codex uses the ChatGPT Codex Responses endpoint and OpenAI Responses dialect.
 - Claude uses the official Anthropic API endpoint and Anthropic Messages dialect.
 - Grok uses the xAI CLI subscription endpoint and its registered OpenAI Responses capability.
-- Every OAuthAccount binds to `DIRECT`, inherits the configured global proxy, and has no hidden network fallback.
+- Every OAuthAccount stores `Global` or an exact Profile selection; `Global` follows the OAuth default outlet while `Profile(DIRECT)` means local direct, with no hidden network fallback.
 - Provider drivers own the OAuth model catalogs; updating a catalog is a local Provider change, not a scheduler branch.
 
-These fixed profiles are internal routing projections only. They are never returned by, inserted into, or editable through Provider Endpoint APIs. New accounts default to no local RPM limit, the Provider's selected OAuth models, enabled state, and DIRECT/global-proxy routing. The OAuth page may edit label, enabled state, optional RPM, and selected models; it does not expose Endpoint or API-key Credential forms.
+These fixed profiles are internal routing projections only. They are never returned by, inserted into, or editable through Provider Endpoint APIs. New imported accounts default to no local RPM limit, the Provider's selected OAuth models, enabled state, and `Global` proxy selection; interactive login stores the administrator's explicit selection. The OAuth page may edit label, enabled state, optional RPM, proxy selection, and selected models; it does not expose Endpoint or API-key Credential forms.
 
 ### Atomic activation and refresh
 
@@ -56,7 +56,7 @@ Same-identity interactive reauthorization preserves the stable local account ID 
 
 A single process worker scans all accounts approaching expiry, including `enabled=false` accounts. `oauth.refresh.scan_interval` and `oauth.refresh.lead_time` are hot-reload SettingRegistry values, and the lead time cannot be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans current accounts and settings.
 
-Refresh uses the account's DIRECT/global-proxy path and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so stale results cannot overwrite newer material. Scheduled network refreshes use a fixed code-level concurrency limit. Currently ready results are opportunistically grouped into segments of at most that concurrency limit; each segment is token-version-CAS applied in one SQLite transaction and one serialized snapshot publication without waiting for a slow account elsewhere in the scan. Stale or deleted accounts are skipped without blocking fresh results. Authentication-failure refresh remains an immediate single-account publication so a pending request does not wait for a scheduled segment.
+Refresh uses the account's stored OAuth proxy selection and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so stale results cannot overwrite newer material. Scheduled network refreshes use a fixed code-level concurrency limit. Currently ready results are opportunistically grouped into segments of at most that concurrency limit; each segment is token-version-CAS applied in one SQLite transaction and one serialized snapshot publication without waiting for a slow account elsewhere in the scan. Stale or deleted accounts are skipped without blocking fresh results. Authentication-failure refresh remains an immediate single-account publication so a pending request does not wait for a scheduled segment.
 
 Token endpoint encoding remains Provider-owned: Codex authorization-code exchange is form encoded while Codex refresh is JSON; Claude exchanges are JSON; Grok device and refresh exchanges are form encoded. A structured permanent refresh rejection is remembered in process for the rejected account token version, suppressing all later refresh submissions for that same version. Reauthorization or another successful token replacement advances the version and clears the suppression by construction; it is not persisted across process restart.
 

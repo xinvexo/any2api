@@ -16,6 +16,7 @@ mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
 mod legacy_upgrades;
 mod oauth_account_documents;
+mod oauth_account_proxy_selection;
 mod oauth_quota_estimation_boundaries;
 mod oauth_quota_snapshot_v5;
 mod oauth_quota_snapshot_v6;
@@ -100,6 +101,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (28, "single consumer quota estimator state".to_owned()),
             (29, "accumulate codex quota statistics".to_owned()),
             (30, "add request log cache creation tokens".to_owned()),
+            (31, "add oauth account proxy selection".to_owned()),
         ]
     );
 
@@ -164,6 +166,8 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
+    assert!(oauth_schema.contains("proxy_profile_id TEXT REFERENCES"));
+    assert!(!oauth_schema.contains("proxy_profile_id TEXT NOT NULL"));
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;

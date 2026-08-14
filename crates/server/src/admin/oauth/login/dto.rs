@@ -1,20 +1,23 @@
 //! Login request and safe response DTOs.
 
-use any2api_domain::{OAuthAccountId, ProviderKind, RequestsPerMinute};
+use any2api_domain::{OAuthAccountId, OAuthProxySelection, ProviderKind, RequestsPerMinute};
 use any2api_runtime::api::{
     OAuthActivationResult, OAuthDevicePollResult, OAuthStartFlow, OAuthStartResult,
 };
 use serde::{Deserialize, Serialize};
 
+use super::super::proxy_selection::OAuthProxySelectionDto;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct OAuthStartRequest {
     provider: ProviderKind,
+    proxy_selection: OAuthProxySelectionDto,
 }
 
 impl OAuthStartRequest {
-    pub(super) const fn provider(&self) -> ProviderKind {
-        self.provider
+    pub(super) fn into_parts(self) -> (ProviderKind, OAuthProxySelection) {
+        (self.provider, self.proxy_selection.into())
     }
 }
 
@@ -101,6 +104,7 @@ pub(super) struct OAuthExchangeResponse {
     provider: ProviderKind,
     account_id: OAuthAccountId,
     label: String,
+    proxy_selection: OAuthProxySelectionDto,
     requests_per_minute: Option<u32>,
     enabled: bool,
     safe_account_email: Option<String>,
@@ -116,6 +120,7 @@ impl From<OAuthActivationResult> for OAuthExchangeResponse {
             provider: result.provider(),
             account_id: result.account_id(),
             label: result.label().to_owned(),
+            proxy_selection: result.proxy_selection().into(),
             requests_per_minute: result.requests_per_minute().map(RequestsPerMinute::get),
             enabled: result.enabled(),
             safe_account_email: result.safe_account_email().map(str::to_owned),

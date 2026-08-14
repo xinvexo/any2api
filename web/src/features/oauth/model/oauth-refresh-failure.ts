@@ -30,7 +30,7 @@ const reasonLabels: Record<string, string> = {
   account_unavailable: "账号在刷新期间已不可用",
   provider_unavailable: "Provider Driver 不可用",
   token_material_unavailable: "当前 Token 材料不可用",
-  proxy_unavailable: "全局代理路径不可用",
+  proxy_unavailable: "当前账号的 OAuth 出口不可用",
   refresh_token_missing: "账号没有 Refresh Token",
   request_invalid: "刷新请求无法构造",
   transport_failure: "网络传输失败",

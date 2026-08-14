@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 
-import type { OAuthAccount } from "../api/oauth-contracts";
+import type { OAuthAccount, OAuthProxySelection } from "../api/oauth-contracts";
 import { getOAuthErrorMessage } from "../model/oauth-error";
 import { OAuthModelCatalog } from "./OAuthModelCatalog";
+import { OAuthProxySelect } from "./OAuthProxySelect";
+import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Field } from "@/shared/ui/form-field";
@@ -10,6 +12,7 @@ import { Switch } from "@/shared/ui/Switch";
 
 export function OAuthAccountEditor({
   account,
+  proxyConfiguration,
   mode,
   pending,
   error,
@@ -18,12 +21,14 @@ export function OAuthAccountEditor({
   onClose,
 }: {
   account: OAuthAccount;
+  proxyConfiguration: ProxyConfiguration;
   mode: "metadata" | "models";
   pending: boolean;
   error: unknown;
   onSaveMetadata: (value: {
     label: string;
     requestsPerMinute: number | null;
+    proxySelection: OAuthProxySelection;
     enabled: boolean;
   }) => Promise<void>;
   onSaveModels: (models: string[]) => Promise<void>;
@@ -34,6 +39,7 @@ export function OAuthAccountEditor({
     account.requestsPerMinute === null ? "" : String(account.requestsPerMinute),
   );
   const [enabled, setEnabled] = useState(account.enabled);
+  const [proxySelection, setProxySelection] = useState(account.proxySelection);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,6 +47,7 @@ export function OAuthAccountEditor({
       await onSaveMetadata({
         label: label.trim(),
         requestsPerMinute: requestsPerMinute.length === 0 ? null : Number(requestsPerMinute),
+        proxySelection,
         enabled,
       });
       onClose();
@@ -84,6 +91,15 @@ export function OAuthAccountEditor({
           placeholder="留空表示无限制"
           disabled={pending}
           onChange={(event) => setRequestsPerMinute(event.target.value)}
+        />
+      </Field>
+      <Field label="OAuth 出口" htmlFor="oauth-account-proxy-selection">
+        <OAuthProxySelect
+          id="oauth-account-proxy-selection"
+          selection={proxySelection}
+          configuration={proxyConfiguration}
+          disabled={pending}
+          onChange={setProxySelection}
         />
       </Field>
       <div className="flex items-center justify-between gap-4">

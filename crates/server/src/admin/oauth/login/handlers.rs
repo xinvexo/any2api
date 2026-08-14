@@ -24,9 +24,10 @@ async fn start(
     State(state): State<AppState>,
     AdminJson(request): AdminJson<OAuthStartRequest>,
 ) -> Result<Json<OAuthStartResponse>, AdminApiError> {
+    let (provider, proxy_selection) = request.into_parts();
     let service = state.oauth().ok_or_else(oauth_unavailable)?;
     let result = service
-        .start(request.provider())
+        .start(provider, proxy_selection)
         .await
         .map_err(error::map)?;
     Ok(Json(OAuthStartResponse::from(result)))

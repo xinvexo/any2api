@@ -21,7 +21,7 @@ Endpoint，无法表达 `Endpoint × EffectiveProxy`，也无法只排除一次�
 
 1. 负载均衡的最小可执行单位固定为 `AttemptPath`：RouteTarget、ProtocolOperation、
    RoutingCredential generation、Endpoint config generation 与解析后的 EffectiveProxy config generation。
-   DIRECT 继承全局代理后使用实际解析结果，不能把配置中的 DIRECT 名称当成真实出口。
+   ProviderCredential 的 DIRECT 与 OAuth 的 `Profile(DIRECT)` 都是本机直连；只有 OAuth `Global` 解析 OAuth 默认出口，健康状态始终使用实际解析结果。
 2. 初始选择继续对同 tier 的实际 RouteCandidate 等权 round-robin，不增加 weight、最少连接、
    `in_flight` 排序、并发 Semaphore 或新的准入限制。选择从稳定完整候选环的游标位置开始循环扫描，
    不先把可用候选压缩成会改变取模身份的临时数组；成功选择跨过被过滤槽位时，游标额外前进相同槽数，

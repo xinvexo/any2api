@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use any2api_domain::ProviderKind;
+use any2api_domain::{OAuthProxySelection, ProviderKind};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
@@ -26,6 +26,7 @@ pub(in crate::oauth) struct PreparedAuthorizationCodeSession {
 pub(in crate::oauth) struct AuthorizationCodeSession {
     pub(in crate::oauth) provider: ProviderKind,
     pub(in crate::oauth) redirect_uri: &'static str,
+    pub(in crate::oauth) proxy_selection: OAuthProxySelection,
     state: SecretString,
     code_verifier: SecretString,
     expires_at: Instant,
@@ -34,6 +35,7 @@ pub(in crate::oauth) struct AuthorizationCodeSession {
 impl AuthorizationCodeSession {
     pub(in crate::oauth) fn prepare(
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         redirect_uri: &'static str,
         now: Instant,
     ) -> Result<PreparedAuthorizationCodeSession, OAuthError> {
@@ -47,6 +49,7 @@ impl AuthorizationCodeSession {
             code_challenge,
             session: Self {
                 provider,
+                proxy_selection,
                 redirect_uri,
                 state: SecretString::from(state),
                 code_verifier: SecretString::from(code_verifier),
@@ -73,6 +76,7 @@ pub(in crate::oauth) struct PreparedDeviceCodeSession {
 
 pub(in crate::oauth) struct DeviceCodeSession {
     pub(in crate::oauth) provider: ProviderKind,
+    proxy_selection: OAuthProxySelection,
     device_code: SecretString,
     poll_interval_seconds: u64,
     next_poll_at: Instant,
@@ -82,6 +86,7 @@ pub(in crate::oauth) struct DeviceCodeSession {
 impl DeviceCodeSession {
     pub(in crate::oauth) fn prepare(
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         device_code: &str,
         expires_in_seconds: u64,
         poll_interval_seconds: u64,
@@ -98,6 +103,7 @@ impl DeviceCodeSession {
             poll_interval_seconds,
             session: Self {
                 provider,
+                proxy_selection,
                 device_code: SecretString::from(device_code.to_owned()),
                 poll_interval_seconds,
                 next_poll_at: now,
@@ -108,6 +114,10 @@ impl DeviceCodeSession {
 
     pub(in crate::oauth) fn device_code(&self) -> &str {
         self.device_code.expose_secret()
+    }
+
+    pub(in crate::oauth) const fn proxy_selection(&self) -> OAuthProxySelection {
+        self.proxy_selection
     }
 
     pub(in crate::oauth) const fn expires_at(&self) -> Instant {

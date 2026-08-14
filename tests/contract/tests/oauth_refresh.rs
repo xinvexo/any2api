@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use any2api_contract_tests::{build_configuration_capabilities, build_provider_registry};
 use any2api_domain::{
-    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation, ProviderKind, RequestId,
-    RequestsPerMinute,
+    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProtocolOperation,
+    ProviderKind, RequestId, RequestsPerMinute,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -74,6 +74,7 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
             account_id,
             ProviderKind::Codex,
             OAuthAccountDraft::new("Codex OAuth", None, false).expect("OAuth draft"),
+            OAuthProxySelection::Global,
             Some("person@example.com".into()),
             Some(0),
             vec!["gpt-5.5".into()],
@@ -335,6 +336,7 @@ impl AuthenticationRetryContext {
                     true,
                 )
                 .expect("OAuth draft"),
+                OAuthProxySelection::Global,
                 Some("person@example.com".into()),
                 None,
                 vec!["gpt-5.5".into()],

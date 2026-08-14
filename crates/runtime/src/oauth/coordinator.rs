@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use any2api_domain::{OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::api::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, ProviderDriver,
     ProviderRegistry,
@@ -182,7 +182,15 @@ impl OAuthService {
         import::publish(self.providers.as_ref(), self.publisher.as_ref(), files).await
     }
 
-    pub async fn start(&self, provider: ProviderKind) -> Result<OAuthStartResult, OAuthError> {
+    pub async fn start(
+        &self,
+        provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
+    ) -> Result<OAuthStartResult, OAuthError> {
+        self.publisher
+            .current_snapshot()
+            .resolved_transport_proxy_for_oauth_selection(proxy_selection)
+            .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let driver = self
             .providers
             .get(provider)
@@ -192,22 +200,31 @@ impl OAuthService {
             .ok_or(OAuthError::UnsupportedProvider(provider))?
         {
             OAuthLoginFlow::AuthorizationCodePkce => {
-                self.start_authorization_code(provider, driver.as_ref())
+                self.start_authorization_code(provider, proxy_selection, driver.as_ref())
                     .await
             }
-            OAuthLoginFlow::DeviceCode => self.start_device_code(provider, driver.as_ref()).await,
+            OAuthLoginFlow::DeviceCode => {
+                self.start_device_code(provider, proxy_selection, driver.as_ref())
+                    .await
+            }
         }
     }
 
     async fn start_authorization_code(
         &self,
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         driver: &dyn ProviderDriver,
     ) -> Result<OAuthStartResult, OAuthError> {
         let redirect_uri = driver
             .oauth_redirect_uri()
             .ok_or(OAuthError::UnsupportedProvider(provider))?;
-        let prepared = AuthorizationCodeSession::prepare(provider, redirect_uri, Instant::now())?;
+        let prepared = AuthorizationCodeSession::prepare(
+            provider,
+            proxy_selection,
+            redirect_uri,
+            Instant::now(),
+        )?;
         let authorization_url = driver
             .oauth_authorization_url(&prepared.state, &prepared.code_challenge)?
             .to_string();
@@ -226,16 +243,20 @@ impl OAuthService {
     async fn start_device_code(
         &self,
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         driver: &dyn ProviderDriver,
     ) -> Result<OAuthStartResult, OAuthError> {
         let plan = driver.oauth_device_authorization_request()?;
-        let body = self.execute_request(provider, plan).await?;
+        let body = self
+            .execute_request(provider, proxy_selection, plan)
+            .await?;
         let authorization = driver
             .parse_oauth_device_authorization(&body)
             .map_err(OAuthError::from_token_response_error)?;
         let now = Instant::now();
         let prepared = DeviceCodeSession::prepare(
             provider,
+            proxy_selection,
             authorization.device_code(),
             authorization.expires_in_seconds(),
             authorization.poll_interval_seconds(),
@@ -276,7 +297,9 @@ impl OAuthService {
             Some(session.state()),
             Some(session.code_verifier()),
         )?;
-        let body = self.execute_request(session.provider, plan).await?;
+        let body = self
+            .execute_request(session.provider, session.proxy_selection, plan)
+            .await?;
         let token = driver
             .parse_oauth_token_response(&body)
             .map_err(OAuthError::from_token_response_error)?;
@@ -284,6 +307,7 @@ impl OAuthService {
             self.providers.as_ref(),
             self.publisher.as_ref(),
             session.provider,
+            session.proxy_selection,
             token,
         )
         .await
@@ -309,7 +333,7 @@ impl OAuthService {
             .ok_or(OAuthError::ProviderUnavailable)?;
         let plan = driver.oauth_device_token_request(lease.device_code())?;
         let response = self
-            .execute_request_with_status(lease.provider(), plan)
+            .execute_request_with_status(lease.provider(), lease.proxy_selection(), plan)
             .await?;
         let poll = driver
             .parse_oauth_device_token(response.status, &response.body)
@@ -329,11 +353,13 @@ impl OAuthService {
             }
             OAuthDeviceTokenPoll::Authorized(token) => {
                 let provider = lease.provider();
+                let proxy_selection = lease.proxy_selection();
                 lease.finish();
                 activation::publish(
                     self.providers.as_ref(),
                     self.publisher.as_ref(),
                     provider,
+                    proxy_selection,
                     token,
                 )
                 .await
@@ -353,11 +379,12 @@ impl OAuthService {
     async fn execute_request(
         &self,
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         plan: OAuthRequestPlan,
     ) -> Result<bytes::Bytes, OAuthError> {
         let snapshot = self.publisher.current_snapshot();
         let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
+            .resolved_transport_proxy_for_oauth_selection(proxy_selection)
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         token_request::execute(
@@ -375,11 +402,12 @@ impl OAuthService {
     async fn execute_request_with_status(
         &self,
         provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
         plan: OAuthRequestPlan,
     ) -> Result<token_request::OAuthHttpResponse, OAuthError> {
         let snapshot = self.publisher.current_snapshot();
         let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
+            .resolved_transport_proxy_for_oauth_selection(proxy_selection)
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         token_request::execute_response(

@@ -37,7 +37,8 @@ const messages: Record<string, string> = {
   oauth_refreshed_access_token_rejected: "Token 已成功刷新，但新 Access Token 仍被上游拒绝。",
   oauth_token_refresh_failed: "Token 刷新链未完成。",
   oauth_account_restricted: "上游已明确限制此账号访问。",
-  oauth_provider_egress_restricted: "当前网络出口被上游拒绝，请检查或更换全局代理。",
+  oauth_provider_egress_restricted: "当前账号的 OAuth 出口被上游拒绝，请检查或更换该账号的出口代理。",
+  oauth_proxy_unavailable: "所选 OAuth 出口不可用，请选择已启用的出口代理。",
   oauth_quota_upstream_failed: "上游额度请求失败。",
   oauth_quota_unavailable: "OAuth 额度管理当前不可用。",
 };

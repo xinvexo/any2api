@@ -35,8 +35,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
    - `HTTP`
    - `SOCKS5`
 6. 系统内置一个不可删除、不可禁用的 `DIRECT` 代理。
-7. 系统可以选择一个全局代理。
-8. `ProviderCredential` 绑定 `DIRECT` 时表示使用全局代理；只有其绑定和全局代理均为 `DIRECT` 时才从本机直连。
+7. 系统可以选择一个仅供 OAuth 使用的默认出口；OAuthAccount 与交互式登录使用独立的 `Global` 或 `Profile(id)` 选择，前者继承默认出口，后者严格使用指定 Profile。
+8. `ProviderCredential` 绑定 `DIRECT` 时始终从本机直连；HTTP/SOCKS5 绑定使用该 Credential 的专属代理，均不受 OAuth 默认出口影响。OAuth 的 `Profile(DIRECT)` 同样明确表示本机直连，禁止复用 DIRECT 表示继承。
 9. `ProviderCredential` 与 `OAuthAccount` 只使用一套可选的每分钟请求数（RPM）限制，不再提供并发或 TPM 配置。
 10. 系统在当前 Route tier 内按稳定轮询选择尚有 RPM 名额的凭据；`in_flight` 仅作运行态观测。
 11. 系统支持会话粘性路由。
@@ -66,7 +66,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定 TLS ClientHello 的稳定字段集合与真实顺序策略、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得由 any2api 另加随机化来隐藏差异。
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
-38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider Driver 投影的稳定主体身份，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。Codex `chatgpt_account_id` 只是所选个人账户或工作区的路由标识；Codex 稳定主体优先使用工作区标识与 `chatgpt_user_id`（兼容 `user_id`）组成的身份，缺少成员主体 claim 时才回落规范化邮箱，禁止单独用工作区标识合并同一 Team 工作区的不同成员。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
+38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在 OAuth 出口集中同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider Driver 投影的稳定主体身份，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。Codex `chatgpt_account_id` 只是所选个人账户或工作区的路由标识；Codex 稳定主体优先使用工作区标识与 `chatgpt_user_id`（兼容 `user_id`）组成的身份，缺少成员主体 claim 时才回落规范化邮箱，禁止单独用工作区标识合并同一 Team 工作区的不同成员。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
 39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop。任何上游认证面当前都不重新压缩请求正文：所有上游请求发送 identity JSON 并删除入口压缩元数据，保证发往不同凭据的字节完全一致，上游 prompt cache 才能跨账号命中（ADR-0139 的 Codex OAuth zstd 重压缩由 `docs/adr/0149-restore-cache-continuous-request-surface.md` 停用）。
 40. Codex 本机额度统计只使用官方窗口使用率和本地 SQLite 中已经落库的 RequestLog：本地记录就是统计事实，不评估证据、置信度、样本质量或异常值。每个有限正 `Δused%` 且本地 Credits 为正的区间立即加入 `total_delta_used_percent`、`total_local_cost_credits` 与完成区间数，容量唯一按 `Σlocal Credits × 100 / ΣΔused%` 计算。官方额度观测与 RequestLog 使用同一进程内单调位置划分区间；观测在同一日志 Writer 排入 flush barrier 并等待其完成，SQL 只汇总同一进程 `(anchor.sequence, observation.sequence]` 的记录。显式 reset 命令不修改统计；只有下一次官方观测显示 `reset_at` 变化或使用率下降时才更新锚点并开始新窗口，全部历史累计保持不变。只有凭据身份、窗口 ID/类型/时长或已知订阅层级改变才清空累计。每条 RequestLog 在 Attempt 准备时从当前 PublishedSnapshot 的 `oauth.codex.rate_card` 冻结模型 Token→Credits 费率与卡片 ID，后续改价不得重算历史日志。完整决策见 `docs/adr/0145-configurable-codex-quota-rate-card.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
@@ -259,7 +259,7 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 
 负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总、进程活动请求/后台任务计数与当前策略下的活动显式会话数进入总览；前两者共用受认证的 `/api/admin/balancing` 查询与前端 Query cache，不再轮询公共健康端点。`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md`、`docs/adr/0066-active-session-overview.md` 与 `docs/adr/0108-minimal-public-health-response.md`。
 
-设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。Codex 额度费率不进入通用设置页，主导航提供独立“额度费率”菜单和 `/quota-rates` deep link；该页面仍通过 SettingRegistry 读写同一个覆盖值，不建立第二套配置来源。
+设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个 OAuth 默认出口入口。Codex 额度费率不进入通用设置页，主导航提供独立“额度费率”菜单和 `/quota-rates` deep link；该页面仍通过 SettingRegistry 读写同一个覆盖值，不建立第二套配置来源。
 
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
@@ -827,7 +827,7 @@ Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原�
 模型目录结果中。保存手工名称只表示管理员声明该 Key 可调用它，不伪造模型探测成功。
 
 Web 中尚未持久化的 Credential 模型探测状态必须绑定到本次实际依赖的资源版本：当前
-Provider Endpoint、当前 ProviderCredential，以及按 DIRECT 继承规则解析出的实际代理。
+Provider Endpoint、当前 ProviderCredential，以及该 Credential 明确绑定的实际代理。
 scope 不得使用全局配置 revision，也不得因其他 Endpoint、Credential 或无关代理变化而清空；
 相关 Endpoint、Credential、Secret/generation 或实际代理版本变化时则必须隐藏旧结果。每次
 探测使用单调请求序号，只有 scope 与序号都仍匹配的最新请求可以写入结果、错误和 loading
@@ -844,7 +844,7 @@ oauth_accounts
 ├─ token_version                # OAuth material CAS version
 ├─ account_generation           # account routing-health identity generation
 ├─ config_version
-├─ proxy_profile_id             # fixed DIRECT for the first slice
+├─ proxy_profile_id             # nullable; NULL = Global, value = exact Profile (DIRECT included)
 ├─ requests_per_minute          # nullable; NULL = no local rate limit
 ├─ enabled
 ├─ safe_account_email           # optional, never a token
@@ -860,7 +860,7 @@ oauth_account_models
 
 OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key field. SQLite JSON uses one any2api token-document schema shared by all Providers; `provider_kind` and `expires_at` remain in their existing typed columns instead of being duplicated inside JSON. Storage enforces bounded object JSON and a non-empty access token; the Provider current-document decoder owns the exact field schema and rejects unknown external fields before publication. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API. External import formats are normalized before this boundary and are never accepted by the runtime document decoder.
 
-Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。它们的已选模型、DIRECT/全局代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
+Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。Domain 使用 `OAuthProxySelection::Global | Profile(ProxyProfileId)` 表达无歧义的出口选择，Storage 才把 `Global` 映射为 nullable `proxy_profile_id`。账号的已选模型、OAuth 专用代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
 
 `token_version` 是 OAuth 认证材料 CAS 与认证健康代际；`account_generation` 是账号级路由健康身份代际。定时刷新和已确认同一 Provider 身份的重新授权只增加 `token_version`，创建全新的 `auth_error` 状态，同时复用同一 `account_generation` 的额度、权限和模型冷却；从 disabled 重新 enabled 时增加 `account_generation` 并整体重置健康。完整决策见 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
 
@@ -1111,46 +1111,43 @@ erDiagram
 
 ### 10.2 代理解析规则
 
-`ProviderCredential` 绑定 `DIRECT` 的语义是使用全局代理，而不是强制本机直连。
+全局代理只属于 OAuth 出口策略，并作为 OAuth 默认出口。`ProviderCredential` 始终按自身绑定解析，`DIRECT` 明确表示本机直连。OAuthAccount 单独保存 `OAuthProxySelection`：`Global` 表示继承 OAuth 默认出口，`Profile(id)` 表示严格使用指定 Profile；因此 `Profile(DIRECT)` 也明确表示本机直连。交互式登录先选择同一类型，成功后把选择写入新建或重新授权后的账号。Token 刷新、额度操作和数据面统一按账号选择解析。
 
 ```text
 ProviderCredential 绑定 HTTP/SOCKS5  → 使用该上游凭据的专属代理
-ProviderCredential 绑定 DIRECT       → 使用全局代理
-全局代理为 DIRECT                      → 最终从本机直连
+ProviderCredential 绑定 DIRECT       → 从本机直连
+OAuthAccount 选择 Profile(HTTP/SOCKS5) → 使用该账号的显式代理
+OAuthAccount 选择 Profile(DIRECT)      → 从本机直连
+OAuthAccount 选择 Global               → 使用 OAuth 默认出口
 ```
 
 示例：
 
-| 全局代理 | ProviderCredential 绑定 | 实际出口 |
-|---|---|---|
-| 香港 HTTP | DIRECT | 香港 HTTP |
-| 香港 HTTP | 美国 SOCKS5 | 美国 SOCKS5 |
-| DIRECT | DIRECT | 本机直连 |
-| DIRECT | 美国 SOCKS5 | 美国 SOCKS5 |
+| OAuth 默认出口 | ProviderCredential 绑定 | OAuthAccount 选择 | API Key 实际出口 | OAuth 实际出口 |
+|---|---|---|---|---|
+| 香港 HTTP | DIRECT | Global | 本机直连 | 香港 HTTP |
+| 香港 HTTP | 美国 SOCKS5 | Global | 美国 SOCKS5 | 香港 HTTP |
+| 香港 HTTP | DIRECT | Profile(美国 SOCKS5) | 本机直连 | 美国 SOCKS5 |
+| 香港 HTTP | DIRECT | Profile(DIRECT) | 本机直连 | 本机直连 |
 
-伪代码：
+配置编译器必须分别解析两类凭据：
 
 ```rust
-fn resolve_proxy(global: ProxyId, credential: ProxyId) -> ProxyId {
-    if credential == DIRECT_ID {
-        global
-    } else {
-        credential
-    }
-}
+let api_key_proxy = proxies.get(credential.proxy_profile_id);
+let oauth_proxy = proxies.resolve_oauth(account.proxy_selection);
 ```
 
-当前设计不提供“`ProviderCredential` 强制绕过全局代理”的额外语义。
+修改 OAuth 默认出口不得改变 API Key Credential 的实际代理、模型探测 scope 或数据面出口，也不得改变选择任何具体 Profile 的 OAuthAccount。OAuth 账号显式代理与 OAuth 默认出口失败都必须 fail-closed，禁止互相回退或回退本机直连。完整决策见 `docs/adr/0150-oauth-only-global-proxy.md`。
 
 ### 10.3 Fail-Closed
 
-如果 `ProviderCredential` 绑定的专属 HTTP/SOCKS5 代理不可用：
+如果 `ProviderCredential` 或 `OAuthAccount` 绑定的专属 HTTP/SOCKS5 代理不可用：
 
-- 不允许回退全局代理；
+- 不允许回退 OAuth 默认出口；
 - 不允许回退 DIRECT；
-- 结束当前 `ProviderCredential` 的 `in_flight` 生命周期 Guard；已预留 RPM 名额不归还；
+- 结束当前运行时 Credential 的 `in_flight` 生命周期 Guard；已预留 RPM 名额不归还；
 - 将代理或 Credential 标记为短暂不可用；
-- 对未建立会话绑定的请求重新选择其他满足条件的 `ProviderCredential`；
+- 对未建立会话绑定的请求重新选择其他满足条件的运行时 Credential；
 - 对已建立会话绑定的请求不切换 Credential，只能等待原目标恢复、在 RetrySafety 允许时重试原目标，或返回绑定不可用错误。
 
 ### 10.4 代理认证与管理测试
@@ -1170,7 +1167,7 @@ ProxyProfile 可见元数据
 - 设置或替换认证使用专用管理写端点，清除认证使用独立删除端点；普通代理元数据 PATCH 不接受密码；
 - 密码只在专用管理请求体、SQLite Secret 字段和对应 PublishedSnapshot 代际的内存 Secret 中存在，不进入普通读取/响应 DTO、`TransportRequest.headers`、URL、日志、React Query Cache 或浏览器存储；Transport 仅在受控 Client 构建边界将其编码为代理认证头或 SOCKS5 握手材料；
 - HTTP 与 SOCKS5 统一使用 reqwest 的逐 Client 代理认证配置，禁止把凭据拼进代理 URL；
-- 认证失败继续遵守 Fail-Closed，不得回退全局代理或 DIRECT。
+- 认证失败继续遵守 Fail-Closed，不得回退其他代理或 DIRECT。
 
 管理面提供 `POST /api/admin/proxies/{id}/test`。该端点不接受 Provider Endpoint 或 URL，Runtime 统一对代码内集中定义的中立 HTTPS 目标 `https://example.com/` 发送空 GET，并以有界响应头等待时间验证 DNS、代理连接/认证、TLS 与响应头可达性。这是通用公网连通性探测，不表示任何 Provider 可用，也不得被额度或账号诊断复用为“支持 OpenAI/Claude/Grok”的证据；Provider 出口兼容性只能由真实 Provider 响应中的结构化声明或经过审计的明确边缘阻断证据确认，禁止为此重放去除认证的受保护端点。通用探测不携带 ProviderCredential，也不依赖 Provider Endpoint 是否存在、启用或可达。普通目标 HTTP 响应头（包括非 2xx）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`。响应只关联 Proxy ID、捕获的配置 revision 与 Proxy config version，并返回延迟、HTTP 状态或脱敏失败阶段/归因；不返回目标 IP、代理地址、响应正文或 Secret。Web 只展示与当前 Proxy 配置代际完全匹配的结果。管理探测不更新熔断或冷却状态，也不占用 Credential RPM 名额。
 
@@ -1697,7 +1694,7 @@ Responses → Chat Completions Bridge 自己生成的 `msg_*`、`rs_*`、`fc_*` 
 
 Codex、Claude、Grok 与 Kimi 的上游 `ProviderCredential` 当前都只支持 API Key。只有 Codex、Claude 与 Grok 的 OAuth 登录结果可以创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。Kimi `supports_oauth=false`，不得出现在 OAuth 登录、导入或账号表中。普通 API Key 管理端点不接受 OAuth JSON。
 
-Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
+Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录按 session 选择的 OAuth 代理解析，账号刷新与数据面按账号绑定解析。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）和自身代理绑定；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
 
 Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不宣称支持原生 `/responses/compact`，也不借 OAuth 开放 Chat Completions 或 Images 候选。Grok OAuth 的可选模型目录使用 Provider 内置且可测试的文本模型集合。
 
@@ -2095,7 +2092,7 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 
 会话粘性绑定 Credential，而不是实际代理。
 
-如果 Credential 绑定 `DIRECT` 并继承全局代理，修改全局代理后，同一会话仍使用原 Credential，但出口会随全局代理变化。需要固定出口的 Credential 应明确绑定 HTTP/SOCKS5 代理。
+ProviderCredential 会话同时沿用该 Credential 的明确代理绑定；`DIRECT` 始终保持本机直连，修改 OAuth 默认出口不会改变其出口。OAuthAccount 会话仍绑定原账号及其代理选择：`Profile(id)` 固定使用指定 Profile，只有 `Global` 随 OAuth 默认出口热更新。修改 OAuthAccount 的代理选择会推进账号路由健康代际；已建立会话仍绑定原账号，后续按新 PublishedSnapshot 使用该账号的新出口，不切换 Credential。
 
 ### 13.7 绑定作用域与配置变化
 
@@ -2582,12 +2579,13 @@ Codex 与 Claude 使用 Authorization Code + PKCE：
 
 ```text
 已认证管理面选择 Codex 或 Claude
+→ 管理员选择 Global（继承 OAuth 默认出口）或具体 Profile（DIRECT 表示本机直连）
 → Runtime 生成内存 session/state/PKCE verifier
 → Web 打开 Provider authorization URL
 → 管理员粘贴固定 localhost Redirect URI 的完整 callback URL
 → 校验 session、state、Provider 和单次使用
 → Provider Driver 构建 TokenRequestPlan
-→ Runtime 使用当前 DIRECT/全局代理执行 Token exchange
+→ Runtime 按 session 保存的 OAuth 代理选择执行 Token exchange
 → Provider Driver 解析 Token Endpoint 响应为 OAuthTokenMaterial
 → SQLite 事务创建 OAuthAccount 与默认模型集合
 → 完整编译 ProviderCredential + OAuthAccount 的 RoutingCredential 投影
@@ -2599,8 +2597,9 @@ Grok 使用 Device Authorization Grant：
 
 ```text
 已认证管理面选择 Grok
+→ 管理员选择 Global（继承 OAuth 默认出口）或具体 Profile（DIRECT 表示本机直连）
 → Provider Driver 构建设备授权请求
-→ Runtime 使用当前 DIRECT/全局代理取得 device_code、user_code、验证地址、有效期和 interval
+→ Runtime 按 session 保存的 OAuth 代理选择取得 device_code、user_code、验证地址、有效期和 interval
 → device_code 只写入服务端内存 session；Web 只显示 user_code 与验证地址
 → Web 按服务端返回的等待时间调用显式 poll API
 → Runtime 取得带唯一代际的 DevicePollLease；Store 保留占位并继续计入 64 个容量
@@ -2614,10 +2613,9 @@ OAuth session 最多同时 64 个，只在内存存在；DevicePollLease 的占�
 容量名额。Codex 与 Claude 的 session 固定 10 分钟；Grok session 使用 Provider 返回的有效期且最长 30
 分钟。同一 Device session 只允许一个活跃轮询 Lease，其他轮询得到有界等待提示。Codex 与 Claude 的
 authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok 的 device/token Endpoint 与
-Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，
-失败禁止回退本机直连。
+Client ID，都由各自 Driver 固定。登录的每个网络阶段都按 session 保存的 `OAuthProxySelection` 解析；新建与重新授权成功后都把该选择写入最终账号。刷新、额度与数据面都按 OAuthAccount 选择解析，失败禁止回退 OAuth 默认出口、其他账号代理或本机直连。
 
-交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 稳定主体身份。该身份由对应 Provider Driver 投影；Codex 使用工作区标识与 `chatgpt_user_id`/`user_id` 成员主体组成的身份，缺少成员 claim 时回落规范化邮箱，绝不单独使用共享工作区 ID。其他 Provider 保持 account ID 优先、无 account ID 时回落规范化邮箱。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。若新 Token 没有稳定身份，但与一条现有账号的同 Provider、同 Token 类型材料完全相同，也视为该凭据的重复登录并复用原账号；若稳定身份与精确 Token 分别命中不同记录，或精确 Token 命中多条记录，返回 `oauth_account_identity_conflict`，不猜测覆盖。没有匹配时才在同一发布锁内生成唯一标签并新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
+交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 稳定主体身份。该身份由对应 Provider Driver 投影；Codex 使用工作区标识与 `chatgpt_user_id`/`user_id` 成员主体组成的身份，缺少成员 claim 时回落规范化邮箱，绝不单独使用共享工作区 ID。其他 Provider 保持 account ID 优先、无 account ID 时回落规范化邮箱。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，把登录 session 的 `OAuthProxySelection` 写入账号，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。代理选择变化同时推进账号路由健康代际。若新 Token 没有稳定身份，但与一条现有账号的同 Provider、同 Token 类型材料完全相同，也视为该凭据的重复登录并复用原账号；若稳定身份与精确 Token 分别命中不同记录，或精确 Token 命中多条记录，返回 `oauth_account_identity_conflict`，不猜测覆盖。没有匹配时才在同一发布锁内生成唯一标签并按登录 session 的选择新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md`、`docs/adr/0147-codex-workspace-member-oauth-identity.md` 与 `docs/adr/0150-oauth-only-global-proxy.md`。
 
 OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 
@@ -2656,15 +2654,15 @@ Codex、Claude 与 Grok 当前 Token Endpoint 的成功响应都必须包含正�
 
 Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。`/wham/usage` 除使用率窗口外还解析购买 Credits 的 `has_credits`、`unlimited` 与可选非负十进制 `balance`，并解析 `spend_control.reached` 和声明的 `rate_limit_reached_type`；购买 Credits 与 rate-limit reset credits 是不同资源。管理 API 保留经过校验的原始 Credits 十进制字符串，并携带当前 PublishedSnapshot 的可配置 Credits/USD 展示汇率；Web 标签只写 `Credits`，按该汇率显示最多四位小数的美元等值，悬浮文本保留原始 Credits 与换算率。这是费率卡等值而不是可提现的法币余额，不参与路由或计费。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，显式 JSON `null` 表示当前没有活动订阅并投影为 Free，字段缺失或空白字符串表示上游没有提供可用层级并保持未知，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。额度刷新链必须保持只读：Grok 管理额度刷新只执行上述两个 GET，禁止为了获取限流 Header 调用 Responses、Chat Completions 或其他生成端点，也不从 billing 金额、本地用量或普通限流头猜测 Free Token 余额。Runtime 只执行 Provider 返回的通用只读查询计划，不增加 Provider 专用 `match`。
 
-额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。billing 与 user 查询均成功只证明该 Token 在抓取时通过认证，Web 不为成功结果重复显示“认证状态”。前一 access token 已被 401 拒绝且账号没有 refresh token 时返回 `oauth_refresh_token_missing`；refresh Endpoint 返回经过 Provider 声明 envelope 验证的永久失效码时返回 `oauth_refresh_permanently_rejected`；Token 成功刷新但同一认证操作重试后仍被 401 拒绝时返回 `oauth_refreshed_access_token_rejected`；刷新网络错误、5xx、超时、解析/校验/发布失败或无法识别的拒绝返回 `oauth_token_refresh_failed`。四类错误都携带同一安全分阶段诊断，不能再折叠为“认证失败”或“认证无法确认”。通用永久原因至少包含 `invalid_grant`；Codex 额外识别 `refresh_token_expired`、`refresh_token_reused` 与 `refresh_token_invalidated`。
+额度请求、刷新和数据面共用 OAuthAccount 的代理解析与严格 SSRF 设置；登录使用同一解析函数处理 session 绑定。所有路径禁用重定向，显式账号代理失败不得回退 OAuth 默认出口，继承的默认出口失败也不得回退本机直连；401 最多触发一次 token refresh 和一次重试。billing 与 user 查询均成功只证明该 Token 在抓取时通过认证，Web 不为成功结果重复显示“认证状态”。前一 access token 已被 401 拒绝且账号没有 refresh token 时返回 `oauth_refresh_token_missing`；refresh Endpoint 返回经过 Provider 声明 envelope 验证的永久失效码时返回 `oauth_refresh_permanently_rejected`；Token 成功刷新但同一认证操作重试后仍被 401 拒绝时返回 `oauth_refreshed_access_token_rejected`；刷新网络错误、5xx、超时、解析/校验/发布失败或无法识别的拒绝返回 `oauth_token_refresh_failed`。四类错误都携带同一安全分阶段诊断，不能再折叠为“认证失败”或“认证无法确认”。通用永久原因至少包含 `invalid_grant`；Codex 额外识别 `refresh_token_expired`、`refresh_token_reused` 与 `refresh_token_invalidated`。
 
-额度端点的 `403` 禁止按状态码直接宣称账号受限或封禁。Provider Driver 只能从同一次有界原始响应的声明字段或经过审计的 Provider 明确证据中把拒绝分类为“明确账号限制”“明确 Provider 出口拒绝”或“未分类”；首批 Codex 读取顶层 `code` 以及 `error.code/type` 的固定码表，并把正文同时包含官方客户端使用的 `Cloudflare` 与 `blocked` 标记视为边缘出口拒绝；Grok 只在声明字段中识别 `unauthorized:blocked-user`。未知码、普通 HTML/自然语言、畸形正文和没有上述组合证据的 `403` 保持未分类。禁止通过去掉 Authorization 或账号 ID 后重放受保护额度端点来推断出口状态：未认证请求本身可能被端点策略返回 `403`，二次请求既不能消除歧义，又增加延迟和边缘风控面。管理 API 分别使用 `oauth_account_restricted`、`oauth_provider_egress_restricted` 与 `oauth_quota_upstream_failed`，Web 必须明确区分“账号被上游限制”“当前网络/全局代理出口被 Provider 拒绝”和“无法确认的上游失败”。完整决策见 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md` 与 `docs/adr/0106-side-effect-free-oauth-quota-evidence.md`。
+额度端点的 `403` 禁止按状态码直接宣称账号受限或封禁。Provider Driver 只能从同一次有界原始响应的声明字段或经过审计的 Provider 明确证据中把拒绝分类为“明确账号限制”“明确 Provider 出口拒绝”或“未分类”；首批 Codex 读取顶层 `code` 以及 `error.code/type` 的固定码表，并把正文同时包含官方客户端使用的 `Cloudflare` 与 `blocked` 标记视为边缘出口拒绝；Grok 只在声明字段中识别 `unauthorized:blocked-user`。未知码、普通 HTML/自然语言、畸形正文和没有上述组合证据的 `403` 保持未分类。禁止通过去掉 Authorization 或账号 ID 后重放受保护额度端点来推断出口状态：未认证请求本身可能被端点策略返回 `403`，二次请求既不能消除歧义，又增加延迟和边缘风控面。管理 API 分别使用 `oauth_account_restricted`、`oauth_provider_egress_restricted` 与 `oauth_quota_upstream_failed`，Web 必须明确区分“账号被上游限制”“当前账号解析后的 OAuth 出口被 Provider 拒绝”和“无法确认的上游失败”。完整决策见 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md` 与 `docs/adr/0106-side-effect-free-oauth-quota-evidence.md`。
 
 额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 真实 Credits、Codex 可用重置次数、安全到期时间、Grok billing 金额、账号诊断证据、可选上游 Token 余额、可选本机容量统计与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 金额必须是可安全表示的整数美元分；预付余额和按量上限/使用量独立展示，缺失字段保持未知，禁止从金额或有效周期猜测 included allowance 百分比。Codex 本机统计的规范单位是 Credits，不是上游余额或 API 美元；它只携带窗口标识、累计区间数和由累计总量计算的容量，不提供周期层级、最近区间、证据、置信度或诊断状态。美元等值只能由额度响应携带的当前费率卡换算，Web 不得另存定价常量。
 
 Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请求，因此 billing 与 subscription 没有提供可验证 Token 数字时保持未知。只有真实数据面响应包含 `subscription:free-usage-exhausted`，且正文同时包含通过安全整数校验的 `tokens (actual/limit)` 时，当前运行代际的内存耗尽观测才可以投影为 `source=upstream` 的 Token 已用、上限与零剩余；没有数字的明确耗尽仍只展示耗尽状态。查询到 Free、金额或账单周期都不能清除既有耗尽观测，只有后续成功数据面请求或其他明确可用证据可以清除。内存耗尽观测不进入 SQLite；最后一次成功的安全额度快照可以按版本化、有界的 Provider-neutral payload 写入独立 SQLite 表，但不进入 OAuth JSON、日志、PublishedSnapshot 或浏览器持久化，也不得用于启动时恢复耗尽健康。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，并先把这次重置前观测按普通刷新持久化，使 consume 前的全部本地记录进入累计。Web 为一次确认生成 UUID v4 `redeem_request_id`，同次失败重试继续复用，Server 只校验并透传，Runtime 在额度复核、401 后重试和 consume 中始终使用同一个值，使上游能够按该键幂等处理。consume 成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清空或切换统计；下一次官方 quota 观测确认 `reset_at` 变化或使用率下降后才更新统计锚点并开始新窗口，全部历史累计保持不变。不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md`、`docs/adr/0106-side-effect-free-oauth-quota-evidence.md`、`docs/adr/0111-activity-driven-persistent-oauth-quota.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
-额度管理 API 把缓存读取与权威刷新分开：`GET /api/admin/oauth/accounts/{id}/quota` 只读取 SQLite，未曾成功刷新时返回 `null`；`POST /api/admin/oauth/accounts/{id}/quota/refresh` 才执行 Provider 只读查询。手动、批量和自动 Worker 的并发 refresh 必须共享同一个账号级 singleflight；同时到达的调用只产生一条 Provider 查询链并取得同一成功或失败结果。Reset 与 refresh 使用同一账号级操作门闩串行，禁止重置完成后由更早开始的查询重新写回旧快照。手动刷新必须在快照成功持久化后才返回成功，失败保留上一份成功快照。单节点内以账号级操作提交顺序作为额度观测顺序，SQLite upsert 无条件保存后完成的成功查询；`fetched_at` 只表示展示时间，不参与新旧判定，因此同秒抓取和系统时钟回拨都不能拒绝当前结果。读取持久化快照不得同步路由健康；权威刷新仍按当前进程的配置代际应用 ADR-0070 的健康证据。额度查询与 reset 不进入数据面 Route 选择或预留本地数据面 RPM，但继续受全局代理、严格 SSRF、禁重定向、有界 Body、读取超时、账号级操作门闩、自动 Worker 的固定并发/账号最小间隔，以及与登录和 Token 刷新共用的 Provider 级请求起始间隔约束。
+额度管理 API 把缓存读取与权威刷新分开：`GET /api/admin/oauth/accounts/{id}/quota` 只读取 SQLite，未曾成功刷新时返回 `null`；`POST /api/admin/oauth/accounts/{id}/quota/refresh` 才执行 Provider 只读查询。手动、批量和自动 Worker 的并发 refresh 必须共享同一个账号级 singleflight；同时到达的调用只产生一条 Provider 查询链并取得同一成功或失败结果。Reset 与 refresh 使用同一账号级操作门闩串行，禁止重置完成后由更早开始的查询重新写回旧快照。手动刷新必须在快照成功持久化后才返回成功，失败保留上一份成功快照。单节点内以账号级操作提交顺序作为额度观测顺序，SQLite upsert 无条件保存后完成的成功查询；`fetched_at` 只表示展示时间，不参与新旧判定，因此同秒抓取和系统时钟回拨都不能拒绝当前结果。读取持久化快照不得同步路由健康；权威刷新仍按当前进程的配置代际应用 ADR-0070 的健康证据。额度查询与 reset 不进入数据面 Route 选择或预留本地数据面 RPM，但继续受账号解析后的 OAuth 代理、严格 SSRF、禁重定向、有界 Body、读取超时、账号级操作门闩、自动 Worker 的固定并发/账号最小间隔，以及与登录和 Token 刷新共用的 Provider 级请求起始间隔约束。
 
 真实公共请求只有在选中 OAuthAccount 且 Attempt 已进入 Transport 后才记录额度活动；buffered 请求在 Attempt 结算时记录，streaming 请求在 EOF、错误、断连或 Drop 时由同一资源 Guard 只记录一次。Guard 只负责调度已有的活动驱动额度刷新。Runtime 在最终请求准备阶段从请求捕获的 PublishedSnapshot 按精确模型与 `standard`/`fast` 速度档冻结版本化 Codex Credits 费率；RequestLog 完成时只要存在完整 input/output usage，就把输入、缓存输入和输出换算为整数 nano-Credits，与状态、取消、错误或 HTTP 结果无关。cache usage 缺失按零处理；未知模型、未知 tier 或缺 usage 保持未计价。费率在请求时冻结，禁止未来用新费率重算旧 Token；没有官方 Codex quota cache-write 倍率证据时不纳入 cache write。
 
@@ -2983,8 +2981,8 @@ oauth_token_refresh_failed
 - 设置、替换或清除代理用户名/密码；
 - 测试代理连接；
 - 查看最近延迟与错误；
-- 设置全局代理；
-- 查看被哪些 Credential 引用；
+- 设置 OAuth 默认出口；
+- 查看被哪些 ProviderCredential 或 OAuthAccount 引用；
 - 被引用的代理禁止直接删除。
 
 代理测试固定使用 Runtime 内的中立公网 HTTPS 目标，页面不加载或选择 Provider Endpoint。测试列为状态和延迟预留固定尺寸的两个胶囊：完成后只显示“成功/失败”与“延迟”，未测试、测试中和请求错误也使用同一布局槽位，禁止通过变长行内文字导致列宽或表格抖动。脱敏失败阶段可作为非布局诊断信息，不增加可见胶囊。密码输入只保存在认证表单的局部组件状态，提交完成、关闭或卸载后立即清空。
@@ -3013,9 +3011,9 @@ Provider 详情页包含 Credential 表格：
 
 | Credential | 类型 | 绑定代理 | 实际代理 | RPM | 60 秒已用 | `in_flight` | 状态 |
 |---|---|---|---|---:|---:|---:|---|
-| Codex-A | Provider API Key | DIRECT | 香港 HTTP | 60 | 18 | 4 | 正常 |
+| Codex-A | Provider API Key | DIRECT | DIRECT | 60 | 18 | 4 | 正常 |
 | Codex-B | Provider API Key | 美国 SOCKS5 | 美国 SOCKS5 | 20 | 20 | 2 | RPM 用尽 |
-| Claude-A | Provider API Key | DIRECT | 香港 HTTP | 不限 | — | 0 | 正常 |
+| Claude-A | Provider API Key | DIRECT | DIRECT | 不限 | — | 0 | 正常 |
 
 Provider 页面只管理 API Key Credential，不提供 OAuth 入口，也不显示 OAuth Credential 类型。
 
@@ -3034,8 +3032,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 - 作为独立一级菜单和 `/oauth` deep link 页面存在；
 - 只选择 Codex、Claude 或 Grok，不选择 Provider Endpoint 或 Provider API Key；
+- 开始登录前手动选择 Global（跟随 OAuth 默认出口）或具体 Profile；选择 DIRECT 明确表示本机直连，所有授权网络阶段复用该选择；
 - Codex/Claude 打开授权页面后允许粘贴完整 localhost callback URL；Grok 显示 Device user code 和验证地址，并按服务端给出的间隔自动轮询，不显示 callback 输入；
-- 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；
+- 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、代理选择、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；新建与重新授权后的账号都保存本次登录选择；
 - 当前 Provider 的完整账号集合按 `OAuthAccount.created_at` 升序展示，最早添加的账号在前、新建账号在末尾；创建时间相同时按稳定账号 ID 升序打破平局。该顺序只属于管理面展示，不改变数据面候选池与稳定轮询语义；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示本机容量统计：尚无累计区间时显示“尚无本地统计”，有统计时只用紧凑 `$已用/$总量`。悬浮详情只展示金额、Credits 换算和累计区间数，不显示证据、置信度、样本质量、最近区间或近似符号；显式 reset 前形成的全部区间始终计入累计值。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后保留现有快照并立即重新查询；只有该查询拿到的官方 reset 边界才能开始下一个窗口周期；
@@ -3074,7 +3073,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 设置分类 Tab 固定在主内容滚动区域顶部；设置组、设置行、模型列表与高级设置使用留白和语义背景分区，禁止堆叠顶线、底线和连续行分割线；
 - 固定 Tab 顶栏是设置页唯一的页面级操作区：当前配置页统一在此刷新，只有存在有效未保存修改时才显示“保存”；设置行不提供独立保存、立即刷新或恢复默认操作。页面草稿只包含具体覆盖值，并按同一 `config_revision` 在一个 SQLite 事务中原子校验、提交并只发布一次配置快照，禁止由 Web 串行调用多个单项写接口产生部分保存；
 - 当前配置页存在未保存修改时，站内路由切换必须提供“保存并离开、放弃修改、取消”三种选择；浏览器刷新或关闭使用原生 `beforeunload` 警告。保存失败或草稿无效时保持原页和草稿，不得继续导航；
-- 全局代理只在代理页配置，设置页不重复提供入口。
+- OAuth 默认出口只在代理页配置，设置页不重复提供入口。
 
 ### 19.6 网关密钥
 
@@ -3285,13 +3284,18 @@ Client 使用 10 秒连接超时和 30 秒无进展读取超时，元数据/chec
 ```text
 Provider URL 1 ── N Credential
 Credential 1 ── 1 Proxy Binding
-Credential DIRECT ──> Global Proxy
-Global DIRECT ──> Local Network
+ProviderCredential DIRECT ──> Local Network
+ProviderCredential HTTP/SOCKS5 ──> Dedicated Proxy
+OAuth Default Proxy ──> Global OAuth Login Session / Global OAuthAccount
+OAuthAccount Global ──> OAuth Default Proxy
+OAuthAccount Profile(DIRECT) ──> Local Network
+OAuthAccount Profile(HTTP/SOCKS5) ──> Account-Specific Proxy
+OAuth Default DIRECT ──> Local Network
 HTTP/SOCKS5 Proxy Auth ──> SQLite Plaintext + Per-Client Sidecar
 ProviderCredential ──> API Key Only
 OAuthAccount ──X ProviderEndpoint / ProviderCredential
-OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
-OAuth Session/PKCE ──> Memory Only + 10 Minute TTL + One-Time Exchange
+OAuthAccount ──> Fixed Provider Endpoint + OAuth Proxy Binding + Selected Models
+OAuth Session/PKCE ──> Selected Proxy Binding + Memory Only + 10 Minute TTL + One-Time Exchange
 Grok Device Code Session ──> Memory Only + Provider TTL (Max 30 Minutes) + Counted RAII Poll Lease
 OAuth Token ──> OAuthAccount SQLite JSON (Plaintext, No DTO/Log/Export)
 Grok ──> ProviderCredential API Key + Independent OAuthAccount

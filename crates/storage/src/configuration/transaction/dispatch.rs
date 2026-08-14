@@ -149,6 +149,7 @@ pub(super) async fn execute_mutation(
             id,
             provider_kind,
             draft,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,
@@ -161,6 +162,7 @@ pub(super) async fn execute_mutation(
                     id,
                     provider_kind,
                     draft,
+                    proxy_selection,
                     safe_account_email,
                     expires_at,
                     created_at,
@@ -175,6 +177,7 @@ pub(super) async fn execute_mutation(
         ConfigurationMutation::ReauthorizeOAuthAccount {
             id,
             expected_token_version,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,
@@ -184,6 +187,7 @@ pub(super) async fn execute_mutation(
             OAuthAccountMutation::Reauthorize {
                 id,
                 expected_token_version,
+                proxy_selection,
                 safe_account_email,
                 expires_at,
                 models,
@@ -194,12 +198,14 @@ pub(super) async fn execute_mutation(
             id,
             expected_config_version,
             draft,
+            proxy_selection,
         } => execute!(
             mutate_oauth_account_configuration,
             OAuthAccountMutation::Update {
                 id,
                 expected_config_version,
                 draft,
+                proxy_selection,
             },
         ),
         ConfigurationMutation::SetOAuthAccountModels {

@@ -1,4 +1,6 @@
-use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{
+    OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind, ProxyProfileId,
+};
 use any2api_provider::api::{OAuthTokenMaterial, encode_oauth_account_document};
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -23,6 +25,7 @@ async fn exact_token_login_without_identity_reauthorizes_existing_account() {
             existing_id,
             ProviderKind::Claude,
             OAuthAccountDraft::new("Existing OAuth", None, false).expect("disabled OAuth draft"),
+            OAuthProxySelection::Global,
             Some("person@example.com".to_owned()),
             Some(1_800_000_000),
             Vec::new(),
@@ -59,6 +62,11 @@ async fn exact_token_login_without_identity_reauthorizes_existing_account() {
     assert_eq!(account.label(), "Existing OAuth");
     assert!(!account.enabled());
     assert_eq!(account.token_version(), 2);
+    assert_eq!(account.account_generation(), 2);
+    assert_eq!(
+        account.proxy_selection(),
+        OAuthProxySelection::Profile(ProxyProfileId::DIRECT)
+    );
     assert_eq!(account.safe_account_email(), Some("person@example.com"));
     assert_eq!(current_token.access_token(), "new-access");
     assert_eq!(current_token.refresh_token(), Some("shared-refresh"));
@@ -91,6 +99,7 @@ async fn stable_and_exact_token_conflict_does_not_publish() {
             stable_id,
             ProviderKind::Claude,
             oauth_account_draft("Stable OAuth"),
+            OAuthProxySelection::Global,
             stable.email().map(str::to_owned),
             stable.expires_at(),
             Vec::new(),
@@ -104,6 +113,7 @@ async fn stable_and_exact_token_conflict_does_not_publish() {
             exact_id,
             ProviderKind::Claude,
             oauth_account_draft("Exact OAuth"),
+            OAuthProxySelection::Global,
             exact.email().map(str::to_owned),
             exact.expires_at(),
             Vec::new(),
@@ -154,6 +164,7 @@ async fn codex_team_members_are_independent_and_same_member_reauthorizes() {
             first_id,
             ProviderKind::Codex,
             oauth_account_draft("Team member A"),
+            OAuthProxySelection::Global,
             first.email().map(str::to_owned),
             first.expires_at(),
             Vec::new(),
@@ -200,6 +211,7 @@ fn activation(id: OAuthAccountId, token: OAuthTokenMaterial) -> OAuthAccountActi
     OAuthAccountActivation {
         id,
         provider_kind: token.provider(),
+        proxy_selection: OAuthProxySelection::Profile(ProxyProfileId::DIRECT),
         preferred_label: token.email().map(str::to_owned),
         safe_account_email: token.email().map(str::to_owned),
         expires_at: token.expires_at(),
@@ -214,6 +226,7 @@ fn codex_activation(id: OAuthAccountId, token: OAuthTokenMaterial) -> OAuthAccou
     OAuthAccountActivation {
         id,
         provider_kind: token.provider(),
+        proxy_selection: OAuthProxySelection::Global,
         preferred_label: token.email().map(str::to_owned),
         safe_account_email: token.email().map(str::to_owned),
         expires_at: token.expires_at(),

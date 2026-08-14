@@ -7,7 +7,7 @@
 
 ## 背景
 
-ADR-0123 已经按 OAuthAccount、路由/认证代际和 traffic class 隔离 Client、TCP/TLS、HTTP/2 与 TLS resumption，但多个 OAuthAccount 仍按永久架构固定继承同一个全局 DIRECT/代理出口。连接隔离不会改变公网出口，也不会阻止多个独立 Client 在同一时刻建立连接。
+ADR-0123 已经按 OAuthAccount、路由/认证代际和 traffic class 隔离 Client、TCP/TLS、HTTP/2 与 TLS resumption。ADR-0150 允许每个 OAuthAccount 跟随 OAuth 默认出口或指定 Profile；选择同一出口的多个账号仍共享公网出口，连接隔离也不会阻止多个独立 Client 在同一时刻建立连接。
 
 当前定时 Token Worker、activity-driven quota Worker 和 Web 批量额度操作都允许最多 6 个账号并发。批量导入账号经常具有相近过期时间，并发数据面请求也会在相同 debounce 边界触发额度活动；本地受控 Transport 测试确认同一 Provider 的最多 6 个请求可以在同一调度 tick 同步进入 Transport。账号级 singleflight 只合并同一账号，不能约束跨账号起始突发。
 
@@ -21,7 +21,7 @@ ADR-0123 已经按 OAuthAccount、路由/认证代际和 traffic class 隔离 Cl
 4. 等待者取消时不得预留未来空槽。实现必须在 Provider 门闩内等待，到达实际起始时刻后才推进状态；取消自动释放门闩，下一等待者可使用原时刻。
 5. 账号级 refresh/quota singleflight、Token version CAS、quota operation gate、自动 Worker debounce/最小账号间隔、网络 timeout、Retry-After 与公共请求绝对 precommit budget 保持不变。Pacer 不创建第二套账号调度器，不预留或释放数据面 RPM。
 6. Data plane 明确不进入该 Pacer。OAuthAccount 的公开推理请求继续只服从统一路由、RPM、健康、粘性、重试和 Transport isolation；禁止借控制面保护增加隐藏的账号并发上限。
-7. 不增加随机 jitter、伪造设备身份、随机 Header、TLS 参数或 per-account 出口。多个 OAuthAccount 继续固定继承同一个全局出口；需要停止某账号全部 Provider 通信时仍必须删除账号。
+7. 不增加随机 jitter、伪造设备身份、随机 Header 或 TLS 参数。OAuthAccount 的账号级出口只来自管理员按 ADR-0150 作出的显式选择；需要停止某账号全部 Provider 通信时仍必须删除账号。
 
 ## 后果
 
@@ -36,4 +36,4 @@ ADR-0123 已经按 OAuthAccount、路由/认证代际和 traffic class 隔离 Cl
 - paused-time 单元测试证明同 Provider 连续许可至少相隔 500 ms，不同 Provider 可同时开始。
 - 取消排在门闩上的 Future 后，下一等待者不会被已取消任务多推迟一个间隔。
 - 定时刷新受控 Transport 测试证明第二账号在第一请求仍在途时可以开始，但不能早于最小起始间隔。
-- quota、401 refresh 和登录现有契约继续通过，证明所有路径仍使用账号级隔离、DIRECT/全局代理、严格 SSRF 和原有错误分类。
+- quota、401 refresh 和登录现有契约继续通过，证明所有路径仍使用账号级隔离、账号保存的代理选择、严格 SSRF 和原有错误分类。

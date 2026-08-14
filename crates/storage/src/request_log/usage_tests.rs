@@ -1,8 +1,8 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, ErrorClass,
-    MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog,
+    MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProtocolDialect,
+    ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog,
     RoutingCredentialId,
 };
 use tempfile::tempdir;
@@ -76,6 +76,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
                 true,
             )
             .expect("OAuth draft"),
+            proxy_selection: OAuthProxySelection::Global,
             safe_account_email: None,
             expires_at: None,
             models: vec!["gpt-test".into()],

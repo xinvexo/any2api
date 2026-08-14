@@ -10,6 +10,7 @@ use crate::admin::{
     upstream_usage,
 };
 
+use super::super::proxy_selection::OAuthProxySelectionDto;
 use super::super::refresh_diagnostic::OAuthRefreshFailureResponse;
 
 #[derive(Debug, Serialize)]
@@ -51,6 +52,7 @@ struct OAuthAccountResponse {
     id: OAuthAccountId,
     provider_kind: ProviderKind,
     label: String,
+    proxy_selection: OAuthProxySelectionDto,
     requests_per_minute: Option<u32>,
     enabled: bool,
     safe_account_email: Option<String>,
@@ -96,6 +98,7 @@ impl OAuthAccountResponse {
             id: account.id(),
             provider_kind: account.provider_kind(),
             label: account.label().to_owned(),
+            proxy_selection: account.proxy_selection().into(),
             requests_per_minute: account.requests_per_minute().map(RequestsPerMinute::get),
             enabled: account.enabled(),
             safe_account_email: account.safe_account_email().map(str::to_owned),
@@ -122,6 +125,7 @@ pub(super) struct OAuthAccountUpdateRequest {
     expected_revision: u64,
     expected_config_version: u64,
     label: String,
+    proxy_selection: OAuthProxySelectionDto,
     requests_per_minute: Option<u32>,
     enabled: bool,
 }
@@ -129,7 +133,15 @@ pub(super) struct OAuthAccountUpdateRequest {
 impl OAuthAccountUpdateRequest {
     pub(super) fn into_domain(
         self,
-    ) -> Result<(ConfigRevision, u64, OAuthAccountDraft), AdminApiError> {
+    ) -> Result<
+        (
+            ConfigRevision,
+            u64,
+            OAuthAccountDraft,
+            any2api_domain::OAuthProxySelection,
+        ),
+        AdminApiError,
+    > {
         let requests_per_minute = self
             .requests_per_minute
             .map(RequestsPerMinute::new)
@@ -141,6 +153,7 @@ impl OAuthAccountUpdateRequest {
             parse_revision(self.expected_revision)?,
             parse_version(self.expected_config_version)?,
             draft,
+            self.proxy_selection.into(),
         ))
     }
 }
@@ -188,8 +201,8 @@ fn parse_version(value: u64) -> Result<u64, AdminApiError> {
 #[cfg(test)]
 mod tests {
     use any2api_domain::{
-        OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId, ProviderKind,
-        ProxyConfiguration, ProxyProfile, ProxyProfileId,
+        OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
+        OAuthProxySelection, ProviderKind, ProxyConfiguration, ProxyProfile, ProxyProfileId,
     };
     use uuid::Uuid;
 
@@ -223,6 +236,7 @@ mod tests {
             OAuthAccountId::from_uuid(Uuid::from_u128(id)),
             ProviderKind::Codex,
             OAuthAccountDraft::new(label, None, true).expect("OAuth account draft"),
+            OAuthProxySelection::Global,
             None,
             None,
             created_at,

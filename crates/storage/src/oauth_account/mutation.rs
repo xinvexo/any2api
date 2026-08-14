@@ -1,6 +1,6 @@
 use any2api_domain::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
-    OAuthAccountValidationError, ProviderKind, ProxyConfiguration,
+    OAuthAccountValidationError, OAuthProxySelection, ProviderKind, ProxyConfiguration,
 };
 
 use crate::error::StorageError;
@@ -12,6 +12,7 @@ pub(crate) enum OAuthAccountMutation {
         id: OAuthAccountId,
         provider_kind: ProviderKind,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         created_at: String,
@@ -21,6 +22,7 @@ pub(crate) enum OAuthAccountMutation {
     Reauthorize {
         id: OAuthAccountId,
         expected_token_version: u64,
+        proxy_selection: OAuthProxySelection,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
         models: Vec<String>,
@@ -30,6 +32,7 @@ pub(crate) enum OAuthAccountMutation {
         id: OAuthAccountId,
         expected_config_version: u64,
         draft: OAuthAccountDraft,
+        proxy_selection: OAuthProxySelection,
     },
     SetModels {
         id: OAuthAccountId,
@@ -99,6 +102,7 @@ pub(crate) fn prepare_oauth_account_mutation(
             id,
             provider_kind,
             draft,
+            proxy_selection,
             safe_account_email,
             expires_at,
             created_at,
@@ -110,6 +114,7 @@ pub(crate) fn prepare_oauth_account_mutation(
             id,
             provider_kind,
             draft,
+            proxy_selection,
             safe_account_email,
             expires_at,
             created_at,
@@ -120,6 +125,7 @@ pub(crate) fn prepare_oauth_account_mutation(
         OAuthAccountMutation::Reauthorize {
             id,
             expected_token_version,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,
@@ -129,6 +135,7 @@ pub(crate) fn prepare_oauth_account_mutation(
             proxies,
             id,
             expected_token_version,
+            proxy_selection,
             safe_account_email,
             expires_at,
             models,
@@ -139,7 +146,15 @@ pub(crate) fn prepare_oauth_account_mutation(
             id,
             expected_config_version,
             draft,
-        } => update(current, proxies, id, expected_config_version, draft),
+            proxy_selection,
+        } => update(
+            current,
+            proxies,
+            id,
+            expected_config_version,
+            draft,
+            proxy_selection,
+        ),
         OAuthAccountMutation::SetModels {
             id,
             expected_config_version,
@@ -175,6 +190,7 @@ fn create(
     id: OAuthAccountId,
     provider_kind: ProviderKind,
     draft: OAuthAccountDraft,
+    proxy_selection: OAuthProxySelection,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
     created_at: String,
@@ -186,6 +202,7 @@ fn create(
         id,
         provider_kind,
         draft,
+        proxy_selection,
         safe_account_email,
         expires_at,
         created_at,
@@ -204,9 +221,10 @@ fn update(
     id: OAuthAccountId,
     expected_config_version: u64,
     draft: OAuthAccountDraft,
+    proxy_selection: OAuthProxySelection,
 ) -> Result<Option<PreparedOAuthAccountMutation>, StorageError> {
     let existing = require_account_version(current, id, expected_config_version)?;
-    let updated = existing.updated(draft)?;
+    let updated = existing.updated(draft, proxy_selection)?;
     if &updated == existing {
         return Ok(None);
     }
@@ -223,6 +241,7 @@ fn reauthorize(
     proxies: &ProxyConfiguration,
     id: OAuthAccountId,
     expected_token_version: u64,
+    proxy_selection: OAuthProxySelection,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
     models: Vec<String>,
@@ -233,7 +252,7 @@ fn reauthorize(
         .ok_or(StorageError::OAuthAccountNotFound(id))?;
     require_token_version(existing, expected_token_version)?;
     require_document_provider(&document, existing.provider_kind())?;
-    let updated = existing.reauthorized(safe_account_email, expires_at, models)?;
+    let updated = existing.reauthorized(proxy_selection, safe_account_email, expires_at, models)?;
     let models_changed = updated.models() != existing.models();
     let configuration = replace_account(current, proxies, Some(id), Some(updated.clone()))?;
     Ok(PreparedOAuthAccountMutation {

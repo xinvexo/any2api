@@ -203,13 +203,7 @@ function describeProxy(proxyId: string | undefined, configuration: ProxyConfigur
   if (!proxy) {
     return "出口代理配置不存在";
   }
-  if (proxy.kind !== "direct") {
-    return `${proxy.name}${proxy.enabled ? "" : " · 已停用"}`;
-  }
-  const global = configuration.items.find((item) => item.id === configuration.globalProxyId);
-  return global?.kind === "direct"
-    ? proxy.name
-    : `${proxy.name} · 继承 ${global?.name ?? "未知出口代理"}`;
+  return `${proxy.name}${proxy.enabled ? "" : " · 已停用"}`;
 }
 
 function Badge({

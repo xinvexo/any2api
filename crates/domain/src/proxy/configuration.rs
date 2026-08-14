@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{ProxyProfile, ProxyProfileId, ProxyValidationError};
+use crate::{OAuthProxySelection, ProxyProfile, ProxyProfileId, ProxyValidationError};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProxyConfiguration {
@@ -51,14 +51,16 @@ impl ProxyConfiguration {
     }
 
     #[must_use]
-    pub fn resolve(&self, credential_proxy_id: ProxyProfileId) -> Option<&ProxyProfile> {
-        let resolved = if credential_proxy_id == ProxyProfileId::DIRECT {
-            self.global_proxy_id
-        } else {
-            credential_proxy_id
-        };
+    pub fn oauth_global(&self) -> Option<&ProxyProfile> {
+        self.get(self.global_proxy_id)
+    }
 
-        self.get(resolved)
+    #[must_use]
+    pub fn resolve_oauth(&self, selection: OAuthProxySelection) -> Option<&ProxyProfile> {
+        match selection {
+            OAuthProxySelection::Global => self.oauth_global(),
+            OAuthProxySelection::Profile(id) => self.get(id),
+        }
     }
 }
 
@@ -100,8 +102,8 @@ fn validate_profiles(
 #[cfg(test)]
 mod tests {
     use crate::{
-        ProxyAddress, ProxyConfiguration, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId,
-        ProxyValidationError,
+        OAuthProxySelection, ProxyAddress, ProxyConfiguration, ProxyDraft, ProxyKind, ProxyProfile,
+        ProxyProfileId, ProxyValidationError,
     };
 
     fn custom(name: &str) -> ProxyProfile {
@@ -111,15 +113,28 @@ mod tests {
     }
 
     #[test]
-    fn direct_binding_inherits_the_global_proxy() {
+    fn oauth_global_is_independent_from_the_direct_profile() {
         let proxy = custom("Hong Kong");
         let proxy_id = proxy.id();
         let config = ProxyConfiguration::new(vec![ProxyProfile::direct(), proxy], proxy_id)
             .expect("configuration");
 
         assert_eq!(
-            config.resolve(ProxyProfileId::DIRECT).map(ProxyProfile::id),
+            config.get(ProxyProfileId::DIRECT).map(ProxyProfile::id),
+            Some(ProxyProfileId::DIRECT)
+        );
+        assert_eq!(config.oauth_global().map(ProxyProfile::id), Some(proxy_id));
+        assert_eq!(
+            config
+                .resolve_oauth(OAuthProxySelection::Global)
+                .map(ProxyProfile::id),
             Some(proxy_id)
+        );
+        assert_eq!(
+            config
+                .resolve_oauth(OAuthProxySelection::Profile(ProxyProfileId::DIRECT))
+                .map(ProxyProfile::id),
+            Some(ProxyProfileId::DIRECT)
         );
     }
 

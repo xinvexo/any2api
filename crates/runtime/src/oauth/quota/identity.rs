@@ -29,7 +29,9 @@ fn update(hasher: &mut Sha256, value: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind, RequestsPerMinute};
+    use any2api_domain::{
+        OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind, RequestsPerMinute,
+    };
 
     #[test]
     fn stable_identity_ignores_token_rotation_but_generation_isolated() {
@@ -93,7 +95,7 @@ mod tests {
             ProviderKind::Codex,
             OAuthAccountDraft::new("test", Some(RequestsPerMinute::new(60).unwrap()), true)
                 .unwrap(),
-            any2api_domain::ProxyProfileId::DIRECT,
+            OAuthProxySelection::Global,
             None,
             None,
             "2026-08-11 00:00:00".into(),

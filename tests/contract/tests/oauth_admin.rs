@@ -8,7 +8,7 @@ use std::{
 };
 
 use any2api_contract_tests::TestApplication;
-use any2api_domain::{ProviderKind, ProxyProfileId};
+use any2api_domain::{OAuthProxySelection, ProviderKind, ProxyProfileId};
 use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::ConfigurationRepository;
@@ -53,7 +53,10 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
     let (status, codex_start) = request_json(
         app.clone(),
         "/api/admin/oauth/start",
-        json!({"provider": "codex"}),
+        json!({
+            "provider": "codex",
+            "proxy_selection": {"mode": "global"}
+        }),
         loopback,
     )
     .await;
@@ -80,13 +83,17 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(codex["provider"], "codex");
+    assert_eq!(codex["proxy_selection"]["mode"], "global");
     assert_eq!(codex["safe_account_email"], "person@example.com");
     assert_redacted(&codex);
 
     let (status, grok_start) = request_json(
         app.clone(),
         "/api/admin/oauth/start",
-        json!({"provider": "grok"}),
+        json!({
+            "provider": "grok",
+            "proxy_selection": {"mode": "global"}
+        }),
         loopback,
     )
     .await;
@@ -104,6 +111,7 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(grok["status"], "complete");
     assert_eq!(grok["account"]["provider"], "grok");
+    assert_eq!(grok["account"]["proxy_selection"]["mode"], "global");
     assert_redacted(&grok);
 
     let configuration = storage.load_configuration().await.expect("configuration");
@@ -130,11 +138,19 @@ async fn oauth_service_paces_concurrent_network_starts_for_one_provider() {
 
     let first = {
         let oauth = Arc::clone(&oauth);
-        tokio::spawn(async move { oauth.start(ProviderKind::Grok).await })
+        tokio::spawn(async move {
+            oauth
+                .start(ProviderKind::Grok, OAuthProxySelection::Global)
+                .await
+        })
     };
     let second = {
         let oauth = Arc::clone(&oauth);
-        tokio::spawn(async move { oauth.start(ProviderKind::Grok).await })
+        tokio::spawn(async move {
+            oauth
+                .start(ProviderKind::Grok, OAuthProxySelection::Global)
+                .await
+        })
     };
     transport.wait_for_start().await;
     tokio::task::yield_now().await;

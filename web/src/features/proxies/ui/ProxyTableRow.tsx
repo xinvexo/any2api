@@ -113,14 +113,14 @@ export function ProxyTableRow({
           </RowActionButton>
           {!isGlobal && proxy.enabled ? (
             <RowActionButton
-              label={`将 ${proxy.name} 设为全局出口`}
-              title={`将 ${proxy.name} 设为全局出口`}
+              label={`将 ${proxy.name} 设为 OAuth 全局出口`}
+              title={`将 ${proxy.name} 设为 OAuth 全局出口`}
               className={MOBILE_ICON_ACTION}
               disabled={pending}
               onClick={() => onSetGlobal(proxy)}
             >
               <Globe size={13} />
-              <span className="sr-only sm:not-sr-only">全局</span>
+              <span className="sr-only sm:not-sr-only">OAuth</span>
             </RowActionButton>
           ) : null}
           {!proxy.builtIn ? (
@@ -223,15 +223,15 @@ function proxyTestToneClass(tone: ProxyTestTone) {
   }
 }
 
-/** Active global route marker — visible next to the name for quick scan. */
+/** Active OAuth default marker, visible next to the name for quick scan. */
 function GlobalRouteBadge() {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-accent-copy"
-      title="当前全局出口：Credential 绑定 DIRECT 时继承此出口"
+      title="选择“跟随 OAuth 全局出口”的账号使用此出口"
     >
       <Globe size={11} strokeWidth={2.25} aria-hidden="true" />
-      全局路由
+      OAuth 全局出口
     </span>
   );
 }

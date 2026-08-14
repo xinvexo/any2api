@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { OAuthStartResult } from "../api/oauth-contracts";
 import { OAuthLoginDrawer } from "./OAuthLogin";
+import type { ProxyConfiguration } from "@/features/proxies";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -27,16 +28,52 @@ const deviceSession: OAuthStartResult = {
   pollIntervalSeconds: 5,
 };
 
+const proxyConfiguration: ProxyConfiguration = {
+  configRevision: 1,
+  globalProxyId: "proxy-1",
+  items: [
+    {
+      id: "00000000-0000-0000-0000-000000000000",
+      name: "DIRECT",
+      kind: "direct",
+      host: null,
+      port: null,
+      username: null,
+      passwordConfigured: false,
+      authenticationVersion: 0,
+      enabled: true,
+      builtIn: true,
+      configVersion: 1,
+    },
+    {
+      id: "proxy-1",
+      name: "Office Proxy",
+      kind: "http",
+      host: "proxy.example.com",
+      port: 8080,
+      username: null,
+      passwordConfigured: false,
+      authenticationVersion: 0,
+      enabled: true,
+      builtIn: false,
+      configVersion: 1,
+    },
+  ],
+};
+
 test("renders the open drawer with an active session form", () => {
   render(
     <OAuthLoginDrawer
       open
       provider="codex"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
       session={session}
       pending={null}
       error={null}
       onClose={() => undefined}
-      onRestart={() => undefined}
+      onProxySelectionChange={() => undefined}
+      onStart={() => undefined}
       onExchange={async () => undefined}
     />,
   );
@@ -59,11 +96,14 @@ test("does not mount the drawer while closed", () => {
     <OAuthLoginDrawer
       open={false}
       provider="codex"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
       session={null}
       pending={null}
       error={null}
       onClose={() => undefined}
-      onRestart={() => undefined}
+      onProxySelectionChange={() => undefined}
+      onStart={() => undefined}
       onExchange={async () => undefined}
     />,
   );
@@ -77,11 +117,14 @@ test("submits the callback URL through onExchange", async () => {
     <OAuthLoginDrawer
       open
       provider="codex"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
       session={session}
       pending={null}
       error={null}
       onClose={() => undefined}
-      onRestart={() => undefined}
+      onProxySelectionChange={() => undefined}
+      onStart={() => undefined}
       onExchange={onExchange}
     />,
   );
@@ -103,11 +146,14 @@ test("shows loading state while starting a session", () => {
     <OAuthLoginDrawer
       open
       provider="codex"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
       session={null}
       pending="start"
       error={null}
       onClose={() => undefined}
-      onRestart={() => undefined}
+      onProxySelectionChange={() => undefined}
+      onStart={() => undefined}
       onExchange={async () => undefined}
     />,
   );
@@ -119,11 +165,14 @@ test("renders Grok device authorization without a callback form", () => {
     <OAuthLoginDrawer
       open
       provider="grok"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
       session={deviceSession}
       pending="poll"
       error={null}
       onClose={() => undefined}
-      onRestart={() => undefined}
+      onProxySelectionChange={() => undefined}
+      onStart={() => undefined}
       onExchange={async () => undefined}
     />,
   );
@@ -136,4 +185,37 @@ test("renders Grok device authorization without a callback form", () => {
   expect(screen.getByText("正在确认授权状态…")).toBeInTheDocument();
   expect(screen.queryByLabelText("回调 URL")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "激活账号" })).not.toBeInTheDocument();
+});
+
+test("selects an OAuth proxy before starting login", () => {
+  const onProxySelectionChange = vi.fn();
+  const onStart = vi.fn();
+  render(
+    <OAuthLoginDrawer
+      open
+      provider="codex"
+      proxySelection={{ mode: "global" }}
+      proxyConfiguration={proxyConfiguration}
+      session={null}
+      pending={null}
+      error={null}
+      onClose={() => undefined}
+      onProxySelectionChange={onProxySelectionChange}
+      onStart={onStart}
+      onExchange={async () => undefined}
+    />,
+  );
+
+  expect(screen.getByRole("combobox", { name: "OAuth 出口" })).toHaveTextContent(
+    "跟随 OAuth 全局出口（Office Proxy，HTTP）",
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "OAuth 出口" }));
+  fireEvent.click(screen.getByRole("option", { name: "DIRECT，本机直连" }));
+  expect(onProxySelectionChange).toHaveBeenCalledWith({
+    mode: "profile",
+    proxyProfileId: "00000000-0000-0000-0000-000000000000",
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "开始认证" }));
+  expect(onStart).toHaveBeenCalledTimes(1);
 });

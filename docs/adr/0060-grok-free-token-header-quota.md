@@ -18,7 +18,7 @@ xAI 调整额度时立即失真。
 1. billing 与 `/user?include=subscription` 仍负责 credits、套餐和账号诊断。只有同次
    user 响应确认为 Free 时，Grok Driver 才返回最小
    `POST /v1/chat/completions` Token 额度探测计划。
-2. 探测使用当前 OAuth Token、subject、CLI 身份头、DIRECT/全局代理和严格
+2. 探测使用当前 OAuth Token、subject、CLI 身份头、账号保存的 `Global | Profile(id)` 选择和严格
    SSRF 策略；Runtime 只执行 Driver 计划，不增加 Grok `match`。
 3. 只有 `x-ratelimit-limit-tokens` 和 `x-ratelimit-remaining-tokens` 同时存在、均为
    `0..=Number.MAX_SAFE_INTEGER` 范围的整数、limit 大于零且 remaining 不超过
