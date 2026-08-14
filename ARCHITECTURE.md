@@ -3039,8 +3039,8 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 - 作为独立一级菜单和 `/routes` deep link 页面存在，管理 API 固定为 `GET /api/admin/route-inspection`；
 - 响应只从本次请求加载的 PublishedSnapshot 和已编译路由候选派生，并携带 `config_revision`，不读取或写入第二份 Route 配置；
-- 按精确 `public_model` 与 `ingress_protocol` 展示全局模型策略是否允许、对应 `ProtocolOperation`、有效上游方言，以及按 Provider/Endpoint 聚合的已启用配置候选数量；
-- 页面提供模型精确搜索与状态筛选，状态只有 `available`、`blocked_by_policy`、`no_enabled_candidate`，不得把瞬时 RPM、健康、熔断或网络探测结果混入配置态结论；
+- 只枚举同一快照中通过全局 `models.allowed` 策略的公开模型；被策略隐藏的模型不进入管理响应。按精确 `public_model` 与 `ingress_protocol` 展示对应 `ProtocolOperation`、有效上游方言，以及按 Provider/Endpoint 聚合的已启用配置候选数量；
+- 页面以响应式模型卡片展示结果，一张卡片只承载一个 `(public_model, ingress_protocol)`；提供模型精确搜索与状态筛选，状态只有 `available`、`no_enabled_candidate`，不得把瞬时 RPM、健康、熔断或网络探测结果混入配置态结论；
 - 该页面不提供 Route、Target、fallback tier、模型别名或 Credential 的编辑入口，也不展示 Secret、Token、代理密码和内部健康键。
 
 ### 19.3 OAuth2 登录

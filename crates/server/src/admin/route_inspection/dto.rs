@@ -28,7 +28,6 @@ impl From<RouteInspectionSnapshot> for RouteInspectionResponse {
 struct RouteInspectionItemResponse {
     public_model: String,
     ingress_protocol: ProtocolDialect,
-    allowed: bool,
     published: bool,
     status: &'static str,
     operations: Vec<RouteInspectionOperationResponse>,
@@ -39,7 +38,6 @@ impl From<&RouteInspectionItem> for RouteInspectionItemResponse {
         Self {
             public_model: value.public_model().to_owned(),
             ingress_protocol: value.ingress_protocol(),
-            allowed: value.allowed(),
             published: value.published(),
             status: value.status().as_str(),
             operations: value
@@ -109,7 +107,6 @@ mod tests {
             items: vec![RouteInspectionItemResponse {
                 public_model: "gpt-route".to_owned(),
                 ingress_protocol: ProtocolDialect::OpenAiResponses,
-                allowed: true,
                 published: true,
                 status: "available",
                 operations: vec![RouteInspectionOperationResponse {
@@ -132,7 +129,6 @@ mod tests {
                 "items": [{
                     "public_model": "gpt-route",
                     "ingress_protocol": "openai_responses",
-                    "allowed": true,
                     "published": true,
                     "status": "available",
                     "operations": [{

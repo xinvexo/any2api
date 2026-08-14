@@ -135,9 +135,8 @@ async fn inspection_uses_compiled_candidates_and_policy_without_runtime_health()
     );
 
     assert_eq!(inspection.config_revision(), snapshot.revision());
-    assert_eq!(inspection.items().len(), 4);
+    assert_eq!(inspection.items().len(), 3);
     let available = item(&inspection, "available-model");
-    assert!(available.allowed());
     assert!(available.published());
     assert_eq!(available.status(), RouteInspectionStatus::Available);
     let responses = available
@@ -162,11 +161,13 @@ async fn inspection_uses_compiled_candidates_and_policy_without_runtime_health()
         .expect("compact operation");
     assert!(compact.candidate_groups().is_empty());
 
-    let blocked = item(&inspection, "blocked-model");
-    assert!(!blocked.allowed());
-    assert_eq!(blocked.status(), RouteInspectionStatus::BlockedByPolicy);
+    assert!(
+        inspection
+            .items()
+            .iter()
+            .all(|item| item.public_model() != "blocked-model")
+    );
     let disabled = item(&inspection, "disabled-model");
-    assert!(disabled.allowed());
     assert_eq!(disabled.status(), RouteInspectionStatus::NoEnabledCandidate);
     assert!(
         disabled

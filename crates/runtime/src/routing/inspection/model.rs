@@ -24,7 +24,6 @@ impl RouteInspectionSnapshot {
 pub struct RouteInspectionItem {
     pub(super) public_model: String,
     pub(super) ingress_protocol: ProtocolDialect,
-    pub(super) allowed: bool,
     pub(super) published: bool,
     pub(super) status: RouteInspectionStatus,
     pub(super) operations: Vec<RouteInspectionOperation>,
@@ -39,11 +38,6 @@ impl RouteInspectionItem {
     #[must_use]
     pub const fn ingress_protocol(&self) -> ProtocolDialect {
         self.ingress_protocol
-    }
-
-    #[must_use]
-    pub const fn allowed(&self) -> bool {
-        self.allowed
     }
 
     #[must_use]
@@ -65,7 +59,6 @@ impl RouteInspectionItem {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RouteInspectionStatus {
     Available,
-    BlockedByPolicy,
     NoEnabledCandidate,
 }
 
@@ -74,7 +67,6 @@ impl RouteInspectionStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Available => "available",
-            Self::BlockedByPolicy => "blocked_by_policy",
             Self::NoEnabledCandidate => "no_enabled_candidate",
         }
     }

@@ -6,13 +6,15 @@ import { RouteInspection } from "./RouteInspection";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("filters by exact model name and finite route status", async () => {
+test("renders model cards and filters by exact model name and finite route status", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(response()));
   renderInspection();
 
   expect(await screen.findByRole("heading", { level: 1, name: "路由检查" })).toBeInTheDocument();
   expect(await screen.findByText("available-model")).toBeInTheDocument();
-  expect(screen.getByText("blocked-model")).toBeInTheDocument();
+  expect(screen.getByRole("listitem", { name: "available-model 路由" })).toHaveClass(
+    "rounded-[8px]",
+  );
   expect(screen.getByText("未发布")).toBeInTheDocument();
 
   fireEvent.change(screen.getByRole("textbox", { name: "精确模型搜索" }), {
@@ -25,9 +27,9 @@ test("filters by exact model name and finite route status", async () => {
     target: { value: "" },
   });
   fireEvent.click(screen.getByRole("combobox", { name: "状态筛选" }));
-  fireEvent.click(screen.getByRole("option", { name: "策略阻止" }));
+  fireEvent.click(screen.getByRole("option", { name: "无启用候选" }));
   await waitFor(() => {
-    expect(screen.getByText("blocked-model")).toBeInTheDocument();
+    expect(screen.getByText("disabled-model")).toBeInTheDocument();
     expect(screen.queryByText("available-model")).not.toBeInTheDocument();
   });
 });
@@ -47,9 +49,8 @@ function response() {
   return {
     config_revision: 3,
     items: [
-      item("available-model", "available", true),
-      item("blocked-model", "blocked_by_policy", false),
-      item("disabled-model", "no_enabled_candidate", true, false),
+      item("available-model", "available"),
+      item("disabled-model", "no_enabled_candidate", false),
     ],
   };
 }
@@ -57,13 +58,11 @@ function response() {
 function item(
   publicModel: string,
   status: string,
-  allowed: boolean,
   published = true,
 ) {
   return {
     public_model: publicModel,
     ingress_protocol: "openai_responses",
-    allowed,
     published,
     status,
     operations: [

@@ -8,7 +8,6 @@ test("parses the finite route inspection contract", () => {
   expect(parsed.configRevision).toBe(9);
   expect(parsed.items.map((item) => item.status)).toEqual([
     "available",
-    "blocked_by_policy",
     "no_enabled_candidate",
   ]);
   expect(parsed.items[0]?.operations[0]?.candidateGroups[0]).toEqual({
@@ -30,7 +29,7 @@ function response() {
   return {
     config_revision: 9,
     items: [
-      item("available-model", "available", true, [
+      item("available-model", "available", [
         {
           operation: "responses",
           candidate_groups: [
@@ -44,8 +43,7 @@ function response() {
           ],
         },
       ]),
-      item("blocked-model", "blocked_by_policy", false),
-      item("disabled-model", "no_enabled_candidate", true),
+      item("disabled-model", "no_enabled_candidate"),
     ],
   };
 }
@@ -53,13 +51,11 @@ function response() {
 function item(
   publicModel: string,
   status: string,
-  allowed: boolean,
   operations: unknown[] = [],
 ) {
   return {
     public_model: publicModel,
     ingress_protocol: "openai_responses",
-    allowed,
     published: true,
     status,
     operations,

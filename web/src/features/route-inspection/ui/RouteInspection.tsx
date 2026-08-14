@@ -22,7 +22,6 @@ type StatusFilter = "all" | RouteInspectionStatus;
 const STATUS_OPTIONS = [
   { value: "all", label: "全部状态" },
   { value: "available", label: "可用" },
-  { value: "blocked_by_policy", label: "策略阻止" },
   { value: "no_enabled_candidate", label: "无启用候选" },
 ] satisfies ReadonlyArray<{ value: StatusFilter; label: string }>;
 const EMPTY_ITEMS: RouteInspectionItem[] = [];
@@ -124,11 +123,11 @@ export function RouteInspection() {
           <div className="flex min-h-52 flex-col items-center justify-center px-6 py-10 text-center" role="status">
             <Waypoints size={22} className="text-tertiary" aria-hidden="true" />
             <p className="mt-3 text-[13px] font-medium">
-              {items.length === 0 ? "尚无已配置模型" : "没有匹配的路由"}
+              {items.length === 0 ? "当前没有允许的公开模型" : "没有匹配的路由"}
             </p>
           </div>
         ) : (
-          <div role="list" aria-label="路由检查结果">
+          <div role="list" aria-label="路由检查结果" className="grid gap-3 xl:grid-cols-2">
             {filtered.map((item) => (
               <RouteItem key={`${item.publicModel}:${item.ingressProtocol}`} item={item} />
             ))}
@@ -148,7 +147,11 @@ export function RouteInspection() {
 
 function RouteItem({ item }: { item: RouteInspectionItem }) {
   return (
-    <article role="listitem" className="border-b border-subtle py-4 first:pt-1 last:border-b-0">
+    <article
+      role="listitem"
+      aria-label={`${item.publicModel} 路由`}
+      className="min-w-0 rounded-[8px] border border-subtle bg-surface p-4"
+    >
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="break-all font-mono text-[13px] font-semibold text-primary">
@@ -169,7 +172,7 @@ function RouteItem({ item }: { item: RouteInspectionItem }) {
         {item.operations.map((operation) => (
           <div
             key={operation.operation}
-            className="grid min-w-0 gap-2 border-b border-subtle/50 py-2.5 last:border-b-0 sm:grid-cols-[10rem_minmax(0,1fr)]"
+            className="grid min-w-0 gap-2 border-b border-subtle/50 py-2.5 last:border-b-0 sm:grid-cols-[7rem_minmax(0,1fr)]"
           >
             <p className="text-[12px] font-medium text-secondary">
               {operationLabel(operation.operation)}
@@ -213,7 +216,6 @@ function CandidateGroup({ group }: { group: RouteInspectionCandidateGroup }) {
 function Status({ status }: { status: RouteInspectionStatus }) {
   const presentation = {
     available: { label: "可用", tone: "text-success" },
-    blocked_by_policy: { label: "策略阻止", tone: "text-warning" },
     no_enabled_candidate: { label: "无启用候选", tone: "text-danger" },
   }[status];
   return (

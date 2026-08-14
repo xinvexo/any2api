@@ -46,7 +46,7 @@ test("desktop core management deep links render against the real service", async
     ["/oauth", "还没有 Codex OAuth 账号"],
     ["/proxies", "代理列表"],
     ["/providers?kind=codex", "还没有 Codex Endpoint"],
-    ["/routes", "尚无已配置模型"],
+    ["/routes", "当前没有允许的公开模型"],
     ["/quota-rates", "Codex 额度费率"],
     ["/settings/routing", "RPM 用尽行为"],
     ["/keys", "尚未创建网关密钥"],

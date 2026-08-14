@@ -39,6 +39,7 @@ pub(crate) fn inspect_routes(
 
     let items = keys
         .into_iter()
+        .filter(|((public_model, _), _)| snapshot.is_public_model_allowed(public_model))
         .map(|((public_model, ingress_protocol), oauth_published)| {
             inspect_item(
                 snapshot,
@@ -67,7 +68,6 @@ fn inspect_item(
     let route = snapshot
         .model_routes()
         .resolve(ingress_protocol, &public_model);
-    let allowed = snapshot.is_public_model_allowed(&public_model);
     let published = oauth_published || route.is_some_and(any2api_domain::ModelRoute::enabled);
     let operations = ProtocolOperation::ALL
         .into_iter()
@@ -87,9 +87,7 @@ fn inspect_item(
     let has_candidate = operations
         .iter()
         .any(|operation| !operation.candidate_groups.is_empty());
-    let status = if !allowed {
-        RouteInspectionStatus::BlockedByPolicy
-    } else if has_candidate {
+    let status = if has_candidate {
         RouteInspectionStatus::Available
     } else {
         RouteInspectionStatus::NoEnabledCandidate
@@ -97,7 +95,6 @@ fn inspect_item(
     RouteInspectionItem {
         public_model: public_model.as_str().to_owned(),
         ingress_protocol,
-        allowed,
         published,
         status,
         operations,

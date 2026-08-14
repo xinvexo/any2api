@@ -1,7 +1,4 @@
-export type RouteInspectionStatus =
-  | "available"
-  | "blocked_by_policy"
-  | "no_enabled_candidate";
+export type RouteInspectionStatus = "available" | "no_enabled_candidate";
 
 export type RouteProtocolDialect =
   | "openai_responses"
@@ -36,7 +33,6 @@ export interface RouteInspectionOperation {
 export interface RouteInspectionItem {
   publicModel: string;
   ingressProtocol: RouteProtocolDialect;
-  allowed: boolean;
   published: boolean;
   status: RouteInspectionStatus;
   operations: RouteInspectionOperation[];
@@ -63,11 +59,7 @@ const OPERATIONS = [
   "messages_count_tokens",
 ] as const;
 const PROVIDERS = ["codex", "claude", "grok", "kimi"] as const;
-const STATUSES = [
-  "available",
-  "blocked_by_policy",
-  "no_enabled_candidate",
-] as const;
+const STATUSES = ["available", "no_enabled_candidate"] as const;
 
 export function parseRouteInspection(value: unknown): RouteInspection {
   const root = record(value);
@@ -82,7 +74,6 @@ function parseItem(value: unknown): RouteInspectionItem {
   return {
     publicModel: nonEmptyString(item.public_model),
     ingressProtocol: oneOf(item.ingress_protocol, DIALECTS),
-    allowed: boolean(item.allowed),
     published: boolean(item.published),
     status: oneOf(item.status, STATUSES),
     operations: array(item.operations).map(parseOperation),
