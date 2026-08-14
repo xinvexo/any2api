@@ -19,11 +19,12 @@ pub(super) async fn list(
     since_ms: u64,
     filter: &RequestLogFilter,
     cursor: Option<LogPageCursor>,
+    requested_page: u32,
     limit: u32,
 ) -> Result<LogPage<RequestLog>, StorageError> {
     let since_ms = to_i64(since_ms)?;
     let mut transaction = store.pool().begin().await?;
-    let cursor = match cursor {
+    let requested_cursor = match cursor {
         Some(cursor) => cursor,
         None => {
             let mut query = QueryBuilder::<Sqlite>::new(
@@ -43,19 +44,43 @@ pub(super) async fn list(
         }
     };
 
-    let anchor = cursor.anchor();
+    let anchor = requested_cursor.anchor().clone();
     let mut count_query = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM request_logs WHERE ");
-    push_window_predicates(&mut count_query, since_ms, filter, Some(anchor))?;
+    push_window_predicates(&mut count_query, since_ms, filter, Some(&anchor))?;
     let total: i64 = count_query
         .build_query_scalar()
         .fetch_one(&mut *transaction)
         .await?;
+    let total = to_u64(total)?;
+    let page = clamp_page(requested_page, total, limit);
+    let cursor = if page == 1 {
+        LogPageCursor::first(requested_cursor.anchor().clone())
+    } else if page == requested_page && requested_cursor.before().is_some() {
+        requested_cursor
+    } else {
+        let mut boundary_query = QueryBuilder::<Sqlite>::new(
+            "SELECT started_at_ms, request_id FROM request_logs WHERE ",
+        );
+        push_window_predicates(&mut boundary_query, since_ms, filter, Some(&anchor))?;
+        boundary_query
+            .push(" ORDER BY started_at_ms DESC, request_id DESC LIMIT 1 OFFSET ")
+            .push_bind(page_boundary_offset(page, limit)?);
+        let (started_at_ms, request_id) = boundary_query
+            .build_query_as::<(i64, String)>()
+            .fetch_one(&mut *transaction)
+            .await?;
+        LogPageCursor::next(
+            requested_cursor.anchor().clone(),
+            LogPagePosition::new(to_u64(started_at_ms)?, request_id),
+        )
+        .ok_or(StorageError::CorruptTelemetry)?
+    };
 
     let fetch_limit = i64::from(limit) + 1;
     let mut page_query = QueryBuilder::<Sqlite>::new(format!(
         "SELECT {REQUEST_LOG_PAGE_COLUMNS} FROM request_logs WHERE "
     ));
-    push_window_predicates(&mut page_query, since_ms, filter, Some(anchor))?;
+    push_window_predicates(&mut page_query, since_ms, filter, Some(&anchor))?;
     if let Some(before) = cursor.before() {
         page_query
             .push(" AND (started_at_ms, request_id) < (")
@@ -91,12 +116,19 @@ pub(super) async fn list(
     if corrupt_rows > 0 {
         tracing::warn!(corrupt_rows, "corrupt request telemetry rows were skipped");
     }
-    Ok(LogPage::new(
-        items,
-        to_u64(total)?,
-        Some(cursor),
-        next_cursor,
-    ))
+    Ok(LogPage::new(items, total, page, Some(cursor), next_cursor))
+}
+
+fn clamp_page(requested_page: u32, total: u64, limit: u32) -> u32 {
+    let total_pages = total.div_ceil(u64::from(limit)).max(1);
+    u64::from(requested_page.max(1)).min(total_pages) as u32
+}
+
+fn page_boundary_offset(page: u32, limit: u32) -> Result<i64, StorageError> {
+    let offset = (u64::from(page) - 1)
+        .saturating_mul(u64::from(limit))
+        .saturating_sub(1);
+    i64::try_from(offset).map_err(|_| StorageError::CorruptTelemetry)
 }
 
 fn push_window_predicates(

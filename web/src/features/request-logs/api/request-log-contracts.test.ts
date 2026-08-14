@@ -237,7 +237,10 @@ describe("request log contracts", () => {
       parseRequestLogList({ ...requestLogPage([request()]), cursor: null }),
     ).toThrow("invalid request log response");
     expect(() =>
-      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r2.next" }),
+      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r3.next" }),
+    ).toThrow("invalid request log response");
+    expect(() =>
+      parseRequestLogList({ ...requestLogPage([request()]), page: 2 }),
     ).toThrow("invalid request log response");
   });
 
@@ -263,12 +266,12 @@ describe("request log contracts", () => {
     const page = parseRequestLogList({
       ...requestLogPage([]),
       total: 2,
-      cursor: "r2.current",
-      next_cursor: "r2.next",
+      cursor: "r3.current",
+      next_cursor: "r3.next",
     });
 
     expect(page.items).toEqual([]);
-    expect(page.nextCursor).toBe("r2.next");
+    expect(page.nextCursor).toBe("r3.next");
   });
 });
 
@@ -276,8 +279,9 @@ function requestLogPage(items: unknown[]) {
   return {
     items,
     total: items.length,
+    page: 1,
     page_size: 20,
-    cursor: items.length > 0 ? "r2.current" : null,
+    cursor: items.length > 0 ? "r3.current" : null,
     next_cursor: null,
     telemetry: telemetry(),
     filter_options: filterOptions(),

@@ -8,7 +8,7 @@ import {
 import { useClearSystemLogs, useSystemLogs } from "../model/use-system-logs";
 import { SystemLogList } from "./SystemLogList";
 import { SystemLogDetailDrawer } from "./SystemLogDetailDrawer";
-import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
+import type { LogPageSize } from "@/shared/lib/log-pagination";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -18,36 +18,31 @@ import { Switch } from "@/shared/ui/Switch";
 export function SystemLogManagement() {
   const [autoRefresh, setAutoRefresh] = useState(loadSystemLogAutoRefreshPreference);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [page, setPage] = useState(1);
+  const [{ page, cursor }, setLocation] = useState({ page: 1, cursor: null as string | null });
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
-  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const cursor = pageCursors[page - 1] ?? null;
-  const query = useSystemLogs(autoRefresh, cursor, pageSize);
+  const query = useSystemLogs(autoRefresh, cursor, page, pageSize);
   const clearMutation = useClearSystemLogs();
   const total = query.data?.total ?? 0;
-  const totalPages = logPageCount(total, pageSize);
-  const safePage = Math.min(Math.max(1, page), totalPages);
+  const displayedPage = query.isPlaceholderData ? page : (query.data?.page ?? page);
 
   useEffect(() => {
-    if (!query.data || safePage === page) {
+    if (query.isPlaceholderData || !query.data || query.data.page === page) {
       return;
     }
 
     const correction = window.setTimeout(() => {
       setSelectedRequestId(null);
-      setPageCursors((current) => current.slice(0, safePage));
-      setPage(safePage);
+      setLocation({ page: query.data.page, cursor: query.data.cursor });
     }, 0);
 
     return () => window.clearTimeout(correction);
-  }, [page, query.data, safePage]);
+  }, [page, query.data, query.isPlaceholderData]);
 
   async function refreshLogs() {
     if (cursor !== null || page !== 1) {
       setSelectedRequestId(null);
-      setPageCursors([null]);
-      setPage(1);
+      setLocation({ page: 1, cursor: null });
       return;
     }
     const result = await query.refetch();
@@ -62,23 +57,18 @@ export function SystemLogManagement() {
   };
 
   const handlePageChange = (nextPage: number) => {
-    if (nextPage === page + 1) {
-      const currentCursor = query.data?.cursor;
-      const nextCursor = query.data?.nextCursor;
-      if (!currentCursor || !nextCursor) {
-        return;
-      }
-      setPageCursors((current) => {
-        const updated = current.slice(0, page);
-        updated[page - 1] = currentCursor;
-        updated[page] = nextCursor;
-        return updated;
-      });
-    } else if (nextPage !== page - 1) {
+    if (query.isPlaceholderData || !query.data || nextPage === query.data.page) {
       return;
     }
+
+    const nextCursor =
+      nextPage === query.data.page + 1 ? query.data.nextCursor : query.data.cursor;
+    if (nextCursor === null) {
+      return;
+    }
+
     setSelectedRequestId(null);
-    setPage(nextPage);
+    setLocation({ page: nextPage, cursor: nextCursor });
   };
 
   const handleClear = () => {
@@ -86,8 +76,7 @@ export function SystemLogManagement() {
       onSuccess: (result) => {
         setConfirmClear(false);
         setSelectedRequestId(null);
-        setPageCursors([null]);
-        setPage(1);
+        setLocation({ page: 1, cursor: null });
         notify.success(`已清理 ${result.deleted} 条历史系统日志`);
       },
       onError: () => notify.danger("系统日志清理失败"),
@@ -182,15 +171,15 @@ export function SystemLogManagement() {
         className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3"
       >
         <LogPagination
-          page={safePage}
+          page={displayedPage}
           pageSize={pageSize}
           total={total}
-          hasNextPage={query.data.nextCursor !== null}
+          hasNextPage={!query.isPlaceholderData && query.data.nextCursor !== null}
+          disabled={query.isPlaceholderData}
           onPageChange={handlePageChange}
           onPageSizeChange={(size) => {
             setPageSize(size);
-            setPageCursors([null]);
-            setPage(1);
+            setLocation({ page: 1, cursor: null });
           }}
         />
       </div>

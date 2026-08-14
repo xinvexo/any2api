@@ -11,10 +11,14 @@ import {
 
 export function getSystemLogs(
   cursor: string | null = null,
+  page = 1,
   pageSize = 20,
   signal?: AbortSignal,
 ): Promise<SystemLogList> {
-  const query = new URLSearchParams({ page_size: String(pageSize) });
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
   if (cursor !== null) {
     query.set("cursor", cursor);
   }

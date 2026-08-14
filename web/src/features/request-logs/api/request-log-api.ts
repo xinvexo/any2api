@@ -13,11 +13,15 @@ import {
 
 export function getRequestLogs(
   cursor: string | null = null,
+  page = 1,
   pageSize = 20,
   filters: RequestLogFilters = EMPTY_REQUEST_LOG_FILTERS,
   signal?: AbortSignal,
 ): Promise<RequestLogList> {
-  const query = new URLSearchParams({ page_size: String(pageSize) });
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
   if (cursor !== null) {
     query.set("cursor", cursor);
   }

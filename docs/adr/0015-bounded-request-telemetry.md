@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-20
-- 修订：2026-08-04（分页由 ADR-0107 修订；鉴权拒绝队列隔离由 ADR-0109 修订；在途所有权字节边界由 ADR-0114 修订）
+- 修订：2026-08-14（分页由 ADR-0107 修订；鉴权拒绝队列隔离由 ADR-0109 修订；在途所有权字节边界由 ADR-0114 修订）
 - 决策者：maintainer
 
 ## 背景
@@ -24,10 +24,10 @@
 - 自动物化的 Route/Target 按稳定 ID 差异同步；仍然有效的 Target 不得为了重算配置而删除重建，以免 `ON DELETE SET NULL` 不可逆地清除历史 Attempt 关联。只有候选配置中真正失效的 Target 才触发该删除语义。
 - `ON DELETE SET NULL` 的子表列必须有以前导外键列开头的索引。除既有索引外，`request_attempts.route_target_id/credential_id/proxy_profile_id` 与 `request_logs.provider_endpoint_id/proxy_profile_id` 需要独立索引，使删除 Target、Credential、Endpoint 或 Proxy 不会在 `BEGIN IMMEDIATE` 配置事务内反复全表扫描遥测历史。
 - `request_attempts` 的复合主键已经生成 `(request_id, attempt_no)` 自动索引，并完整覆盖详情按 Request 查询与 Attempt 顺序；不再额外维护同列同序的 `request_attempts_request_idx`。冻结的 `0001` 保持不变，由连续前向 Migration `0008` 只删除这棵冗余 B-tree，主键约束与代表性历史行必须保留。
-- 管理列表固定查询最近 3 天，并使用有界 `page_size`、版本化不透明 `cursor` 和头部锚点范围内的精确 `total` 做服务端 Keyset 分页；响应提供当前与可选下一 Cursor，不再使用 OFFSET 或固定 100/200 条上限。单条详情仍提供 Attempt 时间线。Web 使用真实 `/logs` 与 `/logs/:requestId` deep link，不把 Prompt、请求体或响应体放入缓存或 DOM。完整协议由 ADR-0107 定义。
+- 管理列表固定查询最近 3 天，并使用有界 `page`/`page_size`、版本化不透明 `cursor` 和头部锚点范围内的精确 `total` 做服务端锚定分页；相邻下一页走 Keyset，随机页只用现有索引驱动且仅投影排序键的 OFFSET 查询定位边界，再按 Keyset 读取该页完整记录。响应提供服务端实际页码、当前与可选下一 Cursor，不再使用完整日志行 OFFSET 或固定 100/200 条上限。单条详情仍提供 Attempt 时间线。Web 使用真实 `/logs` 与 `/logs/:requestId` deep link，不把 Prompt、请求体或响应体放入缓存或 DOM。完整协议由 ADR-0107 定义。
 - RequestLog 列表逐行执行领域解码。当前页某行损坏时跳过该行，按查询汇总一次仅含 `corrupt_rows` 数量的告警，不让一条可丢遥测使整页返回 500；窗口 `total` 继续计算实际持久化行数，因此损坏页可以少于 `page_size`。SQL/事务错误、单条 RequestLog 详情或 Attempt 损坏继续失败，配置和 Secret Repository 保持 fail-closed，不使用这条遥测列表例外。
-- 保留窗口或清理使总页数收缩时，Web 只在收到当前请求的真实 `total` 后把内存页码与 Cursor 栈回写到最后一个合法位置；下一页资格只取决于 `next_cursor`，不能从总数猜测或恢复 OFFSET。
-- Writer 在 RequestLog SQLite 批次成功提交后推进进程内变更 epoch。请求日志 Web 只在未固定 Cursor 的最新页订阅已认证的 `/api/admin/log-events`，收到 `request_logs_changed` 后重新读取；历史页暂停订阅，手动刷新清空 Cursor 栈。事件只携带 epoch，不携带 RequestLog 或 Attempt 正文。同一批次只产生一次失效通知，失败写入不通知。首次连接会发送当前 epoch，断线由浏览器原生重连，不持久化或回放通知历史。
+- 保留窗口或清理使总页数收缩时，Storage 把请求页码夹到最后一个合法位置，Web 使用响应的实际 `page` 和 `cursor` 一次收敛当前定位；下一页资格只取决于 `next_cursor`，不能从总数猜测。
+- Writer 在 RequestLog SQLite 批次成功提交后推进进程内变更 epoch。请求日志 Web 只在未固定 Cursor 的最新页订阅已认证的 `/api/admin/log-events`，收到 `request_logs_changed` 后重新读取；历史页暂停订阅，手动刷新清除当前锚点并回到第一页。事件只携带 epoch，不携带 RequestLog 或 Attempt 正文。同一批次只产生一次失效通知，失败写入不通知。首次连接会发送当前 epoch，断线由浏览器原生重连，不持久化或回放通知历史。
 - SettingRegistry 注册 `logs.request.enabled`、`logs.request.retention`、RequestLog 专用的 `logs.request.max_rows`、HttpAccessLog 专用的 `logs.http_access.max_rows`/`logs.http_access.max_exchange_bytes` 与 `logs.telemetry_queue_capacity`。策略按 PublishedSnapshot revision 进入请求，已开始的长流不会在结束时混用新 revision；系统日志独立容量与 SQLite 页面回收由 ADR-0092 定义。
 - 请求级策略是从已捕获 PublishedSnapshot 的 revision 和 `LoggingSettings` 纯计算得到的值，不读写 RequestTelemetry 的共享策略锁。共享策略只供 Writer、Gateway usage 和周期清理使用；它在启动时由已加载配置初始化，之后唯一更新点是配置成功发布后的 `PublishedSnapshotReconciler`。同一 reconcile 还按当前 Gateway Key 集合淘汰实时使用/节流状态；查询请求策略不得以副作用补做 reconcile 或触发清理。完整生命周期见 ADR-0105。
 - `first_token_ms` 与 Token Usage 只由 ADR-0025 定义的协议级精确钩子产生。不得把首个 SSE 控制事件猜成首 Token，也不得解析未知 JSON 字段推测 usage。
@@ -44,4 +44,4 @@
 - Domain/Storage 测试覆盖日志设置默认值、记录往返、父子事务、请求日志列表隔离并计数单行损坏、单条详情损坏继续失败、RequestLog 持续批量写入不突破行数上限及多轮有界收敛、两类日志各自的时间/行数/交换字节清理、未变化 Target 的历史引用保留，以及配置实体真正删除后的历史引用置空；Migration 升级测试固定外键与容量索引列及删除查询计划，并证明删除重复 Attempt 索引后主键约束、代表性数据和主键索引查询计划不变。
 - Runtime 测试覆盖有界队列立即丢弃、channel/in-flight 转换、存储成功与失败结算、shutdown abort 剩余记录计入 dropped、Gateway 更新折叠后的记录守恒、Attempt 单次完成、取消兜底、Writer 空闲清理、配置下调立即唤醒、请求策略查询无共享状态副作用而发布 reconcile 仍唯一推进共享 revision，以及真实 SQLite 在超过旧 17 req/s 阈值的突发写入后仍满足 RequestLog 行数上限。
 - 公共请求契约覆盖本地 Request ID、成功 JSON、Credential 切换后的多 Attempt、预算耗尽、SSE 正常 EOF、提交后错误和客户端 Drop 的真实 SQLite 持久化。
-- Storage/Runtime/Server/Web 测试覆盖 3 天窗口、跨页总数、提交后 epoch、SSE 失效事件、详情契约、列表与详情的成功/空态/错误态、事件驱动刷新、DTO 解析、敏感文本不展示和 SPA deep link；统一 Playwright 套件使用真实服务覆盖登录后的 `/logs` 导航、390×844 视口无水平溢出和浏览器错误检查。
+- Storage/Runtime/Server/Web 测试覆盖 3 天窗口、跨页总数、锚定随机跳页与越界页收敛、提交后 epoch、SSE 失效事件、详情契约、列表与详情的成功/空态/错误态、事件驱动刷新、DTO 解析、敏感文本不展示和 SPA deep link；统一 Playwright 套件使用真实服务覆盖登录后的 `/logs` 导航、390×844 视口无水平溢出和浏览器错误检查。

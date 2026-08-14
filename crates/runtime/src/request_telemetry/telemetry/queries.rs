@@ -20,12 +20,13 @@ impl RequestTelemetry {
         since_ms: u64,
         filter: &RequestLogFilter,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
         match &self.request_logs {
             Some(repository) => {
                 repository
-                    .list_request_logs(since_ms, filter, cursor, limit)
+                    .list_request_logs(since_ms, filter, cursor, page, limit)
                     .await
             }
             None => Ok(LogPage::empty()),
@@ -46,12 +47,13 @@ impl RequestTelemetry {
         &self,
         since_ms: u64,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
-                    .list_http_access_logs(since_ms, cursor, limit)
+                    .list_http_access_logs(since_ms, cursor, page, limit)
                     .await
             }
             None => Ok(LogPage::empty()),

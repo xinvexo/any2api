@@ -1,21 +1,32 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { clearSystemLogs, getSystemLog, getSystemLogs } from "../api/system-log-api";
 import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
 const systemLogQueryKeys = {
   all: ["system-logs"] as const,
-  list: (cursor: string | null, pageSize: number) =>
-    ["system-logs", "list", cursor ?? "latest", pageSize] as const,
+  list: (cursor: string | null, page: number, pageSize: number) =>
+    ["system-logs", "list", cursor ?? "latest", page, pageSize] as const,
   detail: (requestId: string) => ["system-logs", "detail", requestId] as const,
 };
 
-export function useSystemLogs(autoRefresh: boolean, cursor: string | null, pageSize: number) {
+export function useSystemLogs(
+  autoRefresh: boolean,
+  cursor: string | null,
+  page: number,
+  pageSize: number,
+) {
   const queryClient = useQueryClient();
-  const queryKey = systemLogQueryKeys.list(cursor, pageSize);
+  const queryKey = systemLogQueryKeys.list(cursor, page, pageSize);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getSystemLogs(cursor, pageSize, signal),
+    queryFn: ({ signal }) => getSystemLogs(cursor, page, pageSize, signal),
+    placeholderData: keepPreviousData,
   });
 
   useLogChangeEvent("system_logs_changed", autoRefresh && cursor === null, () => {

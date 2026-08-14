@@ -68,6 +68,7 @@ impl HttpAccessLogRepository for BlockingRepository {
         &self,
         _since_ms: u64,
         _cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         let logs = self.access_logs.lock().expect("HTTP access logs");
@@ -77,7 +78,7 @@ impl HttpAccessLogRepository for BlockingRepository {
             .take(limit as usize)
             .map(HttpAccessLog::summary)
             .collect();
-        Ok(LogPage::new(items, total, None, None))
+        Ok(LogPage::new(items, total, page, None, None))
     }
 
     async fn get_http_access_log(
@@ -209,6 +210,7 @@ impl RequestLogRepository for BlockingRepository {
         _since_ms: u64,
         _filter: &any2api_domain::RequestLogFilter,
         _cursor: Option<LogPageCursor>,
+        _page: u32,
         _limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
         Ok(LogPage::empty())

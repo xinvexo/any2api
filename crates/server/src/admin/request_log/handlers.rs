@@ -29,6 +29,7 @@ pub(crate) async fn list(
             query.page.since_ms,
             &query.filter,
             query.page.cursor,
+            query.page.page,
             query.page.page_size,
         )
         .await

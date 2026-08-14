@@ -17,11 +17,12 @@ pub(super) async fn list(
     store: &SqliteStore,
     since_ms: u64,
     cursor: Option<LogPageCursor>,
+    requested_page: u32,
     limit: u32,
 ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
     let since_ms = to_i64(since_ms)?;
     let mut transaction = store.pool().begin().await?;
-    let cursor = match cursor {
+    let requested_cursor = match cursor {
         Some(cursor) => cursor,
         None => {
             let statement = format!(
@@ -42,7 +43,7 @@ pub(super) async fn list(
         }
     };
 
-    let anchor = cursor.anchor();
+    let anchor = requested_cursor.anchor().clone();
     let anchor_started_at_ms = to_i64(anchor.started_at_ms())?;
     let count_statement = format!(
         "SELECT COUNT(*) FROM http_access_logs \
@@ -56,6 +57,33 @@ pub(super) async fn list(
         .bind(anchor.request_id())
         .fetch_one(&mut *transaction)
         .await?;
+    let total = to_u64(total)?;
+    let page = clamp_page(requested_page, total, limit);
+    let cursor = if page == 1 {
+        LogPageCursor::first(anchor.clone())
+    } else if page == requested_page && requested_cursor.before().is_some() {
+        requested_cursor
+    } else {
+        let boundary_statement = format!(
+            "SELECT started_at_ms, request_id FROM http_access_logs \
+             INDEXED BY http_access_logs_summary_filter_idx \
+             WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+             AND (started_at_ms, request_id) <= (?, ?) \
+             ORDER BY started_at_ms DESC, request_id DESC LIMIT 1 OFFSET ?"
+        );
+        let (started_at_ms, request_id) = sqlx::query_as::<_, (i64, String)>(&boundary_statement)
+            .bind(since_ms)
+            .bind(anchor_started_at_ms)
+            .bind(anchor.request_id())
+            .bind(page_boundary_offset(page, limit)?)
+            .fetch_one(&mut *transaction)
+            .await?;
+        LogPageCursor::next(
+            anchor.clone(),
+            LogPagePosition::new(to_u64(started_at_ms)?, request_id),
+        )
+        .ok_or(StorageError::CorruptTelemetry)?
+    };
 
     let fetch_limit = i64::from(limit) + 1;
     let mut rows = match cursor.before() {
@@ -115,12 +143,19 @@ pub(super) async fn list(
         .into_iter()
         .map(parse_summary)
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(LogPage::new(
-        items,
-        to_u64(total)?,
-        Some(cursor),
-        next_cursor,
-    ))
+    Ok(LogPage::new(items, total, page, Some(cursor), next_cursor))
+}
+
+fn clamp_page(requested_page: u32, total: u64, limit: u32) -> u32 {
+    let total_pages = total.div_ceil(u64::from(limit)).max(1);
+    u64::from(requested_page.max(1)).min(total_pages) as u32
+}
+
+fn page_boundary_offset(page: u32, limit: u32) -> Result<i64, StorageError> {
+    let offset = (u64::from(page) - 1)
+        .saturating_mul(u64::from(limit))
+        .saturating_sub(1);
+    i64::try_from(offset).map_err(|_| StorageError::CorruptTelemetry)
 }
 
 fn to_i64(value: u64) -> Result<i64, StorageError> {

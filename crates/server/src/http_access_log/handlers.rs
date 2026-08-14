@@ -24,7 +24,7 @@ pub(super) async fn list(
         .ok_or_else(|| AdminApiError::invalid_request("system log page is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
-        .list_http_access_logs(query.since_ms, query.cursor, query.page_size)
+        .list_http_access_logs(query.since_ms, query.cursor, query.page, query.page_size)
         .await
         .map_err(|error| {
             tracing::error!(%error, "system log list failed");

@@ -8,6 +8,7 @@ use crate::log_pagination::LogCursorScope;
 pub(super) struct SystemLogListResponse {
     items: Vec<SystemLogResponse>,
     total: u64,
+    page: u32,
     page_size: u32,
     cursor: Option<String>,
     next_cursor: Option<String>,
@@ -23,11 +24,11 @@ impl SystemLogListResponse {
         let cursor = logs
             .cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::System.encode(cursor));
+            .map(|cursor| LogCursorScope::System.encode(cursor, logs.page));
         let next_cursor = logs
             .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::System.encode(cursor));
+            .map(|cursor| LogCursorScope::System.encode(cursor, logs.page.saturating_add(1)));
         Self {
             items: logs
                 .items
@@ -35,6 +36,7 @@ impl SystemLogListResponse {
                 .map(SystemLogResponse::from)
                 .collect(),
             total: logs.total,
+            page: logs.page,
             page_size,
             cursor,
             next_cursor,

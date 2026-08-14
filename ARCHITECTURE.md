@@ -51,7 +51,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
-23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的服务端 Keyset Cursor，只展示最近 3 天；禁止以会在持续写入时移动边界的 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
+23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的混合分页，只展示最近 3 天；相邻下一页使用 Keyset，任意跳页只允许用现有索引驱动、仅投影排序键的查询定位边界，禁止对完整日志行做 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
@@ -1046,7 +1046,7 @@ request_logs
 
 请求日志列表只提供三个有界、精确的结构化筛选：`outcome=success|failed|cancelled`、精确 `public_model` 和 `gateway_api_key_id`。不提供 `operation`、`credential_id`、`oauth_account_id` 筛选，也不提供 Request ID 手工定位输入；Request ID 只作为列表项进入既有单条详情端点的内部标识。筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 从当前配置快照和当前日志页合并模型、Gateway API Key 选择项，已经从配置删除但仍出现在当前日志页中的稳定 Gateway API Key ID 保持可见。队列观测、刷新动作与筛选控件必须位于同一个紧凑工具栏，不能拆成重复边框的独立面板。
 
-请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、后续页的排他末行边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝，禁止把旧筛选的锚点静默用于新结果集。Storage 的列表与精确 `COUNT(*)` 必须复用同一筛选谓词。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新、改变页大小或改变任一筛选条件都清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
+请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page`、`page_size` 与版本化不透明 `cursor` 做带头部锚点的混合分页，并返回实际 `page`、锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、所属页号、该页可选的排他边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝。相邻下一页继续直接使用 Keyset 边界；请求页号与 Cursor 所属页不同时，Storage 只允许在同一读事务内通过现有索引驱动、相同筛选谓词且仅投影排序键的 `OFFSET` 查询定位目标页前一行，再按 Keyset 读取本页，禁止对完整日志行做 OFFSET 分页或让 Web 连发中间页请求。精确 `COUNT(*)`、边界定位与列表必须复用同一筛选谓词；请求页号超过收缩后的总页数时，服务端收敛到最后一页并返回实际页号。Web 只保存当前页和一个锚定 Cursor，页码输入可直接跳转任意页；首次页保持实时，一旦进入历史页或固定锚点后，返回第一页也保持同一锚定视图。手动刷新、改变页大小或改变任一筛选条件都清除锚点并回到最新第一页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史锚定视图不因事件漂移或重复查询。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
 
 ### 9.9 HttpAccessLog
 
@@ -1081,7 +1081,7 @@ http_access_logs
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外，从本次捕获的 PublishedSnapshot 只解析一次客户端连接，并把“同一快照 + 成功或失败的完整解析结果 + 可选规范 TCP peer”作为不可变请求扩展交给公开鉴权、管理鉴权与登录/Setup；内层禁止重新读取转发头或加载另一 revision。解析成功时 HttpAccessLog 与鉴权使用同一逻辑客户端，解析失败时 HttpAccessLog 仅以规范 TCP peer（若存在）审计本地拒绝，而公开/管理鉴权复用同一错误 Fail-Closed；peer 也缺失时 `HttpAccessLog.client_ip` 可以为 `NULL`。无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
 
-系统日志管理列表与请求日志使用相同的最近 3 天、带头部锚点的 Keyset Cursor、精确锚定窗口总数和本地页码/Cursor 栈收敛语义。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前 Cursor 页或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
+系统日志管理列表与请求日志使用相同的最近 3 天、带头部锚点的混合分页、直接页码定位、精确锚定窗口总数和服务端页码收敛语义。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前 Cursor 页或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
 
 两类日志共用已认证管理端点 `GET /api/admin/log-events`。该 SSE 仅发送 `request_logs_changed` 与 `system_logs_changed` 两种失效事件及对应的进程内递增 epoch：RequestLog 批次必须在 SQLite 成功提交后才推进对应 epoch；HttpAccessLog 批次只有包含至少一条非系统日志列表自读记录时才推进系统日志 epoch，精确的 `GET /api/admin/system-logs` 在命中统一审计规则时仍写入 SQLite，但不能由自身触发下一次列表读取。系统日志有序清理和两类保留删除仅在确实删除记录后推进。epoch 不持久化、不用于恢复，也不提供事件历史回放；新连接先收到当前 epoch，断线由浏览器原生重连，只有未固定历史 Cursor 的最新页重新查询。SSE keepalive 不代表数据变化；进程进入 draining 时主动结束通知流，避免空闲管理连接延长更新或停机。成功建立的通知流由服务端响应扩展排除 HttpAccessLog，并明确禁用反向代理响应缓冲；认证失败、未知路径和普通列表请求仍按统一审计规则处理，客户端 Header 无权跳过日志或改变通知语义。
 
@@ -2920,7 +2920,7 @@ oauth_token_refresh_failed
 
 系统日志的客户端 IP 使用领域层唯一规范语义：先把 IPv4-mapped IPv6 转为规范 IPv4，再判断 loopback。Server 在可信代理解析后执行该规范化，Storage 写入时再次保证持久化文本规范；前向 Migration `0009` 把旧版可能留下的 `::ffff:127.*` loopback 文本转换为 `127.*`。列表的精确 COUNT 与分页必须引用同一个 SQL 保留谓词常量，并只依赖规范持久化形式 `127.*`/`::1`；禁止在两条查询里各自维护近似 IP 规则。该日志降噪语义只看规范逻辑客户端地址，不改变管理员 Setup 与远程访问所要求的“直接 TCP loopback、且未经过 trusted proxy”权限边界。
 
-两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用带头部锚点的 Keyset Cursor；响应返回页大小、当前/下一 Cursor 与锚定窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页，也不能恢复 OFFSET。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 使用单一自动刷新开关，开启且位于未固定 Cursor 的最新页时订阅日志变更 SSE；历史页暂停订阅，手动刷新会清空 Cursor 栈并回到最新。请求日志页面采用相同的最新页事件刷新/历史页暂停语义。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；Cursor 与页码只在当前挂载内存中保存。
+两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用带头部锚点的混合分页；响应返回实际页码、页大小、当前/下一 Cursor 与锚定窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页。相邻下一页使用 Keyset；任意跳页只允许用现有索引驱动、仅投影排序键的查询执行边界定位 OFFSET，禁止对完整日志行做 OFFSET。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 使用单一自动刷新开关，开启且位于未固定 Cursor 的最新页时订阅日志变更 SSE；历史锚定视图暂停订阅，手动刷新清除 Cursor 并回到最新。请求日志页面采用相同的最新页事件刷新/历史页暂停语义。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；Cursor 与页码只在当前挂载内存中保存。
 
 日志变更 SSE 是提交后的失效通知，不是第二套数据面：事件不携带日志正文，不持久化、不回放，并允许同一 SQLite 批次内的多条记录合并为一次通知。新连接先发送当前 epoch 以覆盖断线窗口，浏览器原生重连后重新查询；keepalive 不触发查询。只有成功通过管理员认证并建立的 `/api/admin/log-events` 响应由服务端排除 HttpAccessLog；系统日志列表 `GET` 仍按统一规则决定是否写入 HttpAccessLog，但由 Server 标记为不推进 `system_logs_changed`。首次加载、自动刷新、手动刷新、认证失败、无效查询、404/405 和其他请求的审计资格仍由统一系统日志保留规则决定，客户端不发送任何自动刷新或通知抑制标记。
 
@@ -3108,7 +3108,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 选择一条记录后按 Request ID 懒加载详情，分别展示请求与响应的全部 Header 值和 Body 捕获；文本保持原值，二进制明确标为 Base64，并显示总字节数、完整/未完整与截断状态；迁移前记录明确显示“未捕获”而不是伪造空 Header/Body；
 - 完整且声明为 JSON 的 UTF-8 Body 可以格式化并切换查看原文，但语法高亮必须同时受格式化文本 `256 * 1024` 字符和 4,096 个 token 的固定预算约束；任一预算超出时仍显示完整格式化纯文本，只用单一文本节点，禁止为大 Body 同步创建数万 span；
 - 桌面表格使用虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用自然滚动卡片；
-- 支持手动刷新和自动刷新开关；开关开启且列表位于未固定 Cursor 的最新页时订阅已认证日志变更 SSE，并在 `system_logs_changed` 后刷新；进入历史 Cursor 页后暂停订阅，手动刷新清空 Cursor 栈并回到最新。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启，Cursor 与页码不持久化；
+- 支持手动刷新和自动刷新开关；开关开启且列表位于未固定 Cursor 的最新页时订阅已认证日志变更 SSE，并在 `system_logs_changed` 后刷新；进入历史锚定视图后暂停订阅，手动刷新清除 Cursor 并回到最新。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启，Cursor 与页码不持久化；
 - 成功建立的日志通知流由服务端排除系统日志；系统日志列表 `GET` 仍按统一规则审计，但不推进 `system_logs_changed`，避免自动刷新读取自身形成通知闭环；客户端不发送日志排除或通知抑制标记；
 - 支持带二次确认的“清理历史日志”；清理成功后重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
 - 系统设置分别提供系统日志最大行数和原始交换容量；容量淘汰删除完整最旧记录，不能把单条详情静默改成部分 Header/Body；

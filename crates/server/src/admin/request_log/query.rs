@@ -11,6 +11,7 @@ use crate::log_pagination::{LogPageRequest, validate_request_log_page};
 #[serde(deny_unknown_fields)]
 pub(super) struct RequestLogListQuery {
     cursor: Option<String>,
+    page: Option<u32>,
     page_size: Option<u32>,
     outcome: Option<String>,
     public_model: Option<String>,
@@ -37,7 +38,8 @@ impl RequestLogListQuery {
         let gateway_api_key_id = parse_id(self.gateway_api_key_id)?;
         let filter = RequestLogFilter::new(outcome, public_model, gateway_api_key_id);
         let filter_fingerprint = filter_fingerprint(&filter);
-        let page = validate_request_log_page(self.cursor, self.page_size, &filter_fingerprint)?;
+        let page =
+            validate_request_log_page(self.cursor, self.page, self.page_size, &filter_fingerprint)?;
         Some(ValidatedRequestLogListQuery {
             page,
             filter,
@@ -79,6 +81,7 @@ mod tests {
     fn query() -> RequestLogListQuery {
         RequestLogListQuery {
             cursor: None,
+            page: Some(4),
             page_size: Some(20),
             outcome: Some("cancelled".into()),
             public_model: Some("gpt-test".into()),
@@ -93,6 +96,7 @@ mod tests {
             validated.filter.outcome(),
             Some(RequestLogOutcomeFilter::Cancelled)
         );
+        assert_eq!(validated.page.page, 4);
         let mut obsolete_outcome = query();
         obsolete_outcome.outcome = Some("failure".into());
         assert!(obsolete_outcome.validate().is_none());

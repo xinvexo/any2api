@@ -2,11 +2,17 @@ import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 
 export const requestLogQueryKeys = {
   all: ["request-logs"] as const,
-  list: (cursor: string | null, pageSize: number, filters: RequestLogFilters = {}) =>
+  list: (
+    cursor: string | null,
+    page: number,
+    pageSize: number,
+    filters: RequestLogFilters = {},
+  ) =>
     [
       ...requestLogQueryKeys.all,
       "list",
       cursor ?? "latest",
+      page,
       pageSize,
       filters.outcome ?? null,
       filters.publicModel ?? null,

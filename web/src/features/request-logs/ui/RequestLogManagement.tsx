@@ -11,7 +11,7 @@ import {
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
-import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
+import type { LogPageSize } from "@/shared/lib/log-pagination";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { LogPagination } from "@/shared/ui/LogPagination";
@@ -19,41 +19,36 @@ import { Surface } from "@/shared/ui/Surface";
 import { RequestLogFilterBar } from "./RequestLogFilterBar";
 
 export function RequestLogManagement() {
-  const [page, setPage] = useState(1);
+  const [{ page, cursor }, setLocation] = useState({ page: 1, cursor: null as string | null });
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
-  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filters, setFilters] = useState<RequestLogFilters>({});
-  const cursor = pageCursors[page - 1] ?? null;
-  const query = useRequestLogs(cursor, pageSize, filters);
+  const query = useRequestLogs(cursor, page, pageSize, filters);
 
   const items = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
-  const totalPages = logPageCount(total, pageSize);
-  const safePage = Math.min(Math.max(1, page), totalPages);
+  const displayedPage = query.isPlaceholderData ? page : (query.data?.page ?? page);
   const visibleExpandedId = items.some((item) => item.requestId === expandedId)
     ? expandedId
     : null;
 
   useEffect(() => {
-    if (!query.data || safePage === page) {
+    if (query.isPlaceholderData || !query.data || query.data.page === page) {
       return;
     }
 
     const correction = window.setTimeout(() => {
       setExpandedId(null);
-      setPageCursors((current) => current.slice(0, safePage));
-      setPage(safePage);
+      setLocation({ page: query.data.page, cursor: query.data.cursor });
     }, 0);
 
     return () => window.clearTimeout(correction);
-  }, [page, query.data, safePage]);
+  }, [page, query.data, query.isPlaceholderData]);
 
   async function refreshLogs() {
     if (cursor !== null || page !== 1) {
       setExpandedId(null);
-      setPageCursors([null]);
-      setPage(1);
+      setLocation({ page: 1, cursor: null });
       return;
     }
     const result = await query.refetch();
@@ -63,39 +58,29 @@ export function RequestLogManagement() {
   }
 
   const handlePageChange = (nextPage: number) => {
-    if (query.isPlaceholderData) {
+    if (query.isPlaceholderData || !query.data || nextPage === query.data.page) {
       return;
     }
-    if (nextPage === page + 1) {
-      const currentCursor = query.data?.cursor;
-      const nextCursor = query.data?.nextCursor;
-      if (!currentCursor || !nextCursor) {
-        return;
-      }
-      setPageCursors((current) => {
-        const updated = current.slice(0, page);
-        updated[page - 1] = currentCursor;
-        updated[page] = nextCursor;
-        return updated;
-      });
-    } else if (nextPage !== page - 1) {
+
+    const nextCursor =
+      nextPage === query.data.page + 1 ? query.data.nextCursor : query.data.cursor;
+    if (nextCursor === null) {
       return;
     }
+
     setExpandedId(null);
-    setPage(nextPage);
+    setLocation({ page: nextPage, cursor: nextCursor });
   };
 
   const handlePageSizeChange = (size: LogPageSize) => {
     setExpandedId(null);
     setPageSize(size);
-    setPageCursors([null]);
-    setPage(1);
+    setLocation({ page: 1, cursor: null });
   };
 
   const handleFiltersChange = (next: RequestLogFilters) => {
     setExpandedId(null);
-    setPageCursors([null]);
-    setPage(1);
+    setLocation({ page: 1, cursor: null });
     setFilters(next);
   };
 
@@ -270,7 +255,7 @@ export function RequestLogManagement() {
       {/* Fixed bottom chrome: pagination only (total is already in the control). */}
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3 text-[12px] text-secondary">
         <LogPagination
-          page={safePage}
+          page={displayedPage}
           pageSize={pageSize}
           total={total}
           hasNextPage={!query.isPlaceholderData && query.data.nextCursor !== null}

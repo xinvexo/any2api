@@ -13,7 +13,7 @@ test("shows client IP and explicit token metric names in the request list", () =
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
     },
   });
-  client.setQueryData(requestLogQueryKeys.list(null, 20), requestLogs());
+  client.setQueryData(requestLogQueryKeys.list(null, 1, 20), requestLogs());
 
   render(
     <MemoryRouter>
@@ -70,8 +70,9 @@ function requestLogs(): RequestLogList {
       },
     ],
     total: 1,
+    page: 1,
     pageSize: 20,
-    cursor: "r2.cursor",
+    cursor: "r3.cursor",
     nextCursor: null,
     telemetry: {
       queuedRecords: 0,

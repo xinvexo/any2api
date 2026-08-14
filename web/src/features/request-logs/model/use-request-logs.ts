@@ -7,14 +7,15 @@ import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
 export function useRequestLogs(
   cursor: string | null,
+  page: number,
   pageSize: number,
   filters: RequestLogFilters,
 ) {
   const queryClient = useQueryClient();
-  const queryKey = requestLogQueryKeys.list(cursor, pageSize, filters);
+  const queryKey = requestLogQueryKeys.list(cursor, page, pageSize, filters);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getRequestLogs(cursor, pageSize, filters, signal),
+    queryFn: ({ signal }) => getRequestLogs(cursor, page, pageSize, filters, signal),
     placeholderData: keepPreviousData,
   });
 

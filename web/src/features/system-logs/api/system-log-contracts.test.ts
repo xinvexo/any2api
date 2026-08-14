@@ -13,8 +13,9 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
       { ...systemLog("/assets/app%20name.js"), status_code: null, outcome: "cancelled" },
     ],
     total: 2,
+    page: 1,
     page_size: 20,
-    cursor: "s1.current",
+    cursor: "s2.current",
     next_cursor: null,
     telemetry: { queued_records: 1, in_flight_records: 4, dropped_records: 2, persisted_records: 3 },
   });
@@ -70,8 +71,9 @@ test("rejects unknown outcomes and invalid response counts", () => {
     parseSystemLogList({
       items: [{ ...systemLog("/"), outcome: "unknown" }],
       total: 1,
+      page: 1,
       page_size: 20,
-      cursor: "s1.current",
+      cursor: "s2.current",
       next_cursor: null,
       telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
     }),
@@ -83,8 +85,20 @@ test("rejects unknown outcomes and invalid response counts", () => {
     parseSystemLogList({
       items: [systemLog("/v1/models")],
       total: 0,
+      page: 1,
       page_size: 20,
-      cursor: "s1.current",
+      cursor: "s2.current",
+      next_cursor: null,
+      telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
+    }),
+  ).toThrow("invalid system log response");
+  expect(() =>
+    parseSystemLogList({
+      items: [systemLog("/v1/models")],
+      total: 1,
+      page: 2,
+      page_size: 20,
+      cursor: "s2.current",
       next_cursor: null,
       telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
     }),

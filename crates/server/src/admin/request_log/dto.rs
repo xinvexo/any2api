@@ -11,6 +11,7 @@ use super::filter_options::RequestLogFilterOptionsResponse;
 pub(crate) struct RequestLogListResponse {
     items: Vec<RequestLogResponse>,
     total: u64,
+    page: u32,
     page_size: u32,
     cursor: Option<String>,
     next_cursor: Option<String>,
@@ -30,11 +31,10 @@ impl RequestLogListResponse {
         let cursor = logs
             .cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor));
-        let next_cursor = logs
-            .next_cursor
-            .as_ref()
-            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor));
+            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor, logs.page));
+        let next_cursor = logs.next_cursor.as_ref().map(|cursor| {
+            LogCursorScope::Request(filter_fingerprint).encode(cursor, logs.page.saturating_add(1))
+        });
         Self {
             items: logs
                 .items
@@ -42,6 +42,7 @@ impl RequestLogListResponse {
                 .map(|log| RequestLogResponse::from_log(log, snapshot))
                 .collect(),
             total: logs.total,
+            page: logs.page,
             page_size,
             cursor,
             next_cursor,

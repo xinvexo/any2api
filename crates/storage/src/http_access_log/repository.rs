@@ -66,6 +66,7 @@ pub trait HttpAccessLogRepository: Send + Sync {
         &self,
         since_ms: u64,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError>;
 
@@ -149,9 +150,10 @@ impl HttpAccessLogRepository for SqliteStore {
         &self,
         since_ms: u64,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
-        pagination::list(self, since_ms, cursor, limit).await
+        pagination::list(self, since_ms, cursor, page, limit).await
     }
 
     async fn get_http_access_log(

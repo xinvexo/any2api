@@ -62,6 +62,7 @@ impl LogPageCursor {
 pub struct LogPage<T> {
     pub items: Vec<T>,
     pub total: u64,
+    pub page: u32,
     pub cursor: Option<LogPageCursor>,
     pub next_cursor: Option<LogPageCursor>,
 }
@@ -71,12 +72,14 @@ impl<T> LogPage<T> {
     pub const fn new(
         items: Vec<T>,
         total: u64,
+        page: u32,
         cursor: Option<LogPageCursor>,
         next_cursor: Option<LogPageCursor>,
     ) -> Self {
         Self {
             items,
             total,
+            page,
             cursor,
             next_cursor,
         }
@@ -84,6 +87,6 @@ impl<T> LogPage<T> {
 
     #[must_use]
     pub const fn empty() -> Self {
-        Self::new(Vec::new(), 0, None, None)
+        Self::new(Vec::new(), 0, 1, None, None)
     }
 }

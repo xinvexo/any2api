@@ -33,6 +33,7 @@ pub trait RequestLogRepository: Send + Sync {
         since_ms: u64,
         filter: &RequestLogFilter,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError>;
 
@@ -102,9 +103,10 @@ impl RequestLogRepository for SqliteStore {
         since_ms: u64,
         filter: &RequestLogFilter,
         cursor: Option<LogPageCursor>,
+        page: u32,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
-        pagination::list(self, since_ms, filter, cursor, limit).await
+        pagination::list(self, since_ms, filter, cursor, page, limit).await
     }
 
     async fn get_request_log(

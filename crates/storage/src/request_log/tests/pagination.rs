@@ -23,16 +23,58 @@ async fn request_log_pages_apply_the_time_window_before_counting() {
         .expect("append logs");
 
     let first_page = store
-        .list_request_logs(150, &Default::default(), None, 1)
+        .list_request_logs(150, &Default::default(), None, 1, 1)
         .await
         .expect("first visible row");
     let page = store
-        .list_request_logs(150, &Default::default(), first_page.next_cursor, 1)
+        .list_request_logs(150, &Default::default(), first_page.next_cursor, 2, 1)
         .await
         .expect("second visible row");
     assert_eq!(page.total, 2);
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].request_id, second.request.request_id);
+}
+
+#[tokio::test]
+async fn request_logs_jump_to_an_anchored_page_and_clamp_past_the_end() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("request-log-jump.sqlite3"))
+        .await
+        .expect("storage");
+    let records = (1..=7)
+        .map(|index| record(RequestId::new(), index * 100, false))
+        .collect::<Vec<_>>();
+    store
+        .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
+        .await
+        .expect("append logs");
+
+    let first_page = store
+        .list_request_logs(0, &Default::default(), None, 1, 2)
+        .await
+        .expect("first page");
+    let anchor = first_page.cursor.clone();
+    let third_page = store
+        .list_request_logs(0, &Default::default(), anchor.clone(), 3, 2)
+        .await
+        .expect("third page");
+    assert_eq!(third_page.page, 3);
+    assert_eq!(
+        third_page
+            .items
+            .iter()
+            .map(|item| item.request_id)
+            .collect::<Vec<_>>(),
+        [records[2].request.request_id, records[1].request.request_id]
+    );
+
+    let last_page = store
+        .list_request_logs(0, &Default::default(), anchor, 99, 2)
+        .await
+        .expect("clamped last page");
+    assert_eq!(last_page.page, 4);
+    assert_eq!(last_page.items[0].request_id, records[0].request.request_id);
+    assert!(last_page.next_cursor.is_none());
 }
 
 #[tokio::test]
@@ -61,7 +103,7 @@ async fn request_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .expect("append initial logs");
 
     let first_page = store
-        .list_request_logs(0, &Default::default(), None, 2)
+        .list_request_logs(0, &Default::default(), None, 1, 2)
         .await
         .expect("first page");
     assert_eq!(
@@ -81,7 +123,7 @@ async fn request_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .expect("append concurrent logs");
 
     let second_page = store
-        .list_request_logs(0, &Default::default(), first_page.next_cursor.clone(), 2)
+        .list_request_logs(0, &Default::default(), first_page.next_cursor.clone(), 2, 2)
         .await
         .expect("second page");
     assert_eq!(second_page.total, 6);
@@ -99,7 +141,7 @@ async fn request_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .await
         .expect("delete oldest row between pages");
     let third_page = store
-        .list_request_logs(0, &Default::default(), second_page.next_cursor, 2)
+        .list_request_logs(0, &Default::default(), second_page.next_cursor, 3, 2)
         .await
         .expect("third page");
     assert_eq!(
@@ -183,7 +225,7 @@ async fn request_log_filters_share_exact_list_and_count_predicates() {
         Some(gateway_id),
     );
     let failed_page = store
-        .list_request_logs(0, &failed_filter, None, 10)
+        .list_request_logs(0, &failed_filter, None, 1, 10)
         .await
         .expect("failed logs");
     assert_eq!(failed_page.total, 1);
@@ -195,7 +237,7 @@ async fn request_log_filters_share_exact_list_and_count_predicates() {
         Some(gateway_id),
     );
     let cancelled_page = store
-        .list_request_logs(0, &cancelled_filter, None, 10)
+        .list_request_logs(0, &cancelled_filter, None, 1, 10)
         .await
         .expect("cancelled logs");
     assert_eq!(cancelled_page.total, 1);
