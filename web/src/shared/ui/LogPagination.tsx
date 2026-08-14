@@ -3,7 +3,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  MoveRight,
 } from "lucide-react";
 import { useRef, type FormEvent } from "react";
 
@@ -12,7 +11,6 @@ import {
   LOG_PAGE_SIZE_OPTIONS,
   type LogPageSize,
 } from "@/shared/lib/log-pagination";
-import { controlClass } from "@/shared/ui/form-control";
 import { IconButton } from "@/shared/ui/IconButton";
 import { Select } from "@/shared/ui/Select";
 
@@ -91,10 +89,7 @@ export function LogPagination({
           <input
             key={`${safePage}:${totalPages}`}
             ref={pageInputRef}
-            className={controlClass(
-              false,
-              "w-14 px-1.5 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-            )}
+            className="focus-ring h-6 w-11 rounded-[6px] border-0 bg-surface-muted px-1 text-center text-[12px] font-medium tabular-nums text-primary transition-colors hover:bg-surface-hover disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             type="number"
             inputMode="numeric"
             min={1}
@@ -112,15 +107,6 @@ export function LogPagination({
           <span className="min-w-10 whitespace-nowrap tabular-nums text-primary">
             / {totalPages}
           </span>
-          <IconButton
-            label="跳转到页码"
-            title="跳转到页码"
-            size="sm"
-            type="submit"
-            disabled={disabled || totalPages <= 1}
-          >
-            <MoveRight size={15} strokeWidth={1.75} />
-          </IconButton>
         </form>
 
         <IconButton

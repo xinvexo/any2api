@@ -44,7 +44,10 @@ export function OAuthAccountCard({
       className={cn(
         "flex h-full min-w-0 flex-col overflow-hidden p-0 shadow-hairline",
         "transition-opacity duration-150",
-        hasProblem && "border-danger/20 bg-danger/5",
+        hasProblem && [
+          "border-danger/20 bg-linear-to-b",
+          "from-danger/10 via-danger/[0.035] to-surface",
+        ],
         !presentation.enabled && "opacity-[0.72]",
       )}
     >

@@ -1,1 +1,0 @@
-import{t as e}from"./cn-BtRqtsxU.js";var t=`focus-ring h-8 w-full rounded-[8px] border border-subtle bg-surface px-2.5 text-[12px] text-primary transition-colors placeholder:text-tertiary hover:border-strong disabled:bg-surface-muted disabled:opacity-60`;function n(n=!1,r){return e(t,n&&`border-danger/50 bg-danger/[0.05]`,r)}export{n as t};

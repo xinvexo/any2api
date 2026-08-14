@@ -116,7 +116,13 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(notice).toHaveClass("border-t", "border-danger/20");
   expect(notice).not.toHaveClass("rounded-lg", "bg-danger/5");
   const card = notice.closest("[data-floating-bounds]");
-  expect(card).toHaveClass("border-danger/20", "bg-danger/5");
+  expect(card).toHaveClass(
+    "border-danger/20",
+    "bg-linear-to-b",
+    "from-danger/10",
+    "via-danger/[0.035]",
+    "to-surface",
+  );
   expect(screen.queryByRole("region", { name: "Codex 额度" })).not.toBeInTheDocument();
   expect(screen.queryByRole("group", { name: /Needs Authorization 近 1 小时/ }))
     .not.toBeInTheDocument();
