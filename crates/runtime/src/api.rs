@@ -50,7 +50,7 @@ pub use crate::routing::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub use crate::routing::{SelectAndReserveResult, select_and_try_reserve};
 pub use any2api_protocol::api::{
     BridgeLimitation, BridgeRequestFieldBehavior, BridgeRequestFieldCapability,
-    ProtocolBridgeCapabilities, ProtocolFidelity,
+    ProtocolBridgeCapabilities, ProtocolFidelity, SseDecoder, SseFrame, responses_websocket,
 };
 pub use any2api_provider::api::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,

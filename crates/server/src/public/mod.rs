@@ -4,6 +4,7 @@ mod error;
 mod handlers;
 mod models;
 mod response;
+mod responses_websocket;
 
 use axum::{
     Router, middleware,
@@ -16,7 +17,10 @@ pub(crate) fn routes(state: AppState) -> Router {
     let routes = Router::new()
         .route("/", any(error::not_found))
         .route("/models", get(models::list_models))
-        .route("/responses", post(handlers::responses))
+        .route(
+            "/responses",
+            post(handlers::responses).get(responses_websocket::upgrade),
+        )
         .route("/responses/compact", post(handlers::responses_compact))
         .route("/chat/completions", post(handlers::chat_completions))
         .route("/images/generations", post(handlers::images_generations))

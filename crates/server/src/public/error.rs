@@ -158,6 +158,10 @@ pub(crate) async fn method_not_allowed(
     PublicApiError::method_not_allowed().into_response_for(&state, request.uri())
 }
 
+pub(super) fn method_not_allowed_response(state: &AppState, uri: &Uri) -> Response {
+    PublicApiError::method_not_allowed().into_response_for(state, uri)
+}
+
 fn dialect_for_uri(uri: &Uri) -> ProtocolDialect {
     let path = uri
         .path()

@@ -44,7 +44,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 13. 多个 `GatewayApiKey` 仅用于不同设备、客户端和密钥轮换，权限等价，不具备用户、租户、套餐、余额或额度语义。
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
-16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
+16. 首版 TransportMode 只有 JSON 和 SSE，上游不使用 WebSocket。`POST /v1/responses` 同路径接受 OpenAI Responses WebSocket 入口（`responses_websockets=2026-02-06` 协议）：连接内每条 `response.create` 还原为一个独立公开请求走既有执行链，增量请求与 warmup 由连接内存状态承接，上游请求保持全量、凭据无关的 HTTP JSON/SSE。WebSocket 连接数达到硬上限时对新 Upgrade 返回 426 让客户端按协议降级 HTTP。完整边界见 `docs/adr/0151-openai-responses-websocket-ingress.md`。
 17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
@@ -116,7 +116,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 - Gemini 或其他 Provider；
 - 通用或可导出的 Provider OAuth2 JSON 导入；Provider 专用、只写入 `OAuthAccount` 的批量导入属于当前范围；
 - `/backend-api/codex/responses` 兼容入口；
-- Codex WebSocket；
+- 上游 WebSocket 传输（`/v1/responses` 的 WebSocket 入口属于当前范围，见 ADR-0151）；
 - Codex/OpenAI 与 Claude Messages 双向跨协议路由；
 - 动态本地插件 ABI；
 - Redis 缓存和消息队列；
@@ -1350,7 +1350,7 @@ ProviderKind
 | 入口 | 用途 | 上游方言 | 模式 |
 |---|---|---|---|
 | `GET /v1/models` | 返回已发布并放行的公开模型 | 本地 PublishedSnapshot | JSON |
-| `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
+| `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE + WebSocket 入口 |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
 | `POST /v1/images/generations` | OpenAI 图片生成 | openai_images，或经显式 Bridge 转为 openai_chat_completions | JSON + SSE；Chat Bridge 首版仅 JSON |
@@ -1364,7 +1364,9 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回
 运行时错误，而不是让模型列表抖动。
 
-首版不实现 WebSocket，也不接受 WebSocket Upgrade。
+上游不使用 WebSocket。公开入口中仅 `/v1/responses` 接受 WebSocket Upgrade：同路径 `GET` 升级进入
+OpenAI Responses WebSocket 入口（ADR-0151），连接内每条 `response.create` 还原为一个独立公开请求
+复用上表 `POST /v1/responses` 的全部执行语义；其余入口不接受 WebSocket Upgrade。
 
 #### `/v1/images/generations` 与 `/v1/images/edits`
 
@@ -3377,8 +3379,8 @@ Provider Accepted Protocol = Required
 Provider Internal Conversion Protocol = Optional
 Effective Upstream Protocol = Internal Conversion ?? Accepted Protocol
 Registered Bridge = Responses -> Chat Completions + Images -> Chat Completions (Generations JSON Only)
-Codex WebSocket = Disabled
-/v1/responses = JSON + SSE enabled; /v1/responses/compact = JSON only
+Codex WebSocket = Responses Ingress Only + Connection-Scoped Incremental State + HTTP Upstream (ADR-0151)
+/v1/responses = JSON + SSE + WebSocket Ingress enabled; /v1/responses/compact = JSON only
 /v1/chat/completions = JSON + SSE enabled
 /v1/images/generations = JSON + SSE enabled
 /v1/images/edits = JSON or multipart + SSE enabled

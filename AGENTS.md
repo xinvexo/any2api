@@ -27,13 +27,14 @@
 - 实现：
   - `GET /v1/models`
   - `POST /v1/responses`
+  - `GET /v1/responses`（仅 WebSocket Upgrade，OpenAI Responses WebSocket 入口）
   - `POST /v1/responses/compact`
   - `POST /v1/chat/completions`
   - `POST /v1/images/generations`
   - `POST /v1/images/edits`
   - `POST /v1/messages`
   - `POST /v1/messages/count_tokens`
-- 首版不实现 `/backend-api/codex/responses`、Codex WebSocket 和 Codex/Claude 双向跨协议路由。
+- 首版不实现 `/backend-api/codex/responses`、上游 WebSocket 传输和 Codex/Claude 双向跨协议路由；`/v1/responses` 的 OpenAI Responses WebSocket 入口属于当前范围（ADR-0151），上游仍走 HTTP JSON/SSE。
 - 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions、Images → Images 和 Messages → Messages；不注册其他组合。
 - 公开模型名不强制 Provider 前缀，首版固定等于上游模型名，不提供别名编辑。
 
