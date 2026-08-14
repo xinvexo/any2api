@@ -9,6 +9,7 @@ export type RouteProtocolDialect =
 export type RouteProtocolOperation =
   | "responses"
   | "responses_compact"
+  | "alpha_search"
   | "chat_completions"
   | "images_generations"
   | "images_edits"
@@ -52,6 +53,7 @@ const DIALECTS = [
 const OPERATIONS = [
   "responses",
   "responses_compact",
+  "alpha_search",
   "chat_completions",
   "images_generations",
   "images_edits",

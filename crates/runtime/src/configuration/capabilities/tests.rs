@@ -23,7 +23,8 @@ fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
         direct.operations,
         [
             ProtocolOperation::Responses,
-            ProtocolOperation::ResponsesCompact
+            ProtocolOperation::ResponsesCompact,
+            ProtocolOperation::AlphaSearch
         ]
     );
     assert!(direct.bridge.is_none());

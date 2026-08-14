@@ -41,6 +41,22 @@ pub(crate) async fn responses_compact(
     .await
 }
 
+pub(crate) async fn alpha_search(
+    State(state): State<AppState>,
+    Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<HttpRequestId>,
+    request: PublicBody,
+) -> Response {
+    execute_public_request(
+        state,
+        authenticated,
+        request_id,
+        request,
+        ProtocolOperation::AlphaSearch,
+    )
+    .await
+}
+
 pub(crate) async fn chat_completions(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,

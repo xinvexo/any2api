@@ -45,6 +45,7 @@ pub enum ProtocolDialect {
 pub enum ProtocolOperation {
     Responses,
     ResponsesCompact,
+    AlphaSearch,
     ChatCompletions,
     ImagesGenerations,
     ImagesEdits,
@@ -53,9 +54,10 @@ pub enum ProtocolOperation {
 }
 
 impl ProtocolOperation {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Responses,
         Self::ResponsesCompact,
+        Self::AlphaSearch,
         Self::ChatCompletions,
         Self::ImagesGenerations,
         Self::ImagesEdits,
@@ -66,7 +68,9 @@ impl ProtocolOperation {
     #[must_use]
     pub const fn dialect(self) -> ProtocolDialect {
         match self {
-            Self::Responses | Self::ResponsesCompact => ProtocolDialect::OpenAiResponses,
+            Self::Responses | Self::ResponsesCompact | Self::AlphaSearch => {
+                ProtocolDialect::OpenAiResponses
+            }
             Self::ChatCompletions => ProtocolDialect::OpenAiChatCompletions,
             Self::ImagesGenerations | Self::ImagesEdits => ProtocolDialect::OpenAiImages,
             Self::Messages | Self::MessagesCountTokens => ProtocolDialect::AnthropicMessages,
@@ -142,6 +146,7 @@ impl ProtocolOperation {
         match self {
             Self::Responses => "responses",
             Self::ResponsesCompact => "responses_compact",
+            Self::AlphaSearch => "alpha_search",
             Self::ChatCompletions => "chat_completions",
             Self::ImagesGenerations => "images_generations",
             Self::ImagesEdits => "images_edits",
@@ -154,6 +159,7 @@ impl ProtocolOperation {
         match value {
             "responses" => Some(Self::Responses),
             "responses_compact" => Some(Self::ResponsesCompact),
+            "alpha_search" => Some(Self::AlphaSearch),
             "chat_completions" => Some(Self::ChatCompletions),
             "images_generations" => Some(Self::ImagesGenerations),
             "images_edits" => Some(Self::ImagesEdits),
@@ -227,6 +233,25 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ProtocolOperation::ImagesEdits).expect("serialize operation"),
             r#""images_edits""#
+        );
+    }
+
+    #[test]
+    fn alpha_search_is_a_non_streaming_responses_operation() {
+        assert_eq!(ProtocolOperation::AlphaSearch.as_str(), "alpha_search");
+        assert_eq!(
+            ProtocolOperation::parse("alpha_search"),
+            Some(ProtocolOperation::AlphaSearch)
+        );
+        assert_eq!(
+            ProtocolOperation::AlphaSearch.dialect(),
+            ProtocolDialect::OpenAiResponses
+        );
+        assert!(!ProtocolOperation::AlphaSearch.allows_stream());
+        assert!(ProtocolOperation::ALL.contains(&ProtocolOperation::AlphaSearch));
+        assert_eq!(
+            serde_json::to_string(&ProtocolOperation::AlphaSearch).expect("serialize operation"),
+            r#""alpha_search""#
         );
     }
 

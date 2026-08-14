@@ -94,6 +94,7 @@ fn operation_for_path(path: &str) -> Option<ProtocolOperation> {
     match path {
         "responses" => Some(ProtocolOperation::Responses),
         "responses/compact" => Some(ProtocolOperation::ResponsesCompact),
+        "alpha/search" => Some(ProtocolOperation::AlphaSearch),
         "chat/completions" => Some(ProtocolOperation::ChatCompletions),
         "images/generations" => Some(ProtocolOperation::ImagesGenerations),
         "images/edits" => Some(ProtocolOperation::ImagesEdits),

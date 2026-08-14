@@ -3,6 +3,7 @@ import type { RequestLogOutcome } from "./request-attempt-contracts";
 export type RequestLogOperation =
   | "responses"
   | "responses_compact"
+  | "alpha_search"
   | "chat_completions"
   | "images_generations"
   | "images_edits"

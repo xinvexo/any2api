@@ -127,7 +127,7 @@ function protocolOptions() {
       provider_kind: "codex",
       accepted_protocol: "openai_responses",
       upstream_options: [
-        directOption("openai_responses", ["responses", "responses_compact"]),
+        directOption("openai_responses", ["responses", "responses_compact", "alpha_search"]),
         translatedOption("openai_chat_completions", ["responses"]),
       ],
     },
@@ -150,7 +150,7 @@ function protocolOptions() {
       provider_kind: "grok",
       accepted_protocol: "openai_responses",
       upstream_options: [
-        directOption("openai_responses", ["responses", "responses_compact"]),
+        directOption("openai_responses", ["responses", "responses_compact", "alpha_search"]),
         translatedOption("openai_chat_completions", ["responses"]),
       ],
     },

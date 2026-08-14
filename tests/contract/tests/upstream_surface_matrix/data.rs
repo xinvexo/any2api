@@ -156,6 +156,9 @@ fn ingress_fixture(provider: ProviderKind, operation: ProtocolOperation) -> (Hea
         ProtocolOperation::ResponsesCompact => Bytes::from_static(
             br#"{"model":"public-model","input":[{"role":"user","content":"compact me"}]}"#,
         ),
+        ProtocolOperation::AlphaSearch => Bytes::from_static(
+            br#"{"id":"fixture-session","model":"public-model","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"find the moon"}]}],"commands":{"search_query":[{"q":"moon phase today","recency":7}]},"settings":{"allowed_callers":["direct"],"external_web_access":true},"max_output_tokens":2500}"#,
+        ),
         ProtocolOperation::ChatCompletions => Bytes::from_static(
             br#"{"model":"public-model","messages":[{"role":"user","content":"hello"}],"stream":false}"#,
         ),

@@ -22,6 +22,7 @@ pub(crate) fn routes(state: AppState) -> Router {
             post(handlers::responses).get(responses_websocket::upgrade),
         )
         .route("/responses/compact", post(handlers::responses_compact))
+        .route("/alpha/search", post(handlers::alpha_search))
         .route("/chat/completions", post(handlers::chat_completions))
         .route("/images/generations", post(handlers::images_generations))
         .route("/images/edits", post(handlers::images_edits))

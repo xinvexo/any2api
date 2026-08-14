@@ -91,6 +91,15 @@ fn extract_affinity(
     ) {
         return Ok(IngressAffinity::None);
     }
+    if operation == ProtocolOperation::AlphaSearch
+        && let Some(id) = payload
+            .parse_field::<String>("id")
+            .transpose()
+            .map_err(|_| ProtocolError::InvalidPayload("id must be a string".into()))?
+        && let Some(affinity) = affinity::codex_session(&id)?
+    {
+        return Ok(affinity);
+    }
     let previous = if operation == ProtocolOperation::Responses {
         payload
             .parse_field::<Option<String>>("previous_response_id")

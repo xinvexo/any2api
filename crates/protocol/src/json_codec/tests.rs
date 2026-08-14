@@ -1,11 +1,12 @@
 use any2api_domain::ProtocolOperation;
 use bytes::Bytes;
-use http::HeaderMap;
+use http::{HeaderMap, HeaderValue};
 use serde_json::json;
 
-use super::{encode_response, request_execution_profile_raw};
+use super::{encode_response, extract_affinity, request_execution_profile_raw};
 use crate::api::{
-    DecodedResponsePayload, DecodedUpstreamResponse, RawJsonPayload, RequestExecutionProfile,
+    DecodedResponsePayload, DecodedUpstreamResponse, IngressAffinity, RawJsonPayload,
+    RequestExecutionProfile,
 };
 
 fn raw(value: serde_json::Value) -> RawJsonPayload {
@@ -47,6 +48,45 @@ fn responses_compact_always_uses_the_remote_profile() {
         request_execution_profile_raw(ProtocolOperation::ResponsesCompact, &raw(request)),
         RequestExecutionProfile::RemoteCompaction
     );
+}
+
+#[test]
+fn alpha_search_body_id_shares_the_codex_session_namespace() {
+    let headers = HeaderMap::new();
+    let search = raw(json!({"id":"0199-codex-session","model":"gpt","input":[]}));
+    assert_eq!(
+        extract_affinity(ProtocolOperation::AlphaSearch, &headers, &search).expect("affinity"),
+        IngressAffinity::Session("codex:0199-codex-session".into())
+    );
+
+    let mut session_headers = HeaderMap::new();
+    session_headers.insert("session_id", HeaderValue::from_static("0199-codex-session"));
+    let responses = raw(json!({"model":"gpt","input":[]}));
+    assert_eq!(
+        extract_affinity(ProtocolOperation::Responses, &session_headers, &responses)
+            .expect("affinity"),
+        IngressAffinity::Session("codex:0199-codex-session".into())
+    );
+}
+
+#[test]
+fn alpha_search_without_an_id_falls_back_to_explicit_session_headers() {
+    let missing = raw(json!({"model":"gpt"}));
+    assert_eq!(
+        extract_affinity(ProtocolOperation::AlphaSearch, &HeaderMap::new(), &missing)
+            .expect("affinity"),
+        IngressAffinity::None
+    );
+
+    let mut explicit = HeaderMap::new();
+    explicit.insert("x-any2api-session", HeaderValue::from_static("manual"));
+    assert_eq!(
+        extract_affinity(ProtocolOperation::AlphaSearch, &explicit, &missing).expect("affinity"),
+        IngressAffinity::Session("any2api:manual".into())
+    );
+
+    let invalid = raw(json!({"id":42,"model":"gpt"}));
+    assert!(extract_affinity(ProtocolOperation::AlphaSearch, &HeaderMap::new(), &invalid).is_err());
 }
 
 fn decoded_response(body: Bytes) -> DecodedUpstreamResponse {

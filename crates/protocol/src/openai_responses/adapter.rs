@@ -59,7 +59,9 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     ) -> Result<EncodedUpstreamRequest, ProtocolError> {
         if !matches!(
             operation,
-            ProtocolOperation::Responses | ProtocolOperation::ResponsesCompact
+            ProtocolOperation::Responses
+                | ProtocolOperation::ResponsesCompact
+                | ProtocolOperation::AlphaSearch
         ) {
             return Err(ProtocolError::Unsupported(format!("{operation:?}")));
         }

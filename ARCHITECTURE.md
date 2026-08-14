@@ -1352,6 +1352,7 @@ ProviderKind
 | `GET /v1/models` | 返回已发布并放行的公开模型 | 本地 PublishedSnapshot | JSON |
 | `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE + WebSocket 入口 |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
+| `POST /v1/alpha/search` | Codex 客户端 `web__run` 独立联网搜索 | openai_responses alpha search | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
 | `POST /v1/images/generations` | OpenAI 图片生成 | openai_images，或经显式 Bridge 转为 openai_chat_completions | JSON + SSE；Chat Bridge 首版仅 JSON |
 | `POST /v1/images/edits` | OpenAI 图片编辑 | openai_images | JSON/multipart + SSE |
@@ -1408,6 +1409,25 @@ OpenAI Responses WebSocket 入口（ADR-0151），连接内每条 `response.crea
 - 不建立 Codex `previous_response_id` 续接绑定，但显式会话标识仍可使用统一会话粘性。
 
 参考实现中 CLIProxyAPI、sub2api 和 new-api 都支持该入口；公开语义参考 OpenAI Responses Compaction API。
+
+#### `/v1/alpha/search`
+
+- 接收 Codex CLI ≥0.147 standalone web search（`web__run` 工具）的客户端搜索请求：顶层至少
+  要求 `model`；`id`、`input`、`commands`、`settings`、`max_output_tokens` 等其余字段保持
+  不透明原样转发，any2api 不在本地实现搜索，也不解析 `results`/`encrypted_output`；
+- 只支持非流式 JSON；请求包含 `stream=true` 时返回 400；
+- 使用与 `/v1/responses` 相同的模型路由、公开模型允许列表、Provider API Key、代理和账号
+  RPM；只有 Codex Driver（OAuth 与 OpenAI API Key）声明该操作并追加固定 `alpha/search`
+  路径。跨方言 Bridge 不声明；OAuth 候选按 `oauth_supports_operation`、API Key 候选按
+  Driver endpoint 计划在候选构造阶段过滤，不声明该操作的 Provider 在 RPM 预留和上游 I/O
+  前排除；
+- 请求体顶层 `id` 是 Codex 会话 UUID，与同会话模型请求的 `session_id` 请求头同值；
+  `alpha_search` 把它提取为 `codex` 命名空间的显式会话标识参与统一会话粘性，使搜索与模型
+  请求命中同一上游账号。`id` 缺失时按普通候选调度；不建立续接绑定；
+- 尺寸与时限沿用标准档（请求体 32 MiB、buffered 响应 16 MiB、当前设置超时），zstd 请求体
+  编码不对该路径开放。
+
+完整决策见 `docs/adr/0152-openai-alpha-search-ingress.md`。
 
 #### `/v1/messages/count_tokens`
 
@@ -1705,7 +1725,7 @@ Runtime 必须在模型允许列表与 Route 解析之前将它们写入 Request
 
 Provider Driver 仍可从已声明 envelope 提取原始 `message`，但只用于有界 RequestLog/RequestAttempt 管理展示；缺失时保持为空，禁止根据状态或内部分类生成摘要。管理 DTO 和 Web 不再暴露 `error_class`、`retry_safety` 或 Attempt `outcome`，只显示真实 HTTP 状态、是否收到上游状态、实际消息、耗时与路由来源。内部分类字段可以继续存在于 Runtime/SQLite 以支持重试和健康实现，但不能成为公开错误类型。完整决策见 `docs/adr/0061-transparent-upstream-error-responses.md`。
 
-公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses` 与 `/v1/responses/compact` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/images/generations` 与 `/v1/images/edits` 使用 OpenAI Images 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
+公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses`、`/v1/responses/compact` 与 `/v1/alpha/search` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/images/generations` 与 `/v1/images/edits` 使用 OpenAI Images 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
 
 ### 11.9 透传与 Secret 类型
 
@@ -2141,7 +2161,7 @@ ProviderCredential 会话同时沿用该 Credential 的明确代理绑定；`DIR
 尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
 由于关闭时普通显式 Session 已不再是当前策略的活动绑定，总览必须返回活动会话数 `0`，不得把保留的普通绑定或仍必须维护的 Continuation 索引算作活动会话。
 
-Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
+Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/alpha/search` 以请求体顶层 `id`（Codex 会话 UUID，`codex` 命名空间）参与显式会话粘性，同样不创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 
 ## 14. 重试、冷却与错误分类
 
@@ -2470,7 +2490,7 @@ SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry�
 Route 物化后，将数组策略与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
 在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]` 并继续禁止全部；`"all"` 模式不参与名称裁剪。
 
-`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新策略。完整决策见 `docs/adr/0049-global-public-model-allowlist.md` 与 `docs/adr/0073-explicit-public-model-access-mode.md`。
+`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/alpha/search`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新策略。完整决策见 `docs/adr/0049-global-public-model-allowlist.md` 与 `docs/adr/0073-explicit-public-model-access-mode.md`。
 
 #### 可信反向代理
 
@@ -3381,6 +3401,7 @@ Effective Upstream Protocol = Internal Conversion ?? Accepted Protocol
 Registered Bridge = Responses -> Chat Completions + Images -> Chat Completions (Generations JSON Only)
 Codex WebSocket = Responses Ingress Only + Connection-Scoped Incremental State + HTTP Upstream (ADR-0151)
 /v1/responses = JSON + SSE + WebSocket Ingress enabled; /v1/responses/compact = JSON only
+/v1/alpha/search = JSON only + Codex Upstream Only (ADR-0152)
 /v1/chat/completions = JSON + SSE enabled
 /v1/images/generations = JSON + SSE enabled
 /v1/images/edits = JSON or multipart + SSE enabled

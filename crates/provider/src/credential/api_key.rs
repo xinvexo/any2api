@@ -40,6 +40,7 @@ pub(crate) fn endpoint_url(
     let suffix = match operation {
         ProtocolOperation::Responses => "responses",
         ProtocolOperation::ResponsesCompact => "responses/compact",
+        ProtocolOperation::AlphaSearch => "alpha/search",
         ProtocolOperation::ChatCompletions => "chat/completions",
         ProtocolOperation::ImagesGenerations => "images/generations",
         ProtocolOperation::ImagesEdits => "images/edits",

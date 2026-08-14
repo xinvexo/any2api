@@ -42,8 +42,8 @@ pub(super) fn assert_complete_matrix(cases: &[SurfaceCase]) {
             .iter()
             .filter(|case| case.surface == Surface::DataDirect)
             .count(),
-        16,
-        "11 API Key and 5 OAuth direct operations"
+        18,
+        "12 API Key and 6 OAuth direct operations"
     );
     assert_eq!(
         cases
@@ -67,5 +67,5 @@ pub(super) fn assert_complete_matrix(cases: &[SurfaceCase]) {
             .count(),
         6
     );
-    assert_eq!(cases.len(), 35);
+    assert_eq!(cases.len(), 37);
 }

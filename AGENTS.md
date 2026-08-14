@@ -29,6 +29,7 @@
   - `POST /v1/responses`
   - `GET /v1/responses`（仅 WebSocket Upgrade，OpenAI Responses WebSocket 入口）
   - `POST /v1/responses/compact`
+  - `POST /v1/alpha/search`（Codex `web__run` 独立联网搜索，仅 Codex 上游，ADR-0152）
   - `POST /v1/chat/completions`
   - `POST /v1/images/generations`
   - `POST /v1/images/edits`

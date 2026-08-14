@@ -192,6 +192,7 @@ function readOperation(value: unknown): RequestLogOperation {
   if (
     value === "responses" ||
     value === "responses_compact" ||
+    value === "alpha_search" ||
     value === "chat_completions" ||
     value === "images_generations" ||
     value === "images_edits" ||

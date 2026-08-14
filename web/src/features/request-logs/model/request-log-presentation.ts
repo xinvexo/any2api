@@ -27,6 +27,8 @@ export function operationLabel(value: RequestLogOperation) {
       return "/v1/responses";
     case "responses_compact":
       return "/v1/responses/compact";
+    case "alpha_search":
+      return "/v1/alpha/search";
     case "chat_completions":
       return "/v1/chat/completions";
     case "images_generations":

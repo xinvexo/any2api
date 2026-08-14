@@ -116,6 +116,27 @@ content-length: 96\r\n
 \r\n
 {"messages":[{"content":"hello","role":"user"}],"model":"fixture-upstream-model","stream":false}
 
+=== data.codex.api_key.direct.alpha_search ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/alpha/search
+POST /v1/alpha/search HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+host: <authority>\r\n
+content-length: 318\r\n
+\r\n
+{"commands":{"search_query":[{"q":"moon phase today","recency":7}]},"id":"fixture-session","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"find the moon"}]}],"max_output_tokens":2500,"model":"fixture-upstream-model","settings":{"allowed_callers":["direct"],"external_web_access":true}}
+
 === data.codex.api_key.direct.chat_completions ===
 provider: codex
 surface: data_direct
@@ -233,6 +254,28 @@ host: <authority>\r\n
 content-length: 83\r\n
 \r\n
 {"input":[{"role":"user","content":"compact me"}],"model":"fixture-upstream-model"}
+
+=== data.codex.oauth_access_token.direct.alpha_search ===
+provider: codex
+surface: data_direct
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/codex/alpha/search
+POST /backend-api/codex/alpha/search HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+host: <authority>\r\n
+content-length: 318\r\n
+\r\n
+{"commands":{"search_query":[{"q":"moon phase today","recency":7}]},"id":"fixture-session","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"find the moon"}]}],"max_output_tokens":2500,"model":"fixture-upstream-model","settings":{"allowed_callers":["direct"],"external_web_access":true}}
 
 === data.codex.oauth_access_token.direct.responses ===
 provider: codex

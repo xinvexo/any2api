@@ -37,7 +37,7 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
     assert!(direct["bridge"].is_null());
     assert_eq!(
         direct["operations"],
-        json!(["responses", "responses_compact"])
+        json!(["responses", "responses_compact", "alpha_search"])
     );
 
     let translated = upstream_option(responses, "openai_chat_completions");

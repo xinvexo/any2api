@@ -7,6 +7,7 @@ export type ProtocolDialect =
 export type ProtocolOperation =
   | "responses"
   | "responses_compact"
+  | "alpha_search"
   | "chat_completions"
   | "images_generations"
   | "images_edits"
@@ -147,6 +148,7 @@ function readProtocolOperation(value: unknown): ProtocolOperation {
   if (
     value !== "responses" &&
     value !== "responses_compact" &&
+    value !== "alpha_search" &&
     value !== "chat_completions" &&
     value !== "images_generations" &&
     value !== "images_edits" &&
@@ -176,7 +178,11 @@ function readFieldBehavior(value: unknown): BridgeRequestFieldBehavior {
 }
 
 function operationDialect(operation: ProtocolOperation): ProtocolDialect {
-  if (operation === "responses" || operation === "responses_compact") {
+  if (
+    operation === "responses" ||
+    operation === "responses_compact" ||
+    operation === "alpha_search"
+  ) {
     return "openai_responses";
   }
   if (operation === "chat_completions") return "openai_chat_completions";

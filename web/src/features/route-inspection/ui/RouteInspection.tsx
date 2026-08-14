@@ -244,6 +244,7 @@ function operationLabel(operation: RouteProtocolOperation) {
   return {
     responses: "响应生成",
     responses_compact: "响应压缩",
+    alpha_search: "联网搜索",
     chat_completions: "聊天补全",
     images_generations: "图像生成",
     images_edits: "图像编辑",

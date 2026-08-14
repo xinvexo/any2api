@@ -76,6 +76,7 @@ impl ProviderDriver for CodexDriver {
             operation,
             ProtocolOperation::Responses
                 | ProtocolOperation::ResponsesCompact
+                | ProtocolOperation::AlphaSearch
                 | ProtocolOperation::ChatCompletions
                 | ProtocolOperation::ImagesGenerations
                 | ProtocolOperation::ImagesEdits
@@ -200,7 +201,9 @@ impl ProviderDriver for CodexDriver {
     fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {
         matches!(
             operation,
-            ProtocolOperation::Responses | ProtocolOperation::ResponsesCompact
+            ProtocolOperation::Responses
+                | ProtocolOperation::ResponsesCompact
+                | ProtocolOperation::AlphaSearch
         )
     }
 

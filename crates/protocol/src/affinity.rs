@@ -152,6 +152,16 @@ fn namespaced(source: &str, value: &str) -> Result<String, ProtocolError> {
     Ok(format!("{source}:{value}"))
 }
 
+/// Explicit session identity for `alpha/search`: the body-level `id` carries
+/// the same Codex session UUID the model requests send as the `session_id`
+/// header, so both resolve into one `codex` binding namespace.
+pub(crate) fn codex_session(value: &str) -> Result<Option<IngressAffinity>, ProtocolError> {
+    Ok(match normalized(value)? {
+        Some(value) => Some(IngressAffinity::Session(namespaced("codex", value)?)),
+        None => None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use any2api_domain::ProtocolOperation;
