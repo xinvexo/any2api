@@ -18,13 +18,17 @@ test("marks a disabled explicit OAuth proxy as unavailable for routing", () => {
       { mode: "profile", proxyProfileId: "proxy-1" },
       configuration,
     ),
-  ).toBe("指定 · Office，HTTP · 已停用");
+  ).toBe("指定 · HTTP Office · 已停用");
   expect(
     describeOAuthProxySelection(
       { mode: "profile", proxyProfileId: "deleted" },
       configuration,
     ),
   ).toBe("指定代理已删除");
+
+  expect(describeOAuthProxySelection({ mode: "global" }, configuration)).toBe(
+    "跟随全局（DIRECT 本机直连）",
+  );
 });
 
 function profile(

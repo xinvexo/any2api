@@ -24,7 +24,7 @@ export function OAuthProxySelect({
   const options: SelectOption<string>[] = [
     {
       value: GLOBAL_VALUE,
-      label: `跟随 OAuth 全局出口（${describeProxyProfile(globalProxy)}）`,
+      label: `跟随全局（${describeProxyProfile(globalProxy)}）`,
     },
     ...configuration.items.map((profile) => ({
       value: profile.id,

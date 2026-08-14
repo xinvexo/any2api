@@ -6,6 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import type { OAuthAccount, OAuthProvider } from "../api/oauth-contracts";
 import { presentOAuthAccount } from "../model/oauth-account-presentation";
 import { getOAuthErrorMessage } from "../model/oauth-error";
+import { describeProxyProfile } from "../model/oauth-proxy-presentation";
 import { useOAuthAccountMutations } from "../model/use-oauth-account-mutations";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
 import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
@@ -272,8 +273,6 @@ function OAuthAccountItem({
 function runtimeProxyLabel(account: OAuthAccount) {
   const proxy = account.runtime.resolvedProxy;
   const selection = account.proxySelection.mode === "global" ? "跟随全局" : "指定";
-  const kind = proxy.kind === "direct"
-    ? ""
-    : `（${proxy.kind === "http" ? "HTTP" : "SOCKS5"}）`;
-  return `${selection} · ${proxy.name}${kind}${proxy.enabled ? "" : " · 已停用"}`;
+  const unavailable = proxy.enabled ? "" : " · 已停用";
+  return `${selection}（${describeProxyProfile(proxy)}${unavailable}）`;
 }

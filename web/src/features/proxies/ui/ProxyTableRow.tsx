@@ -120,7 +120,7 @@ export function ProxyTableRow({
               onClick={() => onSetGlobal(proxy)}
             >
               <Globe size={13} />
-              <span className="sr-only sm:not-sr-only">OAuth</span>
+              <span className="sr-only sm:not-sr-only">全局</span>
             </RowActionButton>
           ) : null}
           {!proxy.builtIn ? (
@@ -228,10 +228,11 @@ function GlobalRouteBadge() {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-accent-copy"
+      role="img"
+      aria-label="OAuth 全局出口"
       title="选择“跟随 OAuth 全局出口”的账号使用此出口"
     >
       <Globe size={11} strokeWidth={2.25} aria-hidden="true" />
-      OAuth 全局出口
     </span>
   );
 }

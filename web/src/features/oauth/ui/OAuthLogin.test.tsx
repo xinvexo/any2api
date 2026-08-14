@@ -207,10 +207,10 @@ test("selects an OAuth proxy before starting login", () => {
   );
 
   expect(screen.getByRole("combobox", { name: "OAuth 出口" })).toHaveTextContent(
-    "跟随 OAuth 全局出口（Office Proxy，HTTP）",
+    "跟随全局（HTTP Office Proxy）",
   );
   fireEvent.click(screen.getByRole("combobox", { name: "OAuth 出口" }));
-  fireEvent.click(screen.getByRole("option", { name: "DIRECT，本机直连" }));
+  fireEvent.click(screen.getByRole("option", { name: "DIRECT 本机直连" }));
   expect(onProxySelectionChange).toHaveBeenCalledWith({
     mode: "profile",
     proxyProfileId: "00000000-0000-0000-0000-000000000000",

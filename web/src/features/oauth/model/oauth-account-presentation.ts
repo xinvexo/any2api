@@ -1,8 +1,8 @@
 import type { OAuthAccount } from "../api/oauth-contracts";
 import type { OAuthQuotaSnapshot } from "../api/oauth-quota-contracts";
 
-/** Neutral chip (plan tier, region, …) or warning (disabled / expired). */
-type OAuthAccountBadgeTone = "neutral" | "warning";
+/** Neutral chip (plan tier, region, …), success, or warning runtime state. */
+type OAuthAccountBadgeTone = "neutral" | "success" | "warning" | "danger";
 
 interface OAuthAccountBadge {
   key: string;
@@ -38,44 +38,18 @@ export function presentOAuthAccount(
   quota: OAuthQuotaSnapshot | null = null,
   nowSeconds: number = Math.floor(Date.now() / 1_000),
 ): OAuthAccountPresentation {
-  const expired = account.expiresAt !== null && account.expiresAt <= nowSeconds;
   const badges: OAuthAccountBadge[] = [];
 
   const planType = quota?.subscriptionTier ?? account.planType;
   if (planType) {
     badges.push({ key: "plan", label: planType, tone: "neutral" });
   }
-  if (!account.enabled) {
-    badges.push({ key: "disabled", label: "已停用", tone: "warning" });
-  } else if (expired) {
-    badges.push({ key: "expired", label: "已过期", tone: "warning" });
-  }
-  if (quotaIsExhausted(quota)) {
-    badges.push({ key: "quota-exhausted", label: "额度耗尽", tone: "warning" });
-  }
+  badges.push(describeAccountStatus(account, quota, nowSeconds));
   if (account.botFlagged === true) {
     badges.push({ key: "bot-flagged", label: "机器人账号", tone: "warning" });
   }
-  if (quota?.accountStatus?.userBlockedReason) {
-    badges.push({ key: "upstream-restricted", label: "xAI 受限", tone: "warning" });
-  }
-  if (account.tokenRefreshFailure) {
-    badges.push({
-      key: "token-refresh-failed",
-      label: account.tokenRefreshFailure.reauthorizationRequired
-        ? "需重新授权"
-        : "Token 刷新异常",
-      tone: "warning",
-    });
-  }
 
   const metrics: OAuthAccountMetric[] = [
-    {
-      key: "runtime-status",
-      label: "状态",
-      value: runtimeStatusLabel(account.runtime.status),
-      tone: account.runtime.status === "ready" ? "success" : "warning",
-    },
     {
       key: "rpm",
       label: "60s RPM",
@@ -115,20 +89,53 @@ export function presentOAuthAccount(
   };
 }
 
-function runtimeStatusLabel(status: OAuthAccount["runtime"]["status"]) {
+function describeAccountStatus(
+  account: OAuthAccount,
+  quota: OAuthQuotaSnapshot | null,
+  nowSeconds: number,
+): OAuthAccountBadge {
+  const expired = account.expiresAt !== null && account.expiresAt <= nowSeconds;
+  if (
+    account.tokenRefreshFailure?.reauthorizationRequired
+    || expired
+    || account.runtime.status === "authentication_expired"
+  ) {
+    return {
+      key: account.tokenRefreshFailure?.reauthorizationRequired
+        ? "token-refresh-failed"
+        : "runtime-status",
+      label: "过期",
+      tone: "danger",
+    };
+  }
+  if (quota?.accountStatus?.userBlockedReason) {
+    return { key: "upstream-restricted", label: "受限", tone: "warning" };
+  }
+  if (quotaIsExhausted(quota)) {
+    return { key: "quota-exhausted", label: "耗尽", tone: "warning" };
+  }
+  if (account.tokenRefreshFailure) {
+    return { key: "token-refresh-failed", label: "刷新异常", tone: "warning" };
+  }
+  return { key: "runtime-status", ...describeRuntimeStatus(account.runtime.status) };
+}
+
+function describeRuntimeStatus(status: OAuthAccount["runtime"]["status"]): {
+  label: string;
+  tone: "success" | "warning" | "danger";
+} {
   switch (status) {
     case "ready":
-      return "正常";
+      return { label: "正常", tone: "success" };
     case "disabled":
-      return "停用";
     case "endpoint_disabled":
-      return "停用";
+      return { label: "停用", tone: "warning" };
     case "authentication_expired":
-      return "认证过期";
+      return { label: "过期", tone: "danger" };
     case "rate_limited":
-      return "RPM 用尽";
+      return { label: "RPM 用尽", tone: "warning" };
     case "proxy_disabled":
-      return "代理停用";
+      return { label: "代理停用", tone: "warning" };
   }
 }
 

@@ -35,7 +35,7 @@ test("renders unavailable Credits as a dash", () => {
     />,
   );
 
-  expect(screen.getByText("Credits").parentElement).toHaveTextContent("Credits-");
+  expect(screen.getByText("Credits").parentElement).toHaveTextContent("Credits—");
 });
 
 const quota: OAuthQuotaSnapshot = {

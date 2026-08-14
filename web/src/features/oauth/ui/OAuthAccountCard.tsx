@@ -48,7 +48,7 @@ export function OAuthAccountCard({
         !presentation.enabled && "opacity-[0.72]",
       )}
     >
-      <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
+      <div className="flex items-start gap-2 px-3 pt-2.5 pb-0">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <h3
@@ -68,7 +68,13 @@ export function OAuthAccountCard({
             ) : (
               <span
                 key={badge.key}
-                className="shrink-0 rounded-full bg-warning/12 px-1.5 py-px text-[10px] font-medium leading-4 text-warning"
+                aria-label={`账号状态：${badge.label}`}
+                className={cn(
+                  "shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium leading-4",
+                  badge.tone === "success" && "bg-success/10 text-success",
+                  badge.tone === "warning" && "bg-warning/12 text-warning",
+                  badge.tone === "danger" && "bg-danger/10 text-danger",
+                )}
               >
                 {badge.label}
               </span>

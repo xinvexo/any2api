@@ -9,7 +9,7 @@ export function describeOAuthProxySelection(
     const globalProxy = configuration.items.find(
       (profile) => profile.id === configuration.globalProxyId,
     );
-    return `跟随 OAuth 全局出口 · ${describeProxyProfile(globalProxy)}`;
+    return `跟随全局（${describeProxyProfile(globalProxy)}）`;
   }
   const profile = configuration.items.find(
     (item) => item.id === selection.proxyProfileId,
@@ -22,12 +22,14 @@ export function describeOAuthProxySelection(
     : `指定 · ${describeProxyProfile(profile)} · 已停用`;
 }
 
-export function describeProxyProfile(profile: ProxyProfile | undefined) {
+export function describeProxyProfile(
+  profile: Pick<ProxyProfile, "kind" | "name"> | undefined,
+) {
   if (!profile) {
     return "不可用";
   }
   if (profile.kind === "direct") {
-    return "DIRECT，本机直连";
+    return "DIRECT 本机直连";
   }
-  return `${profile.name}，${profile.kind.toUpperCase()}`;
+  return `${profile.kind.toUpperCase()} ${profile.name}`;
 }

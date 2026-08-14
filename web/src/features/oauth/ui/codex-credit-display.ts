@@ -34,5 +34,5 @@ export function presentCodexCredits(
   if (credits.hasCredits && credits.balance !== null) {
     return { value: `${credits.balance} Credits` };
   }
-  return { value: credits.hasCredits ? "可用（上游未返回余额）" : "-" };
+  return { value: credits.hasCredits ? "可用（上游未返回余额）" : "—" };
 }

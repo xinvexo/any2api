@@ -17,18 +17,95 @@ test("real Credits keep a rolling-limit account visually available", () => {
     label: "60s RPM",
     value: "无限制",
   });
-  expect(available.metrics.find((metric) => metric.key === "runtime-status"))
-    .toMatchObject({ value: "正常", tone: "success" });
+  expect(available.metrics.map((metric) => metric.key)).toEqual([
+    "rpm",
+    "in-flight",
+    "models",
+    "expires",
+  ]);
+  expect(available.metrics.find((metric) => metric.key === "expires"))
+    .toMatchObject({ label: "过期", value: "未知" });
 });
 
-test("collapses an inherited endpoint stop to a plain stopped status", () => {
+test("does not expose runtime status as a card metric", () => {
   const stopped = presentOAuthAccount({
     ...account(),
     runtime: { ...account().runtime, status: "endpoint_disabled" },
   });
 
-  expect(stopped.metrics.find((metric) => metric.key === "runtime-status"))
-    .toMatchObject({ value: "停用", tone: "warning" });
+  expect(stopped.metrics.some((metric) => metric.key === "runtime-status")).toBe(false);
+});
+
+test.each([
+  ["ready", "正常", "success"],
+  ["disabled", "停用", "warning"],
+  ["endpoint_disabled", "停用", "warning"],
+  ["authentication_expired", "过期", "danger"],
+  ["rate_limited", "RPM 用尽", "warning"],
+  ["proxy_disabled", "代理停用", "warning"],
+] as const)("maps runtime status %s to the top badge", (status, label, tone) => {
+  const presentation = presentOAuthAccount({
+    ...account(),
+    runtime: { ...account().runtime, status },
+  });
+
+  expect(presentation.badges).toContainEqual({
+    key: "runtime-status",
+    label,
+    tone,
+  });
+});
+
+test("prioritizes expiry and exhaustion over a stopped runtime", () => {
+  const stopped = {
+    ...account(),
+    enabled: false,
+    runtime: { ...account().runtime, status: "disabled" as const },
+  };
+  const expired = presentOAuthAccount(
+    { ...stopped, expiresAt: 1_899_999_999 },
+    quota("workspace_member_usage_limit_reached"),
+    1_900_000_000,
+  );
+  const exhausted = presentOAuthAccount(
+    stopped,
+    quota("workspace_member_usage_limit_reached"),
+    1_900_000_000,
+  );
+
+  expect(expired.badges.filter((badge) => badge.key !== "plan")).toEqual([{
+    key: "runtime-status",
+    label: "过期",
+    tone: "danger",
+  }]);
+  expect(exhausted.badges.filter((badge) => badge.key !== "plan")).toEqual([{
+    key: "quota-exhausted",
+    label: "耗尽",
+    tone: "warning",
+  }]);
+});
+
+test("folds reauthorization into the prioritized expired status", () => {
+  const presentation = presentOAuthAccount({
+    ...account(),
+    runtime: { ...account().runtime, status: "disabled" },
+    tokenRefreshFailure: {
+      tokenVersion: 1,
+      trigger: "authentication_failure",
+      stage: "token_endpoint",
+      reason: "refresh_token_invalidated",
+      upstreamStatus: 401,
+      failureScope: null,
+      occurredAt: 1_900_000_000,
+      reauthorizationRequired: true,
+    },
+  });
+
+  expect(presentation.badges.filter((badge) => badge.key !== "plan")).toEqual([{
+    key: "token-refresh-failed",
+    label: "过期",
+    tone: "danger",
+  }]);
 });
 
 function account(): OAuthAccount {

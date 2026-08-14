@@ -97,6 +97,29 @@ test("keeps request failures inside the same two pill slots", async () => {
   expect(status.children).toHaveLength(2);
 });
 
+test("shows the OAuth global marker as an icon and labels the action 全局", async () => {
+  const globalProxy = customProxy();
+  const otherProxy = {
+    ...customProxy(),
+    id: "b92cf9f9-9fc5-56f0-a27e-2dfeb95995f6",
+    name: "Other Proxy",
+  };
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    jsonResponse(configuration([direct, globalProxy, otherProxy], globalProxy.id)),
+  );
+
+  renderManagement();
+
+  expect(await screen.findByText(globalProxy.name)).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "OAuth 全局出口" })).toBeInTheDocument();
+  expect(screen.queryByText("OAuth", { exact: true })).not.toBeInTheDocument();
+
+  const setGlobal = screen.getByRole("button", {
+    name: `将 ${otherProxy.name} 设为 OAuth 全局出口`,
+  });
+  expect(within(setGlobal).getByText("全局", { exact: true })).toBeInTheDocument();
+});
+
 function renderManagement() {
   const client = new QueryClient({
     defaultOptions: {
@@ -113,10 +136,10 @@ function renderManagement() {
   );
 }
 
-function configuration(items: unknown[]) {
+function configuration(items: unknown[], globalProxyId = direct.id) {
   return {
     config_revision: 1,
-    global_proxy_id: direct.id,
+    global_proxy_id: globalProxyId,
     items,
   };
 }

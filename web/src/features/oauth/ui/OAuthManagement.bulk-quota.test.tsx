@@ -78,7 +78,7 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(refreshPaths.some((path) => path.includes("claude-1"))).toBe(false);
   expect(client.getQueryData(oauthQueryKeys.quota("a11"))).toBeDefined();
   expect(client.getQueryData(oauthQueryKeys.quota("a12"))).toBeUndefined();
-  expect(screen.getByText("额度耗尽")).toBeInTheDocument();
+  expect(screen.getByText("耗尽")).toBeInTheDocument();
 });
 
 test("keeps reauthorization accounts compact and marks the whole card", async () => {
@@ -110,7 +110,8 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   renderManagement();
 
   expect(await screen.findByText("Needs Authorization")).toBeInTheDocument();
-  expect(screen.getByText("需重新授权")).toBeInTheDocument();
+  expect(screen.getByLabelText("账号状态：过期")).toBeInTheDocument();
+  expect(screen.queryByText("需重新授权")).not.toBeInTheDocument();
   const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
   expect(notice).toHaveClass("border-t", "border-danger/20");
   expect(notice).not.toHaveClass("rounded-lg", "bg-danger/5");
