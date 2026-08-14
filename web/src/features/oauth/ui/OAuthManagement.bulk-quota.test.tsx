@@ -113,8 +113,8 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(screen.getByLabelText("账号状态：过期")).toBeInTheDocument();
   expect(screen.queryByText("需重新授权")).not.toBeInTheDocument();
   const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
-  expect(notice).toHaveClass("border-t", "border-danger/20");
-  expect(notice).not.toHaveClass("rounded-lg", "bg-danger/5");
+  expect(notice).not.toHaveClass("border-t", "border-danger/20", "rounded-lg", "bg-danger/5");
+  expect(notice.querySelector("svg")).toBeNull();
   const card = notice.closest("[data-floating-bounds]");
   expect(card).toHaveClass(
     "border-danger/20",
@@ -127,6 +127,59 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(screen.queryByRole("group", { name: /Needs Authorization 近 1 小时/ }))
     .not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+test("shows a permanent refresh diagnostic before the account refetch completes", async () => {
+  const currentAccount = oauthAccountJson("a1", "Refresh Expired", "codex");
+  const refreshFailure = {
+    token_version: 1,
+    trigger: "authentication_failure",
+    stage: "token_endpoint",
+    reason: "refresh_token_invalidated",
+    upstream_status: 401,
+    failure_scope: null,
+    occurred_at: 1_900_000_000,
+    reauthorization_required: true,
+  };
+  const accountRefetch = deferred<Response>();
+  let accountReads = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      accountReads += 1;
+      if (accountReads === 1) {
+        return jsonResponse({ config_revision: 1, items: [currentAccount] });
+      }
+      return accountRefetch.promise;
+    }
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path === "/api/admin/oauth/accounts/a1/quota" && init?.method !== "POST") {
+      return jsonResponse(quota(1));
+    }
+    if (path === "/api/admin/oauth/accounts/a1/quota/refresh" && init?.method === "POST") {
+      return oauthRefreshFailureResponse(refreshFailure);
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderManagement();
+  expect(await screen.findByText("Refresh Expired")).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "刷新额度" }));
+
+  const notice = await screen.findByRole("alert", { name: "Token 刷新失败" });
+  expect(notice).toHaveTextContent("Refresh Token 已被撤销");
+  expect(screen.getByLabelText("账号状态：过期")).toBeInTheDocument();
+  expect(screen.queryByText(/Refresh Endpoint 已明确拒绝/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Codex 额度" })).not.toBeInTheDocument();
+  await waitFor(() => expect(accountReads).toBe(2));
+
+  accountRefetch.resolve(jsonResponse({
+    config_revision: 1,
+    items: [{ ...currentAccount, token_refresh_failure: refreshFailure }],
+  }));
 });
 
 test("limits refresh-all concurrency and keeps card spinners stable", async () => {
@@ -309,6 +362,19 @@ function errorResponse(code: string, status: number) {
   return new Response(
     JSON.stringify({ error: { code, message: "quota request failed" } }),
     { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function oauthRefreshFailureResponse(diagnostic: Record<string, unknown>) {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "oauth_refresh_permanently_rejected",
+        message: "the OAuth provider permanently rejected this account's refresh token",
+        diagnostic,
+      },
+    }),
+    { status: 502, headers: { "Content-Type": "application/json" } },
   );
 }
 

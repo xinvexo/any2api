@@ -94,7 +94,14 @@ export function OAuthAccountCard({
         {/* Plan + switch stay pinned on the right; title truncation won't shove them. */}
         <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
           {planBadge ? (
-            <span className="rounded-full bg-surface-muted px-1.5 py-px text-[10px] font-medium leading-4 text-secondary">
+            <span
+              aria-label={`账号套餐：${planBadge.label}`}
+              title={planBadge.label}
+              className={cn(
+                "max-w-28 truncate rounded-full border px-1.5 py-px text-[10px] font-semibold leading-4",
+                planBadgeClassName(planBadge.label),
+              )}
+            >
               {planBadge.label}
             </span>
           ) : null}
@@ -182,6 +189,67 @@ export function OAuthAccountCard({
       </div>
     </Surface>
   );
+}
+
+const PLAN_BADGE_CLASS_NAMES = {
+  neutral: "border-subtle bg-surface-muted text-tertiary",
+  entry: "border-plan-entry/20 bg-plan-entry/10 text-plan-entry",
+  plus: "border-accent/15 bg-accent/10 text-accent-copy",
+  pro: "border-plan-pro/20 bg-plan-pro/10 text-plan-pro",
+  premium: "border-plan-premium/20 bg-plan-premium/12 text-plan-premium",
+  team: "border-success/20 bg-success/10 text-success",
+  institution:
+    "border-plan-institution/20 bg-plan-institution/10 text-plan-institution",
+} as const;
+
+const UNKNOWN_PLAN_STYLES = [
+  PLAN_BADGE_CLASS_NAMES.entry,
+  PLAN_BADGE_CLASS_NAMES.plus,
+  PLAN_BADGE_CLASS_NAMES.pro,
+  PLAN_BADGE_CLASS_NAMES.premium,
+  PLAN_BADGE_CLASS_NAMES.team,
+  PLAN_BADGE_CLASS_NAMES.institution,
+] as const;
+
+function planBadgeClassName(label: string) {
+  const plan = label.trim().toLowerCase();
+  if (plan.includes("free")) return PLAN_BADGE_CLASS_NAMES.neutral;
+  if (plan === "go") return PLAN_BADGE_CLASS_NAMES.entry;
+  if (
+    plan.includes("enterprise")
+    || plan.includes("education")
+    || plan.includes("edu")
+    || plan.includes("k12")
+    || plan.includes("k-12")
+    || plan.includes("teacher")
+  ) {
+    return PLAN_BADGE_CLASS_NAMES.institution;
+  }
+  if (
+    plan.includes("team")
+    || plan.includes("business")
+    || plan.includes("workspace")
+  ) {
+    return PLAN_BADGE_CLASS_NAMES.team;
+  }
+  if (plan.includes("heavy") || plan.includes("20x") || plan.includes("20 x")) {
+    return PLAN_BADGE_CLASS_NAMES.premium;
+  }
+  if (plan.includes("pro") || plan.includes("5x") || plan.includes("5 x")) {
+    return PLAN_BADGE_CLASS_NAMES.pro;
+  }
+  if (plan.includes("plus") || plan.includes("supergrok")) {
+    return PLAN_BADGE_CLASS_NAMES.plus;
+  }
+  return UNKNOWN_PLAN_STYLES[stableStringBucket(plan, UNKNOWN_PLAN_STYLES.length)];
+}
+
+function stableStringBucket(value: string, bucketCount: number) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash % bucketCount;
 }
 
 function formatUpdatedAt(value: number) {

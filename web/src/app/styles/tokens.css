@@ -114,6 +114,10 @@ html[data-theme="dark"] {
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-on-danger: var(--on-danger);
+  --color-plan-entry: var(--chart-7);
+  --color-plan-pro: var(--chart-2);
+  --color-plan-premium: var(--chart-3);
+  --color-plan-institution: var(--chart-5);
   --radius-panel: var(--panel-radius);
   --radius-control: var(--control-radius);
   --shadow-panel: var(--panel-shadow);
