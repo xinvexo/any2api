@@ -29,6 +29,7 @@ mod provider_kind_kimi;
 mod query_indexes;
 mod request_attempt_routing_diagnostics;
 mod request_attempt_transport_stream_diagnostics;
+mod request_log_alpha_search;
 mod request_log_cache_write_tokens;
 mod request_usage_aggregate_indexes;
 mod response_body_bytes;
@@ -102,6 +103,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (29, "accumulate codex quota statistics".to_owned()),
             (30, "add request log cache creation tokens".to_owned()),
             (31, "add oauth account proxy selection".to_owned()),
+            (32, "add alpha search operation".to_owned()),
         ]
     );
 

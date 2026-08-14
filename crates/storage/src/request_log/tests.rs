@@ -333,6 +333,34 @@ async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
     assert_eq!(second_newest.failed_requests(), 1);
 }
 
+#[tokio::test]
+async fn every_protocol_operation_appends_and_lists_without_schema_drift() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("operation-coverage.sqlite3"))
+        .await
+        .expect("storage");
+    for (index, operation) in ProtocolOperation::ALL.into_iter().enumerate() {
+        let mut record = record(RequestId::new(), 1_000 + index as u64, false);
+        record.request.operation = operation;
+        record.request.ingress_protocol = operation.dialect();
+        store
+            .append_request_logs(std::slice::from_ref(&record), MAX_REQUEST_LOG_ROWS)
+            .await
+            .unwrap_or_else(|error| panic!("append {} log: {error}", operation.as_str()));
+    }
+
+    let listed = store
+        .list_request_logs(0, &Default::default(), None, 1, 20)
+        .await
+        .expect("list logs");
+    assert_eq!(listed.total as usize, ProtocolOperation::ALL.len());
+    let mut operations: Vec<_> = listed.items.iter().map(|item| item.operation).collect();
+    operations.sort();
+    let mut expected = ProtocolOperation::ALL.to_vec();
+    expected.sort();
+    assert_eq!(operations, expected);
+}
+
 fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> CompletedRequestLog {
     let attempts = with_attempt
         .then(|| RequestAttempt {
