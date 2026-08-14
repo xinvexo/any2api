@@ -27,6 +27,7 @@ export function OAuthQuotaPanel({
   provider,
   disabled = false,
   refreshAllPending = false,
+  showError = true,
 }: {
   accountId: string;
   accountLabel: string;
@@ -34,6 +35,8 @@ export function OAuthQuotaPanel({
   disabled?: boolean;
   /** Keeps the spinner continuous while batch SSE refetches toggle query fetching. */
   refreshAllPending?: boolean;
+  /** The account card already renders the persistent token diagnostic when present. */
+  showError?: boolean;
 }) {
   const queryClient = useQueryClient();
   const quotaOptions = oauthQuotaQueryOptions(accountId);
@@ -190,7 +193,7 @@ export function OAuthQuotaPanel({
       ) : (
         <p className="mt-1.5 text-[11px] text-tertiary">额度尚未刷新</p>
       )}
-      {visibleError ? (
+      {showError && visibleError ? (
         <p className="mt-1.5 text-[11px] text-danger" role="alert">
           {visibleError}
         </p>

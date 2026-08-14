@@ -24,7 +24,13 @@ test("uploads multiple files as FormData with CSRF and clears local file state",
   setAdminCsrfToken("csrf-token");
   const onImported = vi.fn();
   const onClose = vi.fn();
-  render(<OAuthImportDrawer onClose={onClose} onImported={onImported} />);
+  render(
+    <OAuthImportDrawer
+      onClose={onClose}
+      onImported={onImported}
+      onReconcile={async () => undefined}
+    />,
+  );
   const files = [
     new File(["{\"type\":\"codex\"}"], "codex.json", {
       type: "application/json",
@@ -70,7 +76,13 @@ test("clears selected Files after failure and on close", async () => {
     ),
   );
   const onClose = vi.fn();
-  render(<OAuthImportDrawer onClose={onClose} onImported={vi.fn()} />);
+  render(
+    <OAuthImportDrawer
+      onClose={onClose}
+      onImported={vi.fn()}
+      onReconcile={async () => undefined}
+    />,
+  );
   const input = screen.getByLabelText("OAuth JSON 文件");
   fireEvent.change(input, {
     target: { files: [new File(["{}"], "bad.json", { type: "application/json" })] },

@@ -34,6 +34,7 @@ export function OAuthAccountCard({
 }: OAuthAccountCardProps) {
   const planBadge = presentation.badges.find((badge) => badge.key === "plan");
   const statusBadges = presentation.badges.filter((badge) => badge.key !== "plan");
+  const hasProblem = statusBadges.some((badge) => badge.key === "token-refresh-failed");
 
   return (
     <Surface
@@ -41,6 +42,7 @@ export function OAuthAccountCard({
       className={cn(
         "flex h-full min-w-0 flex-col overflow-hidden p-0 shadow-hairline",
         "transition-opacity duration-150",
+        hasProblem && "border-danger/20 bg-danger/5",
         !presentation.enabled && "opacity-[0.72]",
       )}
     >

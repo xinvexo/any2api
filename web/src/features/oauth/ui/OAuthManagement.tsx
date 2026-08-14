@@ -75,7 +75,7 @@ export function OAuthManagement() {
   );
 
   function selectProvider(next: OAuthProvider) {
-    if (next === selectedProvider) {
+    if (next === selectedProvider || quotaRefresh.pending || login.pending !== null) {
       return;
     }
     setLoginOpen(false);
@@ -203,7 +203,7 @@ export function OAuthManagement() {
           <OAuthProviderNav
             selected={selectedProvider}
             counts={counts}
-            disabled={quotaRefresh.pending}
+            disabled={quotaRefresh.pending || login.pending !== null}
             onSelect={selectProvider}
           />
         }
@@ -301,6 +301,9 @@ export function OAuthManagement() {
           {importOpen ? (
             <OAuthImportDrawer
               onClose={() => setImportOpen(false)}
+              onReconcile={async () => {
+                await accounts.refetch();
+              }}
               onImported={async (result) => {
                 await accounts.refetch();
                 notify.success(`已导入并启用 ${result.importedCount} 个 OAuth 账号。`);

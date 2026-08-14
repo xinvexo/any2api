@@ -139,6 +139,13 @@ impl CredentialRuntimeHandle {
             .snapshot(now, requests_per_minute)
     }
 
+    #[cfg(test)]
+    pub(crate) fn hold_mutable_lock_for_test(&self) -> impl Drop + '_ {
+        self.mutable
+            .lock()
+            .expect("credential runtime lock poisoned")
+    }
+
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
         self.mutable
             .lock()
@@ -162,25 +169,22 @@ impl CredentialRuntimeHandle {
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
         requests_per_minute: Option<RequestsPerMinute>,
-        now: Instant,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
-        self.try_reserve(generation, requests_per_minute, now, false)
+        self.try_reserve(generation, requests_per_minute, false)
     }
 
     pub(crate) fn try_reserve_fixed(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
         requests_per_minute: Option<RequestsPerMinute>,
-        now: Instant,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
-        self.try_reserve(generation, requests_per_minute, now, true)
+        self.try_reserve(generation, requests_per_minute, true)
     }
 
     fn try_reserve(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
         requests_per_minute: Option<RequestsPerMinute>,
-        now: Instant,
         fixed: bool,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
         let rate_reservation = {
@@ -189,6 +193,7 @@ impl CredentialRuntimeHandle {
                 .lock()
                 .expect("credential runtime lock poisoned");
             let fixed_waiters = state.fixed_waiters;
+            let now = Instant::now();
             state
                 .rate_window
                 .try_reserve(now, requests_per_minute, fixed_waiters, fixed)?

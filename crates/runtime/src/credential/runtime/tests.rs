@@ -129,6 +129,41 @@ async fn reservations_expire_after_an_exact_rolling_minute() {
 }
 
 #[test]
+fn rpm_reservation_starts_after_waiting_for_mutable_state() {
+    let runtime = RuntimeRegistry::new();
+    let fixture = CredentialFixture::new();
+    let bindings = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-lock-timing-test",
+    );
+    let binding = bindings.as_slice()[0].clone();
+    let held_state = binding.handle.hold_mutable_lock_for_test();
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(0);
+    let contender = binding.clone();
+    let reservation = std::thread::spawn(move || {
+        started_tx.send(()).expect("test receiver remains open");
+        contender.try_reserve()
+    });
+
+    started_rx.recv().expect("reservation thread started");
+    std::thread::sleep(Duration::from_millis(50));
+    let unlocked_at = tokio::time::Instant::now();
+    drop(held_state);
+
+    let permit = reservation
+        .join()
+        .expect("reservation thread")
+        .expect("reservation after lock release");
+    let retry_at = binding
+        .rate_snapshot()
+        .retry_at()
+        .expect("finite full window");
+    assert!(retry_at >= unlocked_at + Duration::from_secs(60));
+    drop(permit);
+}
+
+#[test]
 fn finite_limit_changes_preserve_the_current_window() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -127,6 +127,70 @@ test("plain dialog descriptions remain visible through the exit animation", () =
   expect(screen.getByRole("button", { name: "Delete now" })).toBeInTheDocument();
 
   act(() => vi.advanceTimersByTime(160));
+  rendered.unmount();
+});
+
+test("drawer traps keyboard focus, inerts the page, and restores its opener", () => {
+  const applicationRoot = document.createElement("div");
+  applicationRoot.id = "root";
+  document.body.append(applicationRoot);
+  const view = (open: boolean) => (
+    <>
+      <button type="button">Open editor</button>
+      <SideDrawer open={open} title="Editor" onClose={() => undefined}>
+        <button type="button">First action</button>
+        <button type="button">Last action</button>
+      </SideDrawer>
+    </>
+  );
+  const rendered = render(view(false), { container: applicationRoot });
+  const opener = screen.getByRole("button", { name: "Open editor" });
+  opener.focus();
+
+  rendered.rerender(view(true));
+  flushAnimationFrames();
+  flushAnimationFrames();
+
+  expect(applicationRoot).toHaveAttribute("inert");
+  fireEvent.keyDown(window, { key: "Tab" });
+  expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
+  screen.getByRole("button", { name: "Last action" }).focus();
+  fireEvent.keyDown(window, { key: "Tab" });
+  expect(screen.getByRole("button", { name: "关闭" })).toHaveFocus();
+  fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+  expect(screen.getByRole("button", { name: "Last action" })).toHaveFocus();
+
+  rendered.rerender(view(false));
+  act(() => vi.advanceTimersByTime(200));
+  expect(applicationRoot).not.toHaveAttribute("inert");
+  expect(opener).toHaveFocus();
+  rendered.unmount();
+  applicationRoot.remove();
+});
+
+test("only the top nested modal handles Escape", () => {
+  const closeDrawer = vi.fn();
+  const closeDialog = vi.fn();
+  const rendered = render(
+    <>
+      <SideDrawer open title="Editor" onClose={closeDrawer}>
+        <button type="button">Drawer action</button>
+      </SideDrawer>
+      <ConfirmDialog
+        open
+        title="Delete"
+        onConfirm={() => undefined}
+        onClose={closeDialog}
+      />
+    </>,
+  );
+  flushAnimationFrames();
+
+  expect(document.querySelector(".side-drawer-root")).toHaveAttribute("inert");
+  expect(document.querySelector(".confirm-dialog-root")).not.toHaveAttribute("inert");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(closeDialog).toHaveBeenCalledTimes(1);
+  expect(closeDrawer).not.toHaveBeenCalled();
   rendered.unmount();
 });
 

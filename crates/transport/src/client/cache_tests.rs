@@ -9,13 +9,13 @@ use crate::{
     client::ReqwestTransportManager,
 };
 
-use super::tests::{network_proxy, test_isolation};
+use super::tests::{cached_test_isolation, network_proxy};
 
 #[test]
 fn client_identity_is_decoupled_from_dns_but_pinned_per_origin() {
     let manager = ReqwestTransportManager::default();
     let direct = ProxyProfile::direct();
-    let isolation = test_isolation();
+    let isolation = cached_test_isolation();
 
     manager
         .warm_client_for_request(

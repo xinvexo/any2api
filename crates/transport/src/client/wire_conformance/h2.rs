@@ -8,10 +8,10 @@ use tokio_rustls::TlsAcceptor;
 use crate::{
     api::{
         TransportIsolationKey, TransportManager, TransportManagerConfig, TransportProxy,
-        TransportRequest, TransportTrafficClass,
+        TransportRequest,
     },
     client::ReqwestTransportManager,
-    client::tests::collect_body,
+    client::tests::{cached_test_isolation, collect_body},
     connection::tests::TestTlsIdentity,
 };
 
@@ -74,7 +74,7 @@ async fn capture_sequential() -> ScenarioCapture {
     let probe = spawn_sequential(identity.server_config).await;
     let manager = manager(identity.client_certificate);
     let proxy = any2api_domain::ProxyProfile::direct();
-    let isolation = TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic);
+    let isolation = cached_test_isolation();
 
     execute_ok(&manager, &proxy, request(&probe, isolation)).await;
     execute_ok(&manager, &proxy, request(&probe, isolation)).await;
@@ -86,7 +86,7 @@ async fn capture_concurrent() -> ScenarioCapture {
     let mut probe = spawn_concurrent(identity.server_config).await;
     let manager = manager(identity.client_certificate);
     let proxy = any2api_domain::ProxyProfile::direct();
-    let isolation = TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic);
+    let isolation = cached_test_isolation();
 
     let first = manager.execute(
         TransportProxy::new(&proxy, None),
@@ -117,7 +117,7 @@ async fn capture_goaway() -> ScenarioCapture {
     let probe = spawn_goaway(identity.server_config).await;
     let manager = manager(identity.client_certificate);
     let proxy = any2api_domain::ProxyProfile::direct();
-    let isolation = TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic);
+    let isolation = cached_test_isolation();
 
     execute_ok(&manager, &proxy, request(&probe, isolation)).await;
     probe.wait_for_first_goaway().await;

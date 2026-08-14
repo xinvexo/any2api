@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { ADMIN_SESSION_EXPIRED_EVENT, setAdminCsrfToken } from "@/shared/api/http-client";
 import { clearNotifications, NotificationHost } from "@/shared/notifications";
+import { AdminAuthProvider } from "../model/AdminAuthProvider";
 
 import { AdminPasswordRotation } from "./AdminPasswordRotation";
 
@@ -32,7 +33,11 @@ test("rotates the password with the in-memory CSRF token and refreshes the sessi
 
   const client = renderRotation();
 
-  await screen.findByLabelText("当前密码");
+  await waitFor(() =>
+    expect(client.getQueryData(["admin-auth", "session"])).toMatchObject({
+      csrfToken: "old-csrf",
+    }),
+  );
   fireEvent.change(screen.getByLabelText("当前密码"), {
     target: { value: "correct horse battery staple" },
   });
@@ -46,7 +51,7 @@ test("rotates the password with the in-memory CSRF token and refreshes the sessi
 
   const notification = await screen.findByText("密码已更新，当前会话已刷新。");
   expect(notification.closest(".notification-card")).not.toBeNull();
-  expect(rotationInit?.headers).toMatchObject({ "X-CSRF-Token": "old-csrf" });
+  expect(new Headers(rotationInit?.headers).get("X-CSRF-Token")).toBe("old-csrf");
   expect(JSON.parse(String(rotationInit?.body))).toEqual({
     current_password: "correct horse battery staple",
     new_password: "new correct horse battery staple",
@@ -126,7 +131,9 @@ function renderRotation() {
   const client = new QueryClient();
   render(
     <QueryClientProvider client={client}>
-      <AdminPasswordRotation />
+      <AdminAuthProvider>
+        <AdminPasswordRotation />
+      </AdminAuthProvider>
       <NotificationHost />
     </QueryClientProvider>,
   );

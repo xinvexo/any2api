@@ -81,6 +81,47 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(screen.getByText("额度耗尽")).toBeInTheDocument();
 });
 
+test("keeps reauthorization accounts compact and marks the whole card", async () => {
+  const failedAccount = {
+    ...oauthAccountJson("reauthorize-1", "Needs Authorization", "codex", false),
+    token_refresh_failure: {
+      token_version: 1,
+      trigger: "authentication_failure",
+      stage: "token_endpoint",
+      reason: "refresh_token_invalidated",
+      upstream_status: 401,
+      failure_scope: null,
+      occurred_at: 1_900_000_000,
+      reauthorization_required: true,
+    },
+  };
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      return jsonResponse({ config_revision: 1, items: [failedAccount] });
+    }
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderManagement();
+
+  expect(await screen.findByText("Needs Authorization")).toBeInTheDocument();
+  expect(screen.getByText("需重新授权")).toBeInTheDocument();
+  const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
+  expect(notice).toHaveClass("border-t", "border-danger/20");
+  expect(notice).not.toHaveClass("rounded-lg", "bg-danger/5");
+  const card = notice.closest("[data-floating-bounds]");
+  expect(card).toHaveClass("border-danger/20", "bg-danger/5");
+  expect(screen.queryByRole("region", { name: "Codex 额度" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: /Needs Authorization 近 1 小时/ }))
+    .not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 test("limits refresh-all concurrency and keeps card spinners stable", async () => {
   const items = Array.from({ length: 8 }, (_, index) =>
     oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex"),

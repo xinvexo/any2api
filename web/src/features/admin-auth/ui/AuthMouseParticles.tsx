@@ -54,7 +54,7 @@ export function AuthMouseParticles() {
     let width = 0;
     let height = 0;
     let dpr = 1;
-    let frameId = 0;
+    let frameId: number | null = null;
     let lastEmitAt = 0;
     let lastX = 0;
     let lastY = 0;
@@ -101,6 +101,9 @@ export function AuthMouseParticles() {
       }
       if (particles.length > MAX_PARTICLES) {
         particles.splice(0, particles.length - MAX_PARTICLES);
+      }
+      if (frameId === null) {
+        frameId = window.requestAnimationFrame(tick);
       }
     }
 
@@ -170,20 +173,21 @@ export function AuthMouseParticles() {
         ctx!.fill();
       }
 
-      frameId = window.requestAnimationFrame(tick);
+      frameId = particles.length > 0 ? window.requestAnimationFrame(tick) : null;
     }
 
     resize();
     host.addEventListener("pointermove", onPointerMove, { passive: true });
     host.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("resize", resize);
-    frameId = window.requestAnimationFrame(tick);
 
     return () => {
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerleave", onPointerLeave);
       window.removeEventListener("resize", resize);
-      window.cancelAnimationFrame(frameId);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
     };
   }, []);
 

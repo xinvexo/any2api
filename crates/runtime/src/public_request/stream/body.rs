@@ -13,7 +13,8 @@ use std::{
 
 use any2api_domain::{ErrorClass, PublicError, TokenUsage};
 use any2api_protocol::api::{
-    BridgeContinuationState, ProtocolExchange, SseDecoder, StreamRejection, StreamTermination,
+    BridgeContinuationState, ProtocolContinuationState, ProtocolExchange, SseDecoder,
+    StreamRejection, StreamTermination,
 };
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
@@ -51,6 +52,11 @@ pub(super) enum CommitState {
     Finished,
 }
 
+pub(super) enum PrecommitContinuation {
+    Pending,
+    Ready(Option<ProtocolContinuationState>),
+}
+
 pub(in crate::public_request) struct GuardedBodyParts {
     pub(in crate::public_request) permit: RequestPermit,
     pub(in crate::public_request) health: Option<AttemptHealth>,
@@ -76,6 +82,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) health: Option<AttemptHealth>,
     pub(super) continuation_binding: ContinuationBindingCommitter,
     pub(super) continuation_lease: Option<ContinuationLease>,
+    pub(super) precommit_continuation: Option<PrecommitContinuation>,
     pub(super) continuation_id: Option<String>,
     pub(super) cancellation: CancellationToken,
     pub(super) state: CommitState,
@@ -148,6 +155,7 @@ impl GuardedBody {
             health,
             continuation_binding,
             continuation_lease: None,
+            precommit_continuation: None,
             continuation_id: None,
             cancellation: CancellationToken::default(),
             state: CommitState::Pending,
@@ -169,9 +177,12 @@ impl GuardedBody {
 
     #[cfg(test)]
     pub(super) async fn prime(self) -> Result<Self, PublicError> {
-        self.prime_attempt()
+        let mut body = self
+            .prime_attempt()
             .await
-            .map_err(StreamPrimeFailure::into_public)
+            .map_err(StreamPrimeFailure::into_public)?;
+        body.commit_precommit_continuation(None)?;
+        Ok(body)
     }
 
     pub(in crate::public_request) async fn prime_attempt(

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
+import { useModalFocus } from "@/shared/ui/useModalFocus";
 
 const EXIT_DURATION_MS = 160;
 
@@ -50,6 +51,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const onConfirmRef = useRef(onConfirm);
@@ -130,22 +132,8 @@ export function ConfirmDialog({
     }
   }, [open, mounted, visible]);
 
-  useEffect(() => {
-    if (!mounted) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !pending) {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mounted, pending]);
-
   useBodyScrollLock(mounted);
+  useModalFocus(rootRef, mounted, pending ? undefined : () => onCloseRef.current());
 
   if (!mounted || typeof document === "undefined") {
     return null;
@@ -166,8 +154,10 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
+      ref={rootRef}
       className="confirm-dialog-root fixed inset-0 z-[60] flex items-center justify-center overflow-hidden p-4"
       data-state={isVisible ? "open" : "closed"}
+      data-overlay-root
     >
       <button
         type="button"

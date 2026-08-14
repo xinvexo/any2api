@@ -210,7 +210,7 @@ impl GuardedBody {
                 &mut frame.continuation_state,
                 BridgeContinuationState::Stateless,
             );
-            self.commit_continuation_state(
+            self.stage_precommit_continuation_state(
                 continuation_id.as_deref(),
                 continuation_state,
                 deadline,
@@ -291,7 +291,9 @@ impl GuardedBody {
             }
             BridgeContinuationState::Ready(continuation) => {
                 if let Some(lease) = self.continuation_lease.as_mut() {
-                    lease.ready(continuation, deadline).map_err(binding_error)?;
+                    lease
+                        .ready(Some(continuation), deadline)
+                        .map_err(binding_error)?;
                     self.continuation_lease.take();
                 } else if let Some(id) = continuation_id {
                     self.bind_ready(id, Some(continuation), deadline)?;
@@ -322,7 +324,7 @@ impl GuardedBody {
     }
 }
 
-fn binding_error(error: AffinityError) -> PendingStreamError {
+pub(super) fn binding_error(error: AffinityError) -> PendingStreamError {
     match error {
         AffinityError::DeadlineExceeded => PendingStreamError::timeout(),
         AffinityError::Capacity | AffinityError::ContinuationCapacity => {

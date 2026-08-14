@@ -21,6 +21,16 @@ export function useOAuthQuotaChangeEvent() {
       refetchType: "active",
     });
   });
+  const handleReconnect = useEffectEvent(() => {
+    void queryClient.invalidateQueries({
+      queryKey: oauthQueryKeys.quotas,
+      refetchType: "active",
+    });
+    void queryClient.invalidateQueries({
+      queryKey: oauthQueryKeys.accounts,
+      refetchType: "active",
+    });
+  });
 
   useEffect(() => {
     if (typeof EventSource === "undefined") {
@@ -28,12 +38,14 @@ export function useOAuthQuotaChangeEvent() {
     }
 
     const source = new EventSource(OAUTH_EVENTS_URL);
+    source.addEventListener("open", handleReconnect);
     source.addEventListener(OAUTH_QUOTA_CHANGED_EVENT, handleChange);
     source.addEventListener(
       OAUTH_REFRESH_DIAGNOSTIC_CHANGED_EVENT,
       handleRefreshDiagnosticChange,
     );
     return () => {
+      source.removeEventListener("open", handleReconnect);
       source.removeEventListener(OAUTH_QUOTA_CHANGED_EVENT, handleChange);
       source.removeEventListener(
         OAUTH_REFRESH_DIAGNOSTIC_CHANGED_EVENT,

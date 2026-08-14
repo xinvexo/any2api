@@ -231,8 +231,14 @@ function OAuthAccountItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const quotaQuery = useQuery(oauthQuotaQueryOptions(account.id));
-  const quota = quotaQuery.isError ? null : (quotaQuery.data ?? null);
+  const reauthorizationRequired = account.tokenRefreshFailure?.reauthorizationRequired === true;
+  const quotaQuery = useQuery({
+    ...oauthQuotaQueryOptions(account.id),
+    enabled: !reauthorizationRequired,
+  });
+  const quota = reauthorizationRequired || quotaQuery.isError
+    ? null
+    : (quotaQuery.data ?? null);
   return (
     <OAuthAccountCard
       presentation={presentOAuthAccount(account, quota)}
@@ -247,14 +253,19 @@ function OAuthAccountItem({
           {account.tokenRefreshFailure ? (
             <OAuthRefreshFailureNotice failure={account.tokenRefreshFailure} />
           ) : null}
-          <RequestUsageStats label={account.label} usage={account.usage} />
-          <OAuthQuotaPanel
-            accountId={account.id}
-            accountLabel={account.label}
-            provider={account.providerKind}
-            disabled={pending}
-            refreshAllPending={quotaRefreshPending}
-          />
+          {!reauthorizationRequired ? (
+            <>
+              <RequestUsageStats label={account.label} usage={account.usage} />
+              <OAuthQuotaPanel
+                accountId={account.id}
+                accountLabel={account.label}
+                provider={account.providerKind}
+                disabled={pending}
+                refreshAllPending={quotaRefreshPending}
+                showError={account.tokenRefreshFailure === null}
+              />
+            </>
+          ) : null}
         </>
       }
     />

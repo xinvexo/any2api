@@ -17,9 +17,11 @@ export function useLogChangeEvent(
     }
 
     const source = new EventSource(LOG_EVENTS_URL);
+    source.addEventListener("open", handleChange);
     source.addEventListener(eventName, handleChange);
 
     return () => {
+      source.removeEventListener("open", handleChange);
       source.removeEventListener(eventName, handleChange);
       source.close();
     };

@@ -203,7 +203,7 @@ fn client_cache_is_bounded_and_separates_updated_proxy_versions() {
         "127.0.0.1:8080".parse().expect("proxy address"),
         true,
     );
-    let isolation = test_isolation();
+    let isolation = cached_test_isolation();
     let first = manager
         .client_for(&original, isolation)
         .expect("first client");
@@ -234,6 +234,47 @@ fn client_cache_is_bounded_and_separates_updated_proxy_versions() {
         .expect("rebuilt old client");
     assert!(!Arc::ptr_eq(&first, &rebuilt));
     assert_eq!(manager.cached_client_count(), 1);
+}
+
+#[test]
+fn ephemeral_clients_do_not_evict_cached_clients() {
+    let manager = ReqwestTransportManager::new(TransportManagerConfig {
+        max_cached_clients: 1,
+        ..TransportManagerConfig::default()
+    })
+    .expect("transport manager");
+    let proxy = ProxyProfile::direct();
+    let cached_isolation = TransportIsolationKey::routing_credential(
+        RoutingCredentialId::provider_credential(CredentialId::new()),
+        1,
+        1,
+        TransportTrafficClass::Diagnostic,
+    );
+    let warm = manager
+        .client_for(&proxy, cached_isolation)
+        .expect("warm cached client");
+    assert_eq!(manager.cached_client_count(), 1);
+
+    let first_ephemeral = manager
+        .client_for(
+            &proxy,
+            TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic),
+        )
+        .expect("first ephemeral client");
+    let second_ephemeral = manager
+        .client_for(
+            &proxy,
+            TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic),
+        )
+        .expect("second ephemeral client");
+
+    assert!(!Arc::ptr_eq(&warm, &first_ephemeral));
+    assert!(!Arc::ptr_eq(&first_ephemeral, &second_ephemeral));
+    assert_eq!(manager.cached_client_count(), 1);
+    let reused = manager
+        .client_for(&proxy, cached_isolation)
+        .expect("cached client remains warm");
+    assert!(Arc::ptr_eq(&warm, &reused));
 }
 
 #[test]
@@ -340,6 +381,15 @@ fn request_to(uri: &str) -> TransportRequest {
 
 pub(crate) fn test_isolation() -> TransportIsolationKey {
     TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic)
+}
+
+pub(crate) fn cached_test_isolation() -> TransportIsolationKey {
+    TransportIsolationKey::routing_credential(
+        RoutingCredentialId::provider_credential(CredentialId::new()),
+        1,
+        1,
+        TransportTrafficClass::Diagnostic,
+    )
 }
 
 pub(crate) fn network_proxy(

@@ -16,11 +16,13 @@ const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 interface OAuthImportDrawerProps {
   onClose: () => void;
   onImported: (result: OAuthImportResult) => void | Promise<void>;
+  onReconcile: () => Promise<void>;
 }
 
 export function OAuthImportDrawer({
   onClose,
   onImported,
+  onReconcile,
 }: OAuthImportDrawerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -70,6 +72,11 @@ export function OAuthImportDrawer({
       await onImported(result);
       onClose();
     } catch (nextError) {
+      try {
+        await onReconcile();
+      } catch {
+        // Keep the original import failure visible if the reconciliation read also fails.
+      }
       setError(nextError);
     } finally {
       setPending(false);

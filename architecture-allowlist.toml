@@ -11,3 +11,10 @@ reason = "Loopback HTTP/SOCKS5 fixtures and cache-generation lifecycle tests sti
 adr = "docs/adr/0123-credential-scoped-transport-isolation.md"
 owner = "maintainer"
 expires_at = "2026-11-10"
+
+[[exceptions]]
+path = "crates/runtime/src/configuration/publisher/tests.rs"
+reason = "Configuration publisher tests share one atomic publication fixture and are not production code"
+adr = "docs/adr/0047-feature-first-crate-layout.md"
+owner = "maintainer"
+expires_at = "2026-11-14"

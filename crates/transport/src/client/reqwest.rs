@@ -193,6 +193,16 @@ impl ReqwestTransportManager {
         // Warm the shared trust roots before taking the cache lock so
         // the one-time trust store load never blocks concurrent cache users.
         let tls_factory = self.tls_factory()?;
+        if isolation.is_ephemeral() {
+            let tls_config = tls_factory.build();
+            return Ok(Arc::new(build_transport_client(
+                self.config,
+                &tls_config,
+                proxy,
+                pinned_origin,
+                strict_direct_dns,
+            )?));
+        }
         let key = TransportClientKey {
             isolation,
             proxy_id: profile.id(),

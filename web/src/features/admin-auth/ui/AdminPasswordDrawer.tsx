@@ -1,5 +1,6 @@
 import { AdminPasswordRotation } from "./AdminPasswordRotation";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
+import { useAdminAuth } from "../model/use-admin-auth";
 
 export function AdminPasswordDrawer({
   open,
@@ -8,14 +9,21 @@ export function AdminPasswordDrawer({
   open: boolean;
   onClose: () => void;
 }) {
+  const { submitting } = useAdminAuth();
+  const close = () => {
+    if (!submitting) {
+      onClose();
+    }
+  };
+
   return (
     <SideDrawer
       open={open}
       title="修改密码"
       description="更新后，其他已登录浏览器需要重新登录。"
-      onClose={onClose}
+      onClose={close}
     >
-      <AdminPasswordRotation onCancel={onClose} />
+      <AdminPasswordRotation onCancel={close} />
     </SideDrawer>
   );
 }

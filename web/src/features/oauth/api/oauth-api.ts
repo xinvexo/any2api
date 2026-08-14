@@ -21,6 +21,7 @@ import {
 export function startOAuthLogin(
   provider: OAuthProvider,
   proxySelection: OAuthProxySelection,
+  signal?: AbortSignal,
 ) {
   return requestJson<unknown>("/api/admin/oauth/start", {
     method: "POST",
@@ -28,17 +29,23 @@ export function startOAuthLogin(
       provider,
       proxy_selection: serializeOAuthProxySelection(proxySelection),
     },
+    signal,
     timeoutMs: 35_000,
   }).then(parseOAuthStartResult);
 }
 
-export function exchangeOAuthCallback(sessionId: string, callbackUrl: string) {
+export function exchangeOAuthCallback(
+  sessionId: string,
+  callbackUrl: string,
+  signal?: AbortSignal,
+) {
   return requestJson<unknown>("/api/admin/oauth/exchange", {
     method: "POST",
     body: {
       session_id: sessionId,
       callback_url: callbackUrl,
     },
+    signal,
     timeoutMs: null,
   }).then(parseOAuthActivationResult);
 }

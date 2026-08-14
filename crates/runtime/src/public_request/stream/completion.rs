@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use any2api_domain::{
     ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode, RetrySafety,
     UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
@@ -20,6 +22,7 @@ impl GuardedBody {
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
         self.continuation_lease.take();
+        self.precommit_continuation.take();
         if self.owns_request_completion
             && matches!(&outcome, StreamOutcome::Cancelled)
             && let Some(recorder) = self.attempt_recorder.as_mut()
@@ -66,9 +69,21 @@ impl GuardedBody {
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
         self.continuation_lease.take();
+        self.precommit_continuation.take();
         self.health.take();
         self.permit.take();
         self.quota_activity.take();
+    }
+
+    pub(in crate::public_request) fn commit_precommit_continuation(
+        &mut self,
+        deadline: Option<Instant>,
+    ) -> Result<(), PublicError> {
+        if let Err(error) = self.finalize_precommit_continuation(deadline) {
+            self.set_pending_error(error);
+            return Err(self.finish_precommit_failure());
+        }
+        Ok(())
     }
 
     pub(super) fn finish_precommit_failure(&mut self) -> PublicError {

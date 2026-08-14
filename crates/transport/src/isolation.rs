@@ -88,6 +88,10 @@ impl TransportIsolationKey {
         self.authentication_version
     }
 
+    pub(crate) const fn is_ephemeral(self) -> bool {
+        matches!(self.owner, TransportIsolationOwner::Ephemeral(_))
+    }
+
     pub(crate) fn retires(self, cached: Self) -> bool {
         match (self.owner, cached.owner) {
             (

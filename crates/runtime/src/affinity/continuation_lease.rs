@@ -23,11 +23,11 @@ pub(crate) struct ContinuationLease {
 impl ContinuationLease {
     pub(crate) fn ready(
         &mut self,
-        continuation: ProtocolContinuationState,
+        continuation: Option<ProtocolContinuationState>,
         deadline: Option<Instant>,
     ) -> Result<(), AffinityError> {
         check_deadline(deadline)?;
-        checked_state_bytes(Some(&continuation))?;
+        checked_state_bytes(continuation.as_ref())?;
         let mut shard = self.registry.bindings.lock(self.key);
         check_deadline(deadline)?;
         let current = matches!(
@@ -50,7 +50,7 @@ impl ContinuationLease {
                     target: self.target.clone(),
                     last_seen_at: Instant::now(),
                     source: BindingSource::Continuation(ContinuationLifecycle::Ready {
-                        state: Some(continuation),
+                        state: continuation,
                     }),
                 },
             },

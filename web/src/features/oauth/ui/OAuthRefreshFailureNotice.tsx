@@ -21,7 +21,7 @@ export function OAuthRefreshFailureNotice({
 
   return (
     <section
-      className="mt-2 rounded-lg border border-danger/25 bg-danger/5 px-2.5 py-2"
+      className="mt-2 border-t border-danger/20 pt-2"
       aria-label="Token 刷新失败"
       role="alert"
     >

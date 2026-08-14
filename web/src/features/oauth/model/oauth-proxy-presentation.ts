@@ -14,7 +14,12 @@ export function describeOAuthProxySelection(
   const profile = configuration.items.find(
     (item) => item.id === selection.proxyProfileId,
   );
-  return profile ? `指定 · ${describeProxyProfile(profile)}` : "指定代理已删除";
+  if (!profile) {
+    return "指定代理已删除";
+  }
+  return profile.enabled
+    ? `指定 · ${describeProxyProfile(profile)}`
+    : `指定 · ${describeProxyProfile(profile)} · 已停用`;
 }
 
 export function describeProxyProfile(profile: ProxyProfile | undefined) {

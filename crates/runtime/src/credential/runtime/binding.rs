@@ -70,19 +70,13 @@ impl CredentialRuntimeBinding {
     }
 
     pub(crate) fn try_reserve(&self) -> Result<RoutingPermit, RateLimited> {
-        self.handle.try_reserve_normal(
-            Arc::clone(&self.generation),
-            self.requests_per_minute,
-            Instant::now(),
-        )
+        self.handle
+            .try_reserve_normal(Arc::clone(&self.generation), self.requests_per_minute)
     }
 
     pub(crate) fn try_reserve_fixed(&self) -> Result<RoutingPermit, RateLimited> {
-        self.handle.try_reserve_fixed(
-            Arc::clone(&self.generation),
-            self.requests_per_minute,
-            Instant::now(),
-        )
+        self.handle
+            .try_reserve_fixed(Arc::clone(&self.generation), self.requests_per_minute)
     }
 
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {

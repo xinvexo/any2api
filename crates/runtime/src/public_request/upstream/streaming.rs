@@ -128,10 +128,13 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             return Err(AttemptFailure::Public(error));
         }
     };
-    if let Err(error) = commit_binding_before(binding_lease, target, body.precommit_deadline()) {
+    let precommit_deadline = body.precommit_deadline();
+    if let Err(error) = commit_binding_before(binding_lease, target, precommit_deadline) {
         body.fail_before_handoff(public_error_class(error.code()), error.telemetry_message());
         return Err(AttemptFailure::Public(error));
     }
+    body.commit_precommit_continuation(Some(precommit_deadline))
+        .map_err(AttemptFailure::Public)?;
     Ok(PublicResponse {
         status,
         headers,

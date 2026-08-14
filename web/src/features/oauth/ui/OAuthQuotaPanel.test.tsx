@@ -288,19 +288,40 @@ test("reports a Grok OAuth token rejected after refresh as invalid", async () =>
   expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
 });
 
+test("suppresses an error already rendered by the account diagnostic", async () => {
+  const fetchMock = vi.fn(async () =>
+    errorResponse(
+      "oauth_refresh_permanently_rejected",
+      502,
+      refreshDiagnostic(),
+    ));
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPanel(createClient(), false);
+  const panel = screen.getByRole("region", { name: "Codex 额度" });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  await waitFor(() =>
+    expect(within(panel).getByRole("button", { name: "刷新额度" })).toBeEnabled(),
+  );
+
+  expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+  expect(within(panel).queryByText(/Refresh Endpoint/)).not.toBeInTheDocument();
+});
+
 function createClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 }
 
-function renderPanel(client = createClient()) {
+function renderPanel(client = createClient(), showError = true) {
   return render(
     <QueryClientProvider client={client}>
       <OAuthQuotaPanel
         accountId="account-1"
         accountLabel="Primary Codex"
         provider="codex"
+        showError={showError}
       />
       <NotificationHost />
     </QueryClientProvider>,

@@ -13,7 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("reloads active persisted snapshots after one page-level change event", async () => {
+test("reloads active snapshots after reconnects and page-level change events", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   let reads = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -39,10 +39,15 @@ test("reloads active persisted snapshots after one page-level change event", asy
   expect(FakeEventSource.instances[0]?.url).toBe("/api/admin/oauth/quota-events");
 
   act(() => {
-    FakeEventSource.instances[0]?.emit("oauth_quota_changed");
+    FakeEventSource.instances[0]?.emit("open");
   });
   expect(await screen.findByText("snapshot 2")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+
+  act(() => {
+    FakeEventSource.instances[0]?.emit("oauth_quota_changed");
+  });
+  expect(await screen.findByText("snapshot 3")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
 
   invalidate.mockClear();

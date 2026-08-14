@@ -20,6 +20,8 @@ test("shows the refresh trigger stage reason status and required action separate
   );
 
   const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
+  expect(notice).toHaveClass("border-t", "border-danger/20");
+  expect(notice).not.toHaveClass("rounded-lg", "bg-danger/5");
   expect(notice).toHaveTextContent("Access Token 401 后刷新");
   expect(notice).toHaveTextContent("Token Endpoint");
   expect(notice).toHaveTextContent("Refresh Token 已被重复使用");

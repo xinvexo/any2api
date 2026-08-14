@@ -233,6 +233,8 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - URL 是可导航页面的状态来源，存在多个页面后必须使用真实 Router 和 deep link，禁止只靠内存状态模拟导航。
 - React 根组件在 `AppProviders` 外必须有最后一道错误边界，覆盖 Query Provider、更新流程、认证门和全局通知宿主；Router 根路由另设中文 `errorElement`，覆盖 Shell、页面渲染和懒加载 chunk 失败。两层恢复页都不得展示原始异常正文，并提供保留当前 deep link 的显式重新加载入口；禁止自动刷新循环。
 - 懒加载页面的 `Suspense` 必须使用可见、可访问的加载状态，禁止 `fallback=null` 形成无法区分加载、错误和空白页的内容区。完整决策见 `docs/adr/0085-web-error-recovery-boundaries.md`。
+- 管理员认证状态只能由一个 React Provider 持有；认证动作的晚到响应不得覆盖更新的状态，退出必须使此前已发出的动作结果失效。OAuth 登录请求按流程代际取消或忽略旧响应；服务端已提交但响应不完整的控制面操作必须触发一次账号配置对账。
+- 无限期缓存的管理 SSE 在每次连接建立或重连时都必须重新读取活动查询，避免断线期间丢失失效通知后永久显示旧数据。
 
 视觉与交互原则：
 
@@ -1191,7 +1193,7 @@ TransportKey
 └─ transport_kind
 ```
 
-`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。数据面隔离随 `affinity.enabled` 快照值切换：关闭（均衡模式）时所有凭据的推理请求使用单一共享隔离身份，在同一代理与线路 profile 下复用同一连接池——上游 prompt cache 的路由对连接路径有亲和性，按凭据拆分会打断跨账号的缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，数据面按凭据代际隔离以避免多账号共用连接（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）。OAuth 控制面（Token、额度）始终按 `RoutingCredentialId + routing_generation + authentication_version` 形成代际隔离；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
+`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。数据面隔离随 `affinity.enabled` 快照值切换：关闭（均衡模式）时所有凭据的推理请求使用单一共享隔离身份，在同一代理与线路 profile 下复用同一连接池——上游 prompt cache 的路由对连接路径有亲和性，按凭据拆分会打断跨账号的缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，数据面按凭据代际隔离以避免多账号共用连接（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）。OAuth 控制面（Token、额度）始终按 `RoutingCredentialId + routing_generation + authentication_version` 形成代际隔离；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。单次临时身份每次独立构造 Client 且不进入 LRU，避免永不复用的控制面 Client 驱逐数据面暖池。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
 
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
@@ -1216,7 +1218,7 @@ Transport 在网络 I/O 前可从最终 Request、Proxy 与 Manager 配置生成
 - `TransportRequest` 必须显式携带 `transport_isolation`，不得提供会把不同调用者落入进程级共享池的默认值；
 - 同一 traffic class 内按 TransportKey 相等性复用：数据面共用共享身份；OAuth 控制面按 `RoutingCredentialId + routing_generation + authentication_version` 隔离，认证代际或 traffic class 任一不同都必须隔离 Client、连接池与 TLS resumption；
 - Client 禁用 Cookie Store；
-- Client 缓存使用 Weak 引用、代际清理或有界 LRU，禁止永久保存所有历史配置版本；
+- 单次临时隔离身份绕过缓存；其余 Client 缓存使用 Weak 引用、代际清理或有界 LRU，禁止永久保存所有历史配置版本；
 - 等响应头超时归入 `AwaitHeaders`，完整收集响应体时的空闲超时归入 `ReadBody`；两者默认 `Ambiguous`。DIRECT 归因 Endpoint，无法证明代理或目标责任的代理路径使用 `Unattributed`；
 - Transport 返回带失败阶段的类型化错误，例如 DNS、TCP、代理握手、TLS、写请求体、等响应头、读响应体；
 - 只有明确发生在代理握手或代理连接阶段的错误才能惩罚 ProxyRuntime。
@@ -2004,9 +2006,10 @@ previous_response_id
 - Credential 删除后，新 revision 对仍指向该目标的普通显式 Session 与 Continuation 都返回 `session_binding_lost`；绑定不自动降级或重新创建，由 TTL、管理员显式清理或进程重启回收。当前 revision 无法解析固定目标的失败访问不得刷新 TTL，重复失败请求不能阻止旧记录自然到期。
 
 由成功响应产生的 Response ID 或等价上游状态标识，必须在对客户端可见之前写入同一张绑定表。
-同协议路径直接写入 Ready；桥接 buffered 响应原子写入 Ready 状态；桥接流在身份事件可见前写入
-Pending 并预留完整单条容量，在成功终止事件可见前转为 Ready。EOF、错误、取消和 Body Drop 通过
-Lease 删除 Pending。写入或预留失败时不得暴露该标识。
+Buffered 响应原子写入 Ready。流式预提交发现任何 Continuation 身份时先以带版本 Lease 写入
+Pending；Session binding handoff 成功后，无状态或已经具备完整状态的身份才转为 Ready，仍需等待后续
+事件累积状态的桥接流继续保持 Pending，并在成功终止事件可见前转为 Ready。Handoff 失败、EOF、错误、
+取消和 Body Drop 通过 Lease 只删除版本仍匹配的 Pending。写入、预留或转正失败时不得暴露该标识。
 
 命中 Pending 的后续请求使用统一有界 QueueTicket、scheduler epoch 与 `affinity.wait_timeout` 取消安全地
 等待其 Ready 或 Abort，且等待必须发生在固定候选选择和 RPM 预留之前。单条桥状态完整序列化大小硬上限
@@ -3356,7 +3359,7 @@ OAuth2 JSON = One Current any2api Schema + OAuthAccount-only SQLite persistence 
 Runtime/Web Compatibility = Current Contract Only; No Legacy Field/Schema/Browser-State Branches
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
 Codex Quota 403 = Structured Code Or Original Cloudflare Block Body + No Secondary Probe
-Request Content-Encoding = Ingress Hop Only + Codex OAuth May Recompress Zstd + API Key Endpoints Use Identity JSON
+Request Content-Encoding = Ingress Hop Only + All Upstream Requests Use Identity JSON
 Codex Quota Sample Boundary = Process-Local Monotonic OAuth RequestLog Sequence + Primary Usage Fence
 
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Domain-Separated SHA-256 Digest

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/shared/lib/cn";
 import { IconButton } from "@/shared/ui/IconButton";
 import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
+import { useModalFocus } from "@/shared/ui/useModalFocus";
 
 /** Keep in sync with `.side-drawer-panel` / `.side-drawer-scrim` transition duration. */
 const EXIT_DURATION_MS = 200;
@@ -34,6 +35,7 @@ export function SideDrawer({
 }: SideDrawerProps) {
   const titleId = useId();
   const descriptionId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
 
@@ -78,23 +80,8 @@ export function SideDrawer({
     }
   }, [open, mounted, visible]);
 
-  useEffect(() => {
-    if (!mounted) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mounted]);
-
   useBodyScrollLock(mounted);
+  useModalFocus(rootRef, mounted, () => onCloseRef.current());
 
   if (!mounted || typeof document === "undefined") {
     return null;
@@ -105,6 +92,7 @@ export function SideDrawer({
 
   return createPortal(
     <div
+      ref={rootRef}
       className="side-drawer-root fixed inset-0 z-50 overflow-hidden"
       data-state={isVisible ? "open" : "closed"}
       data-overlay-root

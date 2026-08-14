@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers";
@@ -203,11 +203,115 @@ test("logout returns to the login screen", async () => {
   ).toBe(true);
 });
 
+test("a failed logout request does not immediately restore the local session", async () => {
+  let sessionReads = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/admin/auth/session") {
+        sessionReads += 1;
+        return jsonResponse(session(true, true, "csrf-token"));
+      }
+      if (path === "/api/admin/auth/logout" && init?.method === "POST") {
+        throw new TypeError("connection closed");
+      }
+      throw new Error(`unexpected request ${path}`);
+    }),
+  );
+
+  render(
+    <AppProviders>
+      <AdminAuthGate>
+        <LogoutProbe />
+      </AdminAuthGate>
+    </AppProviders>,
+  );
+
+  expect(await screen.findByText("protected console")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "退出" }));
+  expect(await screen.findByLabelText("管理员密码")).toBeInTheDocument();
+
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+  });
+  expect(sessionReads).toBe(1);
+  expect(screen.queryByText("protected console")).not.toBeInTheDocument();
+});
+
+test("logout cannot be overwritten by a late password rotation response", async () => {
+  let authenticated = true;
+  let resolveRotation: (response: Response) => void = () => undefined;
+  const rotationResponse = new Promise<Response>((resolve) => {
+    resolveRotation = resolve;
+  });
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/admin/auth/session") {
+      return jsonResponse(session(true, authenticated, authenticated ? "csrf-token" : null));
+    }
+    if (path === "/api/admin/auth/password/rotate" && init?.method === "POST") {
+      return rotationResponse;
+    }
+    if (path === "/api/admin/auth/logout" && init?.method === "POST") {
+      authenticated = false;
+      return new Response(null, { status: 204 });
+    }
+    throw new Error(`unexpected request ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <AppProviders>
+      <AdminAuthGate>
+        <AuthenticationRaceProbe />
+      </AdminAuthGate>
+    </AppProviders>,
+  );
+
+  expect(await screen.findByText("protected console")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "开始轮换" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/auth/password/rotate",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "退出" }));
+  expect(await screen.findByLabelText("管理员密码")).toBeInTheDocument();
+
+  await act(async () => {
+    resolveRotation(jsonResponse(session(true, true, "late-csrf")));
+    await rotationResponse;
+  });
+
+  expect(screen.getByLabelText("管理员密码")).toBeInTheDocument();
+  expect(screen.queryByText("protected console")).not.toBeInTheDocument();
+});
+
 function LogoutProbe() {
   const auth = useAdminAuth();
   return (
     <div>
       <p>protected console</p>
+      <button type="button" onClick={() => void auth.logout()}>
+        退出
+      </button>
+    </div>
+  );
+}
+
+function AuthenticationRaceProbe() {
+  const auth = useAdminAuth();
+  return (
+    <div>
+      <p>protected console</p>
+      <button
+        type="button"
+        onClick={() => void auth.rotatePassword("current password", "new password").catch(() => undefined)}
+      >
+        开始轮换
+      </button>
       <button type="button" onClick={() => void auth.logout()}>
         退出
       </button>
