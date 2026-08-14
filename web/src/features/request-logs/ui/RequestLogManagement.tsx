@@ -130,9 +130,8 @@ export function RequestLogManagement() {
       className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden"
       aria-busy={query.isFetching}
     >
-      {/* Fixed top chrome: stats left, actions right */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle pb-3">
-        <p className="text-[12px] text-secondary">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
+        <p className="mr-auto text-[12px] text-secondary">
           队列{" "}
           <span className="tabular-nums text-primary">
             {query.data.telemetry.queuedRecords}
@@ -148,17 +147,16 @@ export function RequestLogManagement() {
             {query.data.telemetry.droppedRecords}
           </span>
         </p>
+        <RequestLogFilterBar
+          filters={filters}
+          options={query.data.filterOptions}
+          onChange={handleFiltersChange}
+        />
         <Button variant="ghost" onClick={() => void refreshLogs()} disabled={query.isFetching}>
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
           刷新
         </Button>
       </div>
-
-      <RequestLogFilterBar
-        filters={filters}
-        options={query.data.filterOptions}
-        onChange={handleFiltersChange}
-      />
 
       {query.isError ? (
         <Surface className="mt-3 shrink-0 border-warning/40 p-4 text-sm text-secondary" role="status">

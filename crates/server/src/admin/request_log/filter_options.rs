@@ -6,8 +6,6 @@ use serde::Serialize;
 pub(super) struct RequestLogFilterOptionsResponse {
     public_models: Vec<String>,
     gateway_api_keys: Vec<StableFilterOption>,
-    provider_credentials: Vec<StableFilterOption>,
-    oauth_accounts: Vec<StableFilterOption>,
 }
 
 impl RequestLogFilterOptionsResponse {
@@ -21,53 +19,16 @@ impl RequestLogFilterOptionsResponse {
             .iter()
             .map(|key| StableFilterOption::active(key.id().to_string(), key.name().to_owned()))
             .collect::<Vec<_>>();
-        let mut provider_credentials = snapshot
-            .provider_credentials()
-            .credentials()
-            .iter()
-            .map(|credential| {
-                let endpoint = snapshot
-                    .provider_endpoints()
-                    .get(credential.provider_endpoint_id())
-                    .expect("published credential endpoint exists");
-                StableFilterOption::active(
-                    credential.id().to_string(),
-                    format!("{} / {}", endpoint.name(), credential.label()),
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut oauth_accounts = snapshot
-            .oauth_accounts()
-            .accounts()
-            .iter()
-            .map(|account| {
-                StableFilterOption::active(
-                    account.id().to_string(),
-                    format!("{} / {}", account.provider_kind().as_str(), account.label()),
-                )
-            })
-            .collect::<Vec<_>>();
-
         for log in logs {
             if let Some(id) = log.gateway_api_key_id {
                 push_deleted_option(&mut gateway_api_keys, id.to_string());
             }
-            if let Some(id) = log.credential_id {
-                push_deleted_option(&mut provider_credentials, id.to_string());
-            }
-            if let Some(id) = log.oauth_account_id {
-                push_deleted_option(&mut oauth_accounts, id.to_string());
-            }
         }
         sort_options(&mut gateway_api_keys);
-        sort_options(&mut provider_credentials);
-        sort_options(&mut oauth_accounts);
 
         Self {
             public_models: public_models.into_iter().collect(),
             gateway_api_keys,
-            provider_credentials,
-            oauth_accounts,
         }
     }
 }

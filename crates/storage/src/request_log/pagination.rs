@@ -135,11 +135,6 @@ fn push_filter_predicates(query: &mut QueryBuilder<'_, Sqlite>, filter: &Request
             }
         }
     }
-    if let Some(operation) = filter.operation() {
-        query
-            .push(" AND operation = ")
-            .push_bind(operation.as_str());
-    }
     if let Some(public_model) = filter.public_model() {
         query
             .push(" AND public_model = ")
@@ -148,16 +143,6 @@ fn push_filter_predicates(query: &mut QueryBuilder<'_, Sqlite>, filter: &Request
     if let Some(id) = filter.gateway_api_key_id() {
         query
             .push(" AND gateway_api_key_id = ")
-            .push_bind(id.to_string());
-    }
-    if let Some(id) = filter.credential_id() {
-        query
-            .push(" AND credential_id = ")
-            .push_bind(id.to_string());
-    }
-    if let Some(id) = filter.oauth_account_id() {
-        query
-            .push(" AND oauth_account_id = ")
             .push_bind(id.to_string());
     }
 }

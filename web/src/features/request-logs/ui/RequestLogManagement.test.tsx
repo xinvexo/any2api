@@ -82,8 +82,6 @@ function requestLogs(): RequestLogList {
     filterOptions: {
       publicModels: ["claude-test"],
       gatewayApiKeys: [],
-      providerCredentials: [],
-      oauthAccounts: [],
     },
   };
 }

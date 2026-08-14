@@ -10,9 +10,7 @@ describe("request log contracts", () => {
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
     expect(list.telemetry.inFlightRecords).toBe(4);
     expect(list.telemetry.droppedRecords).toBe(2);
-    expect(list.filterOptions.providerCredentials[0]?.label).toBe(
-      "Codex / Primary credential",
-    );
+    expect(list.filterOptions.gatewayApiKeys[0]?.label).toBe("Desktop");
 
     const detail = parseRequestLogDetail({
       request: request(),
@@ -296,14 +294,6 @@ function filterOptions() {
         deleted: false,
       },
     ],
-    provider_credentials: [
-      {
-        id: "44444444-4444-4444-8444-444444444444",
-        label: "Codex / Primary credential",
-        deleted: false,
-      },
-    ],
-    oauth_accounts: [],
   };
 }
 

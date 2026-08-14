@@ -11,11 +11,8 @@ export type RequestLogOperation =
 
 export interface RequestLogFilters {
   outcome?: RequestLogOutcome;
-  operation?: RequestLogOperation;
   publicModel?: string;
   gatewayApiKeyId?: string;
-  credentialId?: string;
-  oauthAccountId?: string;
 }
 
 export const EMPTY_REQUEST_LOG_FILTERS: RequestLogFilters = {};
@@ -33,8 +30,6 @@ export interface StableRequestLogFilterOption {
 export interface RequestLogFilterOptions {
   publicModels: string[];
   gatewayApiKeys: StableRequestLogFilterOption[];
-  providerCredentials: StableRequestLogFilterOption[];
-  oauthAccounts: StableRequestLogFilterOption[];
 }
 
 export function parseRequestLogFilterOptions(value: unknown): RequestLogFilterOptions {
@@ -42,8 +37,6 @@ export function parseRequestLogFilterOptions(value: unknown): RequestLogFilterOp
   return {
     publicModels: readStringArray(record.public_models),
     gatewayApiKeys: readOptions(record.gateway_api_keys),
-    providerCredentials: readOptions(record.provider_credentials),
-    oauthAccounts: readOptions(record.oauth_accounts),
   };
 }
 

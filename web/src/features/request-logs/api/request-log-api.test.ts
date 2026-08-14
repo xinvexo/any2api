@@ -9,16 +9,14 @@ test("serializes exact request log filters without client-controlled audit heade
 
   await getRequestLogs("r2.cursor", 50, {
     outcome: "failed",
-    operation: "messages",
     publicModel: "claude-test",
     gatewayApiKeyId: "11111111-1111-4111-8111-111111111111",
-    credentialId: "22222222-2222-4222-8222-222222222222",
   });
   await getRequestLogs();
 
   const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    "/api/admin/request-logs?page_size=50&cursor=r2.cursor&outcome=failed&operation=messages&public_model=claude-test&gateway_api_key_id=11111111-1111-4111-8111-111111111111&credential_id=22222222-2222-4222-8222-222222222222",
+    "/api/admin/request-logs?page_size=50&cursor=r2.cursor&outcome=failed&public_model=claude-test&gateway_api_key_id=11111111-1111-4111-8111-111111111111",
   );
   expect(firstHeaders["X-Any2API-Log-Refresh"]).toBeUndefined();
 });
@@ -35,8 +33,6 @@ function listResponse() {
       filter_options: {
         public_models: [],
         gateway_api_keys: [],
-        provider_credentials: [],
-        oauth_accounts: [],
       },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },

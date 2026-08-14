@@ -1044,7 +1044,7 @@ request_logs
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
-请求日志列表只提供有界、精确的结构化筛选：`outcome=success|failed|cancelled`、`operation`、精确 `public_model`、`gateway_api_key_id`，以及互斥的 `credential_id` / `oauth_account_id`。Request ID 使用既有单条详情端点精确定位；筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 必须从当前配置快照提供凭据选择项，同时允许已经从配置删除但仍出现在当前日志页中的稳定 ID 保持可见。
+请求日志列表只提供三个有界、精确的结构化筛选：`outcome=success|failed|cancelled`、精确 `public_model` 和 `gateway_api_key_id`。不提供 `operation`、`credential_id`、`oauth_account_id` 筛选，也不提供 Request ID 手工定位输入；Request ID 只作为列表项进入既有单条详情端点的内部标识。筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 从当前配置快照和当前日志页合并模型、Gateway API Key 选择项，已经从配置删除但仍出现在当前日志页中的稳定 Gateway API Key ID 保持可见。队列观测、刷新动作与筛选控件必须位于同一个紧凑工具栏，不能拆成重复边框的独立面板。
 
 请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、后续页的排他末行边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝，禁止把旧筛选的锚点静默用于新结果集。Storage 的列表与精确 `COUNT(*)` 必须复用同一筛选谓词。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新、改变页大小或改变任一筛选条件都清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
 

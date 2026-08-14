@@ -17,19 +17,13 @@ export function getRequestLogs(
   filters: RequestLogFilters = EMPTY_REQUEST_LOG_FILTERS,
   signal?: AbortSignal,
 ): Promise<RequestLogList> {
-  if (filters.credentialId && filters.oauthAccountId) {
-    throw new Error("request log upstream filters are mutually exclusive");
-  }
   const query = new URLSearchParams({ page_size: String(pageSize) });
   if (cursor !== null) {
     query.set("cursor", cursor);
   }
   appendFilter(query, "outcome", filters.outcome);
-  appendFilter(query, "operation", filters.operation);
   appendFilter(query, "public_model", filters.publicModel);
   appendFilter(query, "gateway_api_key_id", filters.gatewayApiKeyId);
-  appendFilter(query, "credential_id", filters.credentialId);
-  appendFilter(query, "oauth_account_id", filters.oauthAccountId);
   return requestJson<unknown>(
     `/api/admin/request-logs?${query}`,
     { signal },

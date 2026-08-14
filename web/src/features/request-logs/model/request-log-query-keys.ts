@@ -9,11 +9,8 @@ export const requestLogQueryKeys = {
       cursor ?? "latest",
       pageSize,
       filters.outcome ?? null,
-      filters.operation ?? null,
       filters.publicModel ?? null,
       filters.gatewayApiKeyId ?? null,
-      filters.credentialId ?? null,
-      filters.oauthAccountId ?? null,
     ] as const,
   detail: (requestId: string) => [...requestLogQueryKeys.all, "detail", requestId] as const,
 };

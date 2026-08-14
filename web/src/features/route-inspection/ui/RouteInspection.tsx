@@ -16,6 +16,7 @@ import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { Select } from "@/shared/ui/Select";
 import { Surface } from "@/shared/ui/Surface";
+import { controlClass } from "@/shared/ui/form-control";
 
 type StatusFilter = "all" | RouteInspectionStatus;
 
@@ -92,7 +93,7 @@ export function RouteInspection() {
             aria-hidden="true"
           />
           <input
-            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+            className={controlClass(false, "pl-8 pr-3")}
             value={modelQuery}
             placeholder="精确模型名"
             onChange={(event) => setModelQuery(event.target.value)}
