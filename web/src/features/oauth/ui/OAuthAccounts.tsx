@@ -244,6 +244,7 @@ function OAuthAccountItem({
       onViewModels={onViewModels}
       onEdit={onEdit}
       onDelete={onDelete}
+      lastUpdatedAt={quota?.fetchedAt ?? null}
       details={
         <>
           {account.tokenRefreshFailure ? (
@@ -271,6 +272,8 @@ function OAuthAccountItem({
 function runtimeProxyLabel(account: OAuthAccount) {
   const proxy = account.runtime.resolvedProxy;
   const selection = account.proxySelection.mode === "global" ? "跟随全局" : "指定";
-  const kind = { direct: "直连", http: "HTTP", socks5: "SOCKS5" }[proxy.kind];
-  return `${selection} · ${proxy.name}（${kind}）${proxy.enabled ? "" : " · 已停用"}`;
+  const kind = proxy.kind === "direct"
+    ? ""
+    : `（${proxy.kind === "http" ? "HTTP" : "SOCKS5"}）`;
+  return `${selection} · ${proxy.name}${kind}${proxy.enabled ? "" : " · 已停用"}`;
 }

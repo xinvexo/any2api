@@ -16,6 +16,7 @@ interface OAuthAccountCardProps {
   onEdit: () => void;
   onDelete: () => void;
   details?: ReactNode;
+  lastUpdatedAt?: number | null;
 }
 
 /**
@@ -31,6 +32,7 @@ export function OAuthAccountCard({
   onEdit,
   onDelete,
   details,
+  lastUpdatedAt = null,
 }: OAuthAccountCardProps) {
   const planBadge = presentation.badges.find((badge) => badge.key === "plan");
   const statusBadges = presentation.badges.filter((badge) => badge.key !== "plan");
@@ -109,7 +111,11 @@ export function OAuthAccountCard({
                 <span key={metric.key} className="inline-flex min-w-0 items-baseline gap-1">
                   <span className="shrink-0 text-secondary">{metric.label}</span>
                   <span
-                    className="truncate font-medium tabular-nums text-primary"
+                    className={cn(
+                      "truncate font-medium tabular-nums text-primary",
+                      metric.tone === "success" && "text-success",
+                      metric.tone === "warning" && "text-warning",
+                    )}
                     title={metric.title ?? metric.value}
                   >
                     {metric.value}
@@ -125,36 +131,53 @@ export function OAuthAccountCard({
       </div>
 
       <div className="mt-auto px-3">
-        <div className="flex items-center justify-end border-t border-subtle/50 px-0 py-1">
-        <RowActionButton
-          quiet
-          label={`查看 ${presentation.title} 的可用模型`}
-          disabled={pending}
-          onClick={onViewModels}
-        >
-          <ListChecks size={12} aria-hidden="true" />
-          模型
-        </RowActionButton>
-        <RowActionButton
-          quiet
-          label={`编辑 ${presentation.title}`}
-          disabled={pending}
-          onClick={onEdit}
-        >
-          <Edit3 size={12} aria-hidden="true" />
-          编辑
-        </RowActionButton>
-        <RowActionButton
-          quiet
-          tone="danger"
-          label={`删除 ${presentation.title}`}
-          disabled={pending}
-          onClick={onDelete}
-        >
-          <Trash2 size={12} aria-hidden="true" />
-        </RowActionButton>
+        <div className="flex min-w-0 items-center justify-between gap-1 border-t border-subtle/50 px-0 py-1">
+          {lastUpdatedAt === null ? null : (
+            <span
+              className="min-w-0 truncate text-[10px] tabular-nums text-tertiary"
+              title={`最后更新 ${formatUpdatedAt(lastUpdatedAt)}`}
+            >
+              最后更新 {formatUpdatedAt(lastUpdatedAt)}
+            </span>
+          )}
+          <div className="ml-auto flex shrink-0 items-center">
+            <RowActionButton
+              quiet
+              label={`查看 ${presentation.title} 的可用模型`}
+              disabled={pending}
+              onClick={onViewModels}
+            >
+              <ListChecks size={12} aria-hidden="true" />
+              模型
+            </RowActionButton>
+            <RowActionButton
+              quiet
+              label={`编辑 ${presentation.title}`}
+              disabled={pending}
+              onClick={onEdit}
+            >
+              <Edit3 size={12} aria-hidden="true" />
+              编辑
+            </RowActionButton>
+            <RowActionButton
+              quiet
+              tone="danger"
+              label={`删除 ${presentation.title}`}
+              disabled={pending}
+              onClick={onDelete}
+            >
+              <Trash2 size={12} aria-hidden="true" />
+            </RowActionButton>
+          </div>
         </div>
       </div>
     </Surface>
   );
+}
+
+function formatUpdatedAt(value: number) {
+  const date = new Date(value * 1_000);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const part = (number: number) => String(number).padStart(2, "0");
+  return `${part(date.getMonth() + 1)}/${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
 }

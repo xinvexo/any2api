@@ -12,10 +12,10 @@ test("shows that no local statistics exist before the first interval", () => {
     completedIntervalCount: 0,
   })} />);
 
-  const trigger = screen.getByText("尚无本地统计");
+  const trigger = screen.getByText("暂无");
   fireEvent.focus(trigger);
   const tooltip = screen.getByRole("tooltip");
-  expect(tooltip).toHaveTextContent("尚无本地统计");
+  expect(tooltip).toHaveTextContent("暂无");
   expect(trigger).toHaveAttribute("aria-describedby");
 });
 

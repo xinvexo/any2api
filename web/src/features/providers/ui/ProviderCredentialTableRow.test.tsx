@@ -20,11 +20,35 @@ test("shows DIRECT without inheriting the OAuth global proxy", () => {
     </table>,
   );
 
-  expect(screen.getByText("DIRECT（直连）")).toBeInTheDocument();
-  expect(screen.getByText("无限制（未计窗口）")).toBeInTheDocument();
+  expect(screen.getByText("DIRECT")).toBeInTheDocument();
+  expect(screen.getByText("无限制")).toBeInTheDocument();
   expect(screen.getByText("正常")).toBeInTheDocument();
+  expect(screen.queryByText("直连")).not.toBeInTheDocument();
   expect(screen.queryByText(/继承/)).not.toBeInTheDocument();
   expect(screen.queryByText("OAuth Proxy")).not.toBeInTheDocument();
+});
+
+test("shows a credential under a stopped endpoint as stopped", () => {
+  render(
+    <table>
+      <tbody>
+        <ProviderCredentialTableRow
+          credential={{
+            ...credential,
+            runtime: { ...credential.runtime, status: "endpoint_disabled" },
+          }}
+          pending={false}
+          onEdit={vi.fn()}
+          onModels={vi.fn()}
+          onToggleEnabled={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      </tbody>
+    </table>,
+  );
+
+  expect(screen.getByText("停用")).toBeInTheDocument();
+  expect(screen.queryByText("Endpoint 停用")).not.toBeInTheDocument();
 });
 
 const credential = {

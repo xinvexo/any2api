@@ -18,7 +18,24 @@ test("shows real Credits in dollars and the estimate beside its percentage", () 
     "248.4272780000 Credits · 25 Credits = $1 · openai_codex_credits_2026_08_11",
   );
   const estimate = screen.getByText("$0.38/$1.00");
-  expect(estimate.parentElement).toContainElement(screen.getByText("63%"));
+  const remaining = screen.getByText("63%");
+  expect(estimate.parentElement).toContainElement(remaining);
+  expect(remaining).toHaveClass("text-success");
+});
+
+test("renders unavailable Credits as a dash", () => {
+  render(
+    <OAuthQuotaDetails
+      quota={{
+        ...quota,
+        credits: { hasCredits: false, unlimited: false, balance: null },
+      }}
+      provider="codex"
+      showResetCredits={false}
+    />,
+  );
+
+  expect(screen.getByText("Credits").parentElement).toHaveTextContent("Credits-");
 });
 
 const quota: OAuthQuotaSnapshot = {

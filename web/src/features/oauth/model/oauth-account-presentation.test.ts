@@ -13,9 +13,22 @@ test("real Credits keep a rolling-limit account visually available", () => {
 
   expect(available.badges.map((badge) => badge.key)).not.toContain("quota-exhausted");
   expect(hardStopped.badges.map((badge) => badge.key)).toContain("quota-exhausted");
-  expect(available.metrics.find((metric) => metric.key === "rpm")?.value).toBe(
-    "无限制（未计窗口）",
-  );
+  expect(available.metrics.find((metric) => metric.key === "rpm")).toMatchObject({
+    label: "60s RPM",
+    value: "无限制",
+  });
+  expect(available.metrics.find((metric) => metric.key === "runtime-status"))
+    .toMatchObject({ value: "正常", tone: "success" });
+});
+
+test("collapses an inherited endpoint stop to a plain stopped status", () => {
+  const stopped = presentOAuthAccount({
+    ...account(),
+    runtime: { ...account().runtime, status: "endpoint_disabled" },
+  });
+
+  expect(stopped.metrics.find((metric) => metric.key === "runtime-status"))
+    .toMatchObject({ value: "停用", tone: "warning" });
 });
 
 function account(): OAuthAccount {

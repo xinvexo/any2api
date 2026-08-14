@@ -119,7 +119,7 @@ export function ProviderCredentialList({
               <tr className="text-[11px] text-tertiary">
                 <th className="py-1.5 pr-3 font-medium">名称</th>
                 <th className="px-3 py-1.5 font-medium">出口代理</th>
-                <th className="px-3 py-1.5 font-medium">近 60 秒 RPM</th>
+                <th className="px-3 py-1.5 font-medium">60s RPM</th>
                 <th className="px-3 py-1.5 font-medium">状态</th>
                 <th className="px-3 py-1.5 font-medium">密钥</th>
                 <th className="px-3 py-1.5 font-medium">请求统计</th>

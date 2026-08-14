@@ -88,9 +88,6 @@ export function OAuthQuotaDetails({
           {creditExpiry}
         </p>
       ) : null}
-      <p className="text-[10px] tabular-nums text-tertiary">
-        最后更新：{formatFetchedAt(quota.fetchedAt)}
-      </p>
     </div>
   );
 }
@@ -249,7 +246,7 @@ function estimateForWindow(
 function remainingTone(remaining: number) {
   if (remaining <= 10) return "text-danger";
   if (remaining <= 30) return "text-warning";
-  return "text-primary";
+  return "text-success";
 }
 
 function remainingBar(remaining: number) {
@@ -278,13 +275,6 @@ function formatCompactTime(value: number) {
     minute: "2-digit",
     hour12: false,
   });
-}
-
-function formatFetchedAt(value: number) {
-  const date = new Date(value * 1_000);
-  if (Number.isNaN(date.getTime())) return String(value);
-  const part = (number: number) => String(number).padStart(2, "0");
-  return `${part(date.getMonth() + 1)}/${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
 }
 
 function formatCreditExpiries(quota: OAuthQuotaSnapshot): string | null {

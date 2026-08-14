@@ -58,9 +58,9 @@ export function QuotaEstimate({
         <span
           {...triggerProps}
           className="focus-ring shrink-0 cursor-help rounded-[3px] text-tertiary outline-none"
-          aria-label="本地额度统计：尚无数据"
+          aria-label="本地额度统计：暂无"
         >
-          尚无本地统计
+          暂无
         </span>
         <FloatingPopover
           open={hover !== null}
@@ -112,7 +112,7 @@ function QuotaTooltip({
     <div className="w-[18rem] max-w-[calc(100vw-2rem)]">
       <div className="text-secondary">本地额度统计</div>
       {capacity === null || used === null || remaining === null ? (
-        <p className="mt-1 text-secondary">尚无本地统计</p>
+        <p className="mt-1 text-secondary">暂无</p>
       ) : (
         <>
           <p className="mt-1 flex items-baseline justify-between gap-3 tabular-nums">

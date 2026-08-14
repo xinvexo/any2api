@@ -28,7 +28,7 @@ export function ProviderCredentialTableRow({
   const proxyLabel = resolvedProxyLabel(credential);
   const rpmLabel =
     credential.runtime.rpm60s.limit === null
-      ? "无限制（未计窗口）"
+      ? "无限制"
       : `${credential.runtime.rpm60s.used} / ${credential.runtime.rpm60s.limit}`;
   const runtimeStatus = describeRuntimeStatus(credential.runtime.status);
   const secretLabel = credential.secretTail
@@ -64,7 +64,7 @@ export function ProviderCredentialTableRow({
                 {proxyLabel}
               </span>
               <span className="shrink-0 tabular-nums">
-                近 60 秒 RPM {rpmLabel}
+                60s RPM {rpmLabel}
               </span>
               <span className="shrink-0 tabular-nums">
                 处理中 {credential.runtime.inFlight}
@@ -211,7 +211,7 @@ function describeRuntimeStatus(status: ProviderCredential["runtime"]["status"]) 
     case "disabled":
       return { label: "停用", tone: "warning" as const };
     case "endpoint_disabled":
-      return { label: "Endpoint 停用", tone: "warning" as const };
+      return { label: "停用", tone: "warning" as const };
     case "authentication_expired":
       return { label: "认证过期", tone: "warning" as const };
     case "rate_limited":
@@ -223,8 +223,10 @@ function describeRuntimeStatus(status: ProviderCredential["runtime"]["status"]) 
 
 function resolvedProxyLabel(credential: ProviderCredential) {
   const proxy = credential.runtime.resolvedProxy;
-  const kind = { direct: "直连", http: "HTTP", socks5: "SOCKS5" }[proxy.kind];
-  return `${proxy.name}（${kind}）${proxy.enabled ? "" : " · 已停用"}`;
+  const kind = proxy.kind === "direct"
+    ? ""
+    : `（${proxy.kind === "http" ? "HTTP" : "SOCKS5"}）`;
+  return `${proxy.name}${kind}${proxy.enabled ? "" : " · 已停用"}`;
 }
 
 function Badge({

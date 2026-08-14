@@ -79,7 +79,14 @@ export function resolveMenuLayout(
   const viewportHeight = viewport.innerHeight;
   const viewportMaxHeight = Math.max(0, viewportHeight - EDGE_GAP * 2);
   const estimatedHeight = Math.max(40, optionCount * OPTION_HEIGHT + 8);
-  const naturalHeight = Math.max(40, menu.scrollHeight || estimatedHeight);
+  const borderHeight = Math.max(
+    0,
+    (menu.offsetHeight ?? 0) - (menu.clientHeight ?? 0),
+  );
+  const naturalHeight = Math.max(
+    40,
+    (menu.scrollHeight || estimatedHeight) + borderHeight,
+  );
   const desiredHeight = Math.min(naturalHeight, SELECT_MENU_MAX_HEIGHT, viewportMaxHeight);
   const availableWidth = Math.max(0, viewportWidth - EDGE_GAP * 2);
   const width = Math.min(Math.max(rect.width, 96), availableWidth);

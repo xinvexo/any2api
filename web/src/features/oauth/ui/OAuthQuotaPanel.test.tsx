@@ -25,9 +25,7 @@ test("restores a persisted quota snapshot without an upstream refresh", async ()
   renderPanel();
   const panel = screen.getByRole("region", { name: "Codex 额度" });
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
-  const lastUpdated = within(panel).getByText(/最后更新：/);
-  expect(lastUpdated).toHaveTextContent(/最后更新：\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
-  expect(lastUpdated.textContent).not.toMatch(/\b20\d{2}\b/);
+  expect(within(panel).queryByText(/最后更新/)).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 

@@ -15,6 +15,7 @@ interface OAuthAccountMetric {
   label: string;
   value: string;
   title?: string;
+  tone?: "success" | "warning";
 }
 
 /**
@@ -73,13 +74,14 @@ export function presentOAuthAccount(
       key: "runtime-status",
       label: "状态",
       value: runtimeStatusLabel(account.runtime.status),
+      tone: account.runtime.status === "ready" ? "success" : "warning",
     },
     {
       key: "rpm",
-      label: "近 60 秒 RPM",
+      label: "60s RPM",
       value:
         account.runtime.rpm60s.limit === null
-          ? "无限制（未计窗口）"
+          ? "无限制"
           : `${account.runtime.rpm60s.used} / ${account.runtime.rpm60s.limit}`,
     },
     {
@@ -120,7 +122,7 @@ function runtimeStatusLabel(status: OAuthAccount["runtime"]["status"]) {
     case "disabled":
       return "停用";
     case "endpoint_disabled":
-      return "Endpoint 停用";
+      return "停用";
     case "authentication_expired":
       return "认证过期";
     case "rate_limited":
