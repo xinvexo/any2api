@@ -4,6 +4,11 @@ import {
   type RequestAttempt,
   type RequestLogOutcome,
 } from "./request-attempt-contracts";
+import {
+  parseRequestLogFilterOptions,
+  type RequestLogFilterOptions,
+  type RequestLogOperation,
+} from "./request-log-filter-contracts";
 
 export type {
   RequestAttempt,
@@ -16,21 +21,18 @@ export type {
   RequestTransportResolverMode,
   RequestTransportTrafficClass,
 } from "./request-attempt-contracts";
+export type {
+  RequestLogFilterOptions,
+  RequestLogFilters,
+  RequestLogOperation,
+  StableRequestLogFilterOption,
+} from "./request-log-filter-contracts";
 
 export type RequestLogProtocol =
   | "openai_responses"
   | "openai_chat_completions"
   | "openai_images"
   | "anthropic_messages";
-export type RequestLogOperation =
-  | "responses"
-  | "responses_compact"
-  | "chat_completions"
-  | "images_generations"
-  | "images_edits"
-  | "messages"
-  | "messages_count_tokens";
-
 export interface RequestLog {
   requestId: string;
   startedAtMs: number;
@@ -76,6 +78,7 @@ export interface RequestLogList {
   cursor: string | null;
   nextCursor: string | null;
   telemetry: RequestTelemetryMetrics;
+  filterOptions: RequestLogFilterOptions;
 }
 
 export interface RequestLogDetail {
@@ -107,6 +110,7 @@ export function parseRequestLogList(value: unknown): RequestLogList {
     cursor,
     nextCursor,
     telemetry: parseTelemetry(record.telemetry),
+    filterOptions: parseRequestLogFilterOptions(record.filter_options),
   };
 }
 

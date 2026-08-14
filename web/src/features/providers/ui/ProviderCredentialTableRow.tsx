@@ -2,14 +2,12 @@ import { ListChecks, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ProviderCredential } from "../api/provider-credential-contracts";
-import type { ProxyConfiguration } from "@/features/proxies";
 import { cn } from "@/shared/lib/cn";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 
 export interface ProviderCredentialTableRowProps {
   credential: ProviderCredential;
-  proxies: ProxyConfiguration;
   pending: boolean;
   embedded?: boolean;
   onEdit: (id: string) => void;
@@ -20,7 +18,6 @@ export interface ProviderCredentialTableRowProps {
 
 export function ProviderCredentialTableRow({
   credential,
-  proxies,
   pending,
   embedded = false,
   onEdit,
@@ -28,7 +25,12 @@ export function ProviderCredentialTableRow({
   onToggleEnabled,
   onDelete,
 }: ProviderCredentialTableRowProps) {
-  const proxyLabel = describeProxy(credential.proxyProfileId, proxies);
+  const proxyLabel = resolvedProxyLabel(credential);
+  const rpmLabel =
+    credential.runtime.rpm60s.limit === null
+      ? "无限制（未计窗口）"
+      : `${credential.runtime.rpm60s.used} / ${credential.runtime.rpm60s.limit}`;
+  const runtimeStatus = describeRuntimeStatus(credential.runtime.status);
   const secretLabel = credential.secretTail
     ? `•••• ${credential.secretTail}`
     : credential.fingerprint;
@@ -51,10 +53,10 @@ export function ProviderCredentialTableRow({
               <span
                 className={cn(
                   "shrink-0 text-[10px] font-medium",
-                  credential.enabled ? "text-success" : "text-warning",
+                  runtimeStatus.tone === "success" ? "text-success" : "text-warning",
                 )}
               >
-                {credential.enabled ? "启用" : "停用"}
+                {runtimeStatus.label}
               </span>
             </div>
             <div className="flex min-w-0 flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-tertiary">
@@ -62,7 +64,10 @@ export function ProviderCredentialTableRow({
                 {proxyLabel}
               </span>
               <span className="shrink-0 tabular-nums">
-                RPM {credential.requestsPerMinute ?? "无限制"}
+                近 60 秒 RPM {rpmLabel}
+              </span>
+              <span className="shrink-0 tabular-nums">
+                处理中 {credential.runtime.inFlight}
               </span>
               <span className="max-w-full truncate font-mono text-[10px]">{secretLabel}</span>
             </div>
@@ -102,20 +107,21 @@ export function ProviderCredentialTableRow({
         <span className="break-words [overflow-wrap:anywhere]">{proxyLabel}</span>
       </td>
       <td className="px-3 py-2 align-middle tabular-nums text-secondary">
-        {credential.requestsPerMinute ?? "无限制"}
+        {rpmLabel}
       </td>
       <td className="px-3 py-2 align-middle">
-        {credential.enabled ? (
-          <Badge tone="success">已启用</Badge>
-        ) : (
-          <Badge tone="warning">已停用</Badge>
-        )}
+        <Badge tone={runtimeStatus.tone}>{runtimeStatus.label}</Badge>
       </td>
       <td className="px-3 py-2 align-middle">
         <span className="font-mono text-[11px] text-tertiary">{secretLabel}</span>
       </td>
       <td className="min-w-[18rem] px-3 py-2 align-middle">
-        <RequestUsageStats label={credential.label} usage={credential.usage} />
+        <div className="space-y-1">
+          <p className="text-[11px] tabular-nums text-secondary">
+            处理中 {credential.runtime.inFlight}
+          </p>
+          <RequestUsageStats label={credential.label} usage={credential.usage} />
+        </div>
       </td>
       <td className="py-2 pl-3 align-middle">
         <div className="flex flex-wrap items-center justify-end gap-0.5">
@@ -198,12 +204,27 @@ function CredentialActions({
   );
 }
 
-function describeProxy(proxyId: string | undefined, configuration: ProxyConfiguration) {
-  const proxy = configuration.items.find((item) => item.id === proxyId);
-  if (!proxy) {
-    return "出口代理配置不存在";
+function describeRuntimeStatus(status: ProviderCredential["runtime"]["status"]) {
+  switch (status) {
+    case "ready":
+      return { label: "正常", tone: "success" as const };
+    case "disabled":
+      return { label: "停用", tone: "warning" as const };
+    case "endpoint_disabled":
+      return { label: "Endpoint 停用", tone: "warning" as const };
+    case "authentication_expired":
+      return { label: "认证过期", tone: "warning" as const };
+    case "rate_limited":
+      return { label: "RPM 用尽", tone: "warning" as const };
+    case "proxy_disabled":
+      return { label: "代理停用", tone: "warning" as const };
   }
-  return `${proxy.name}${proxy.enabled ? "" : " · 已停用"}`;
+}
+
+function resolvedProxyLabel(credential: ProviderCredential) {
+  const proxy = credential.runtime.resolvedProxy;
+  const kind = { direct: "直连", http: "HTTP", socks5: "SOCKS5" }[proxy.kind];
+  return `${proxy.name}（${kind}）${proxy.enabled ? "" : " · 已停用"}`;
 }
 
 function Badge({

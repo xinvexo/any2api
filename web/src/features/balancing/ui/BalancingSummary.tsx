@@ -54,15 +54,42 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
           <p className="mt-4 text-sm text-tertiary">尚未配置可路由账号。</p>
         )}
       </div>
+
+      <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="运行态观测">
+        <Metric
+          label="Transport 缓存客户端池 / 容量"
+          value={
+            runtime.transport
+              ? `${runtime.transport.cachedClientPools} / ${runtime.transport.clientPoolCapacity}`
+              : "不可用"
+          }
+          note={
+            runtime.transport
+              ? `每主机最大空闲连接 ${runtime.transport.maxIdlePerHost}`
+              : undefined
+          }
+        />
+        <Metric
+          label="熔断器状态"
+          value={`${runtime.breakers.closed} 闭合 · ${runtime.breakers.open} 打开 · ${runtime.breakers.halfOpen} 半开`}
+        />
+        <Metric
+          label="遥测排队 / 容量"
+          value={`${runtime.telemetry.queued} / ${runtime.telemetry.capacity}`}
+          note={`写入中 ${runtime.telemetry.inFlight}，累计丢弃 ${runtime.telemetry.dropped}`}
+        />
+        <Metric label="停机阶段" value={shutdownLabel(runtime.process.shutdownPhase)} />
+      </dl>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-3.5">
       <dt className="text-xs font-medium text-secondary">{label}</dt>
       <dd className="mt-2 text-xl font-semibold tracking-tight tabular-nums">{value}</dd>
+      {note ? <p className="mt-1 text-[11px] leading-4 text-tertiary">{note}</p> : null}
     </div>
   );
 }
@@ -75,4 +102,8 @@ function providerLabel(provider: "codex" | "claude" | "grok" | "kimi") {
   return { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
     provider
   ];
+}
+
+function shutdownLabel(phase: "running" | "draining" | "forced") {
+  return { running: "运行中", draining: "排空中", forced: "强制停机" }[phase];
 }

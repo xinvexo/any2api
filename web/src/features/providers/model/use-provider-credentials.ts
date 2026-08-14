@@ -7,5 +7,6 @@ export function useProviderCredentials(endpointId: string) {
   return useQuery({
     queryKey: providerQueryKeys.credentials(endpointId),
     queryFn: ({ signal }) => listProviderCredentials(endpointId, signal),
+    refetchInterval: 15_000,
   });
 }

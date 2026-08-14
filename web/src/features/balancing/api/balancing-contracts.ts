@@ -21,6 +21,23 @@ export interface BalancingRuntime {
   process: {
     activeRequests: number;
     backgroundTasks: number;
+    shutdownPhase: "running" | "draining" | "forced";
+  };
+  transport: {
+    cachedClientPools: number;
+    clientPoolCapacity: number;
+    maxIdlePerHost: number;
+  } | null;
+  breakers: {
+    closed: number;
+    open: number;
+    halfOpen: number;
+  };
+  telemetry: {
+    queued: number;
+    inFlight: number;
+    capacity: number;
+    dropped: number;
   };
   queue: {
     waiting: number;
@@ -43,7 +60,11 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
     process: {
       activeRequests: integer(process.active_requests),
       backgroundTasks: integer(process.background_tasks),
+      shutdownPhase: oneOf(process.shutdown_phase, ["running", "draining", "forced"]),
     },
+    transport: root.transport === null ? null : parseTransport(root.transport),
+    breakers: parseBreakers(root.breakers),
+    telemetry: parseTelemetry(root.telemetry),
     queue: {
       waiting: integer(queue.waiting),
       maxWaiting: positive(queue.max_waiting),
@@ -53,6 +74,34 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
     },
     totals: parseTotals(root.totals),
     providers: array(root.providers).map(parseProvider),
+  };
+}
+
+function parseTransport(value: unknown) {
+  const item = record(value);
+  return {
+    cachedClientPools: integer(item.cached_client_pools),
+    clientPoolCapacity: positive(item.client_pool_capacity),
+    maxIdlePerHost: integer(item.max_idle_per_host),
+  };
+}
+
+function parseBreakers(value: unknown) {
+  const item = record(value);
+  return {
+    closed: integer(item.closed),
+    open: integer(item.open),
+    halfOpen: integer(item.half_open),
+  };
+}
+
+function parseTelemetry(value: unknown) {
+  const item = record(value);
+  return {
+    queued: integer(item.queued),
+    inFlight: integer(item.in_flight),
+    capacity: positive(item.capacity),
+    dropped: integer(item.dropped),
   };
 }
 

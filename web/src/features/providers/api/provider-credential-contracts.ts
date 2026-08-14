@@ -2,6 +2,10 @@ import {
   parseRequestUsage,
   type RequestUsage,
 } from "@/shared/api/request-usage";
+import {
+  parseCredentialRuntime,
+  type CredentialRuntime,
+} from "@/shared/api/credential-runtime";
 
 type CredentialKind = "api_key";
 export const MAX_UPSTREAM_MODEL_NAME_CHARS = 255;
@@ -20,6 +24,7 @@ export interface ProviderCredential {
   credentialGeneration: number;
   configVersion: number;
   models: string[];
+  runtime: CredentialRuntime;
   usage: RequestUsage;
 }
 
@@ -177,6 +182,7 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     credentialGeneration: readPositiveInteger(value.credential_generation),
     configVersion: readPositiveInteger(value.config_version),
     models: readModelNames(value.models),
+    runtime: parseCredentialRuntime(value.runtime, "invalid provider credential response"),
     usage: parseRequestUsage(value.usage),
   };
 }

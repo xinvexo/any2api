@@ -3,6 +3,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { getRequestLogErrorMessage } from "../model/request-log-error";
 import { useRequestLogs } from "../model/use-request-logs";
+import type { RequestLogFilters } from "../api/request-log-filter-contracts";
+import { hasActiveRequestLogFilters } from "../api/request-log-filter-contracts";
 import {
   RequestLogCard,
   RequestLogTableRows,
@@ -14,14 +16,16 @@ import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { LogPagination } from "@/shared/ui/LogPagination";
 import { Surface } from "@/shared/ui/Surface";
+import { RequestLogFilterBar } from "./RequestLogFilterBar";
 
 export function RequestLogManagement() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
   const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<RequestLogFilters>({});
   const cursor = pageCursors[page - 1] ?? null;
-  const query = useRequestLogs(cursor, pageSize);
+  const query = useRequestLogs(cursor, pageSize, filters);
 
   const items = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
@@ -59,6 +63,9 @@ export function RequestLogManagement() {
   }
 
   const handlePageChange = (nextPage: number) => {
+    if (query.isPlaceholderData) {
+      return;
+    }
     if (nextPage === page + 1) {
       const currentCursor = query.data?.cursor;
       const nextCursor = query.data?.nextCursor;
@@ -83,6 +90,13 @@ export function RequestLogManagement() {
     setPageSize(size);
     setPageCursors([null]);
     setPage(1);
+  };
+
+  const handleFiltersChange = (next: RequestLogFilters) => {
+    setExpandedId(null);
+    setPageCursors([null]);
+    setPage(1);
+    setFilters(next);
   };
 
   if (query.isPending && !query.data) {
@@ -140,6 +154,12 @@ export function RequestLogManagement() {
         </Button>
       </div>
 
+      <RequestLogFilterBar
+        filters={filters}
+        options={query.data.filterOptions}
+        onChange={handleFiltersChange}
+      />
+
       {query.isError ? (
         <Surface className="mt-3 shrink-0 border-warning/40 p-4 text-sm text-secondary" role="status">
           刷新失败，当前仍显示最近一次有效数据：{getRequestLogErrorMessage(query.error)}
@@ -151,7 +171,9 @@ export function RequestLogManagement() {
         {total === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
-            <p className="mt-3 text-[13px] font-medium">还没有请求日志</p>
+            <p className="mt-3 text-[13px] font-medium">
+              {hasActiveRequestLogFilters(filters) ? "没有匹配的请求日志" : "还没有请求日志"}
+            </p>
             <p className="mt-1 text-[12px] text-secondary">
               通过网关完成一次请求后，记录会出现在这里。
             </p>
@@ -253,7 +275,8 @@ export function RequestLogManagement() {
           page={safePage}
           pageSize={pageSize}
           total={total}
-          hasNextPage={query.data.nextCursor !== null}
+          hasNextPage={!query.isPlaceholderData && query.data.nextCursor !== null}
+          disabled={query.isPlaceholderData}
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
         />

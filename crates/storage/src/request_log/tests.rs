@@ -67,7 +67,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .expect("append request log");
 
     let listed = store
-        .list_request_logs(0, None, 10)
+        .list_request_logs(0, &Default::default(), None, 10)
         .await
         .expect("list logs");
     assert_eq!(listed.total, 1);
@@ -192,7 +192,7 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
     );
     assert_eq!(
         store
-            .list_request_logs(0, None, 10)
+            .list_request_logs(0, &Default::default(), None, 10)
             .await
             .expect("list")
             .items
@@ -221,7 +221,7 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
         1
     );
     let remaining = store
-        .list_request_logs(0, None, 10)
+        .list_request_logs(0, &Default::default(), None, 10)
         .await
         .expect("remaining");
     assert_eq!(remaining.total, 1);

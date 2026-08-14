@@ -24,16 +24,16 @@ pub(crate) struct LogPageRequest {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum LogCursorKind {
-    Request,
+pub(crate) enum LogCursorScope<'a> {
+    Request(&'a str),
     System,
 }
 
-impl LogCursorKind {
-    const fn prefix(self) -> &'static str {
+impl LogCursorScope<'_> {
+    fn prefix(self) -> String {
         match self {
-            Self::Request => "r1",
-            Self::System => "s1",
+            Self::Request(fingerprint) => format!("r2.{fingerprint}"),
+            Self::System => "s1".to_owned(),
         }
     }
 
@@ -42,15 +42,15 @@ impl LogCursorKind {
         let anchor_id = URL_SAFE_NO_PAD.encode(anchor.request_id().as_bytes());
         match cursor.before() {
             Some(before) => format!(
-                "{}.{anchor_started}.{anchor_id}.{before_started}.{before_id}",
-                self.prefix(),
+                "{prefix}.{anchor_started}.{anchor_id}.{before_started}.{before_id}",
+                prefix = self.prefix(),
                 anchor_started = anchor.started_at_ms(),
                 before_started = before.started_at_ms(),
                 before_id = URL_SAFE_NO_PAD.encode(before.request_id().as_bytes()),
             ),
             None => format!(
-                "{}.{anchor_started}.{anchor_id}",
-                self.prefix(),
+                "{prefix}.{anchor_started}.{anchor_id}",
+                prefix = self.prefix(),
                 anchor_started = anchor.started_at_ms(),
             ),
         }
@@ -60,39 +60,62 @@ impl LogCursorKind {
         if value.len() > MAX_CURSOR_CHARS {
             return None;
         }
-        let parts = value.split('.').collect::<Vec<_>>();
-        match parts.as_slice() {
-            [prefix, anchor_started, anchor_id] if *prefix == self.prefix() => Some(
-                LogPageCursor::first(decode_position(anchor_started, anchor_id)?),
-            ),
-            [prefix, anchor_started, anchor_id, before_started, before_id]
-                if *prefix == self.prefix() =>
-            {
-                LogPageCursor::next(
-                    decode_position(anchor_started, anchor_id)?,
-                    decode_position(before_started, before_id)?,
-                )
-            }
-            _ => None,
-        }
+        let prefix = self.prefix();
+        let positions = value.strip_prefix(&prefix)?.strip_prefix('.')?;
+        decode_cursor_positions(positions)
     }
 }
 
 impl LogListQuery {
-    pub(crate) fn validate(self, kind: LogCursorKind) -> Option<LogPageRequest> {
-        let page_size = self.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
-        if !(1..=MAX_PAGE_SIZE).contains(&page_size) {
-            return None;
-        }
-        let cursor = match self.cursor {
-            Some(value) => Some(kind.decode(&value)?),
-            None => None,
-        };
-        Some(LogPageRequest {
-            cursor,
-            page_size,
-            since_ms: unix_time_ms().saturating_sub(LOG_WINDOW_MS),
-        })
+    pub(crate) fn validate(self) -> Option<LogPageRequest> {
+        validate_log_page(self.cursor, self.page_size, LogCursorScope::System)
+    }
+}
+
+pub(crate) fn validate_request_log_page(
+    cursor: Option<String>,
+    page_size: Option<u32>,
+    filter_fingerprint: &str,
+) -> Option<LogPageRequest> {
+    validate_log_page(
+        cursor,
+        page_size,
+        LogCursorScope::Request(filter_fingerprint),
+    )
+}
+
+fn validate_log_page(
+    cursor: Option<String>,
+    page_size: Option<u32>,
+    scope: LogCursorScope<'_>,
+) -> Option<LogPageRequest> {
+    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    if !(1..=MAX_PAGE_SIZE).contains(&page_size) {
+        return None;
+    }
+    let cursor = match cursor {
+        Some(value) => Some(scope.decode(&value)?),
+        None => None,
+    };
+    Some(LogPageRequest {
+        cursor,
+        page_size,
+        since_ms: unix_time_ms().saturating_sub(LOG_WINDOW_MS),
+    })
+}
+
+fn decode_cursor_positions(value: &str) -> Option<LogPageCursor> {
+    let parts = value.split('.').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [anchor_started, anchor_id] => Some(LogPageCursor::first(decode_position(
+            anchor_started,
+            anchor_id,
+        )?)),
+        [anchor_started, anchor_id, before_started, before_id] => LogPageCursor::next(
+            decode_position(anchor_started, anchor_id)?,
+            decode_position(before_started, before_id)?,
+        ),
+        _ => None,
     }
 }
 
@@ -127,7 +150,7 @@ mod tests {
             cursor: None,
             page_size: None,
         }
-        .validate(LogCursorKind::Request)
+        .validate()
         .expect("default page");
         assert!(page.cursor.is_none());
         assert_eq!(page.page_size, 20);
@@ -136,7 +159,7 @@ mod tests {
             cursor: None,
             page_size: Some(0),
         };
-        assert!(invalid_size.validate(LogCursorKind::Request).is_none());
+        assert!(invalid_size.validate().is_none());
     }
 
     #[test]
@@ -146,31 +169,29 @@ mod tests {
             LogPagePosition::new(200, "before/raw".into()),
         )
         .expect("ordered cursor");
-        let encoded = LogCursorKind::Request.encode(&cursor);
-        let query = LogListQuery {
-            cursor: Some(encoded.clone()),
-            page_size: Some(50),
-        }
-        .validate(LogCursorKind::Request)
-        .expect("request cursor");
+        let encoded = LogCursorScope::Request("filters-a").encode(&cursor);
+        let query = validate_request_log_page(Some(encoded.clone()), Some(50), "filters-a")
+            .expect("request cursor");
         assert_eq!(query.cursor, Some(cursor));
         assert_eq!(query.page_size, 50);
+
+        assert!(validate_request_log_page(Some(encoded.clone()), Some(50), "filters-b").is_none());
 
         assert!(
             LogListQuery {
                 cursor: Some(encoded),
-                page_size: Some(50),
+                page_size: Some(50)
             }
-            .validate(LogCursorKind::System)
+            .validate()
             .is_none()
         );
 
         assert!(
-            LogListQuery {
-                cursor: Some(format!("r1.{}.YQ", u64::MAX)),
-                page_size: Some(50),
-            }
-            .validate(LogCursorKind::Request)
+            validate_request_log_page(
+                Some(format!("r2.filters-a.{}.YQ", u64::MAX)),
+                Some(50),
+                "filters-a",
+            )
             .is_none()
         );
     }

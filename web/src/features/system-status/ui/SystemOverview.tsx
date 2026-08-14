@@ -10,11 +10,17 @@ import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 
+type SystemStatus = "pending" | "error" | "ok" | "draining" | "forced";
+
 export function SystemOverview() {
   const runtime = useBalancingRuntime();
   const affinity = useAffinity();
   const affinityMetrics = describeAffinityMetrics(affinity.data);
-  const status = runtime.isPending ? "pending" : runtime.isError ? "error" : "ok";
+  const status = resolveSystemStatus(
+    runtime.isPending,
+    runtime.isError,
+    runtime.data?.process.shutdownPhase,
+  );
   const busy = runtime.isFetching || affinity.isFetching;
 
   async function refresh() {
@@ -64,14 +70,31 @@ export function SystemOverview() {
   );
 }
 
-function StatusBadge({ status }: { status: "pending" | "error" | "ok" }) {
-  const label = status === "pending" ? "正在连接" : status === "error" ? "连接失败" : "运行正常";
+function resolveSystemStatus(
+  pending: boolean,
+  error: boolean,
+  phase: "running" | "draining" | "forced" | undefined,
+): SystemStatus {
+  if (pending) return "pending";
+  if (error) return "error";
+  return phase === "draining" || phase === "forced" ? phase : "ok";
+}
+
+function StatusBadge({ status }: { status: SystemStatus }) {
+  const label = {
+    pending: "正在连接",
+    error: "连接失败",
+    ok: "运行正常",
+    draining: "正在排空",
+    forced: "强制停机",
+  }[status];
   return (
     <span
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
         status === "ok" && "bg-success/10 text-success",
-        status === "error" && "bg-danger/10 text-danger",
+        (status === "error" || status === "forced") && "bg-danger/10 text-danger",
+        status === "draining" && "bg-warning/12 text-warning",
         status === "pending" && "bg-surface-muted text-secondary",
       )}
       role="status"
@@ -79,8 +102,10 @@ function StatusBadge({ status }: { status: "pending" | "error" | "ok" }) {
     >
       {status === "pending" ? (
         <LoaderCircle size={13} className="animate-spin" aria-hidden="true" />
-      ) : status === "error" ? (
+      ) : status === "error" || status === "forced" ? (
         <ServerCrash size={13} aria-hidden="true" />
+      ) : status === "draining" ? (
+        <LoaderCircle size={13} aria-hidden="true" />
       ) : (
         <CheckCircle2 size={13} aria-hidden="true" />
       )}

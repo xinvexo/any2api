@@ -10,7 +10,7 @@ use any2api_transport::api::TransportFailureScope;
 
 use super::{
     AttemptHealth, HealthAcquireError, ReliabilityPolicy,
-    circuit::CircuitRuntime,
+    circuit::{CircuitRuntime, CircuitStateSnapshot},
     runtime::{CredentialHealthRuntime, EndpointHealthRuntime, ProxyHealthRuntime},
 };
 use crate::{
@@ -389,7 +389,21 @@ async fn circuit_failure_window_uses_recent_failures() {
             .failure(3, failure_window, open_duration)
             .is_some()
     );
+    assert_eq!(
+        circuit.state_at(tokio::time::Instant::now()),
+        CircuitStateSnapshot::Open
+    );
     assert!(circuit.availability(1).is_err());
+    tokio::time::advance(open_duration).await;
+    assert_eq!(
+        circuit.state_at(tokio::time::Instant::now()),
+        CircuitStateSnapshot::HalfOpen
+    );
+    circuit.try_acquire(1).expect("half-open probe").success();
+    assert_eq!(
+        circuit.state_at(tokio::time::Instant::now()),
+        CircuitStateSnapshot::Closed
+    );
 }
 
 fn policy() -> ReliabilityPolicy {

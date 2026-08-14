@@ -228,6 +228,17 @@ function oauthAccountJson(
     models: [],
     available_models:
       providerKind === "codex" ? ["gpt-5.5"] : ["claude-sonnet-4-5"],
+    runtime: {
+      resolved_proxy: {
+        id: "00000000-0000-0000-0000-000000000000",
+        name: "DIRECT",
+        kind: "direct",
+        enabled: true,
+      },
+      rpm_60s: { used: 0, limit: null },
+      in_flight: 0,
+      status: "ready",
+    },
     plan_type: "free",
     bot_flagged: null,
     token_refresh_failure: null,

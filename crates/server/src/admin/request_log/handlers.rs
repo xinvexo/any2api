@@ -6,28 +6,31 @@ use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
 };
 
-use crate::{
-    log_pagination::{LogCursorKind, LogListQuery},
-    state::AppState,
-};
+use crate::state::AppState;
 
 use super::{
     dto::{RequestLogDetailResponse, RequestLogListResponse},
     error::AdminApiError,
+    query::RequestLogListQuery,
 };
 
 pub(crate) async fn list(
     State(state): State<AppState>,
-    query: Result<Query<LogListQuery>, QueryRejection>,
+    query: Result<Query<RequestLogListQuery>, QueryRejection>,
 ) -> Result<Json<RequestLogListResponse>, AdminApiError> {
     let query = query
         .map_err(|_| AdminApiError::invalid_request("request log query is invalid"))?
         .0
-        .validate(LogCursorKind::Request)
+        .validate()
         .ok_or_else(|| AdminApiError::invalid_request("request log page is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
-        .list(query.since_ms, query.cursor, query.page_size)
+        .list(
+            query.page.since_ms,
+            &query.filter,
+            query.page.cursor,
+            query.page.page_size,
+        )
         .await
         .map_err(|error| {
             tracing::error!(%error, "request log list failed");
@@ -36,9 +39,10 @@ pub(crate) async fn list(
     let snapshot = state.snapshots().load();
     Ok(Json(RequestLogListResponse::new(
         logs,
-        query.page_size,
+        query.page.page_size,
         telemetry.metrics(),
         snapshot.as_ref(),
+        &query.filter_fingerprint,
     )))
 }
 

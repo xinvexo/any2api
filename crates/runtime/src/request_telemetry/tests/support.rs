@@ -207,6 +207,7 @@ impl RequestLogRepository for BlockingRepository {
     async fn list_request_logs(
         &self,
         _since_ms: u64,
+        _filter: &any2api_domain::RequestLogFilter,
         _cursor: Option<LogPageCursor>,
         _limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {

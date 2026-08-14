@@ -13,6 +13,7 @@ export function LogPagination({
   pageSize,
   total,
   hasNextPage,
+  disabled = false,
   onPageChange,
   onPageSizeChange,
 }: {
@@ -20,6 +21,7 @@ export function LogPagination({
   pageSize: LogPageSize;
   total: number;
   hasNextPage: boolean;
+  disabled?: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: LogPageSize) => void;
 }) {
@@ -37,6 +39,7 @@ export function LogPagination({
             label: `${size} 条/页`,
           }))}
           aria-label="每页条数"
+          disabled={disabled}
           onValueChange={onPageSizeChange}
         />
       </div>
@@ -44,7 +47,7 @@ export function LogPagination({
       <div className="flex items-center gap-0.5">
         <IconButton
           label="上一页"
-          disabled={page <= 1}
+          disabled={disabled || page <= 1}
           onClick={() => onPageChange(page > totalPages ? totalPages : safePage - 1)}
         >
           <ChevronLeft size={16} strokeWidth={1.75} />
@@ -54,7 +57,7 @@ export function LogPagination({
         </span>
         <IconButton
           label="下一页"
-          disabled={!hasNextPage}
+          disabled={disabled || !hasNextPage}
           onClick={() => onPageChange(safePage + 1)}
         >
           <ChevronRight size={16} strokeWidth={1.75} />

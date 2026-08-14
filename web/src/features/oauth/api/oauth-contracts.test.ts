@@ -182,6 +182,17 @@ describe("parseOAuthAccountConfiguration", () => {
             "gpt-5.6-luna",
             "gpt-5.6-terra",
           ],
+          runtime: {
+            resolved_proxy: {
+              id: "00000000-0000-0000-0000-000000000000",
+              name: "DIRECT",
+              kind: "direct",
+              enabled: true,
+            },
+            rpm_60s: { used: 1, limit: 2 },
+            in_flight: 0,
+            status: "ready",
+          },
           plan_type: "plus",
           bot_flagged: null,
           token_refresh_failure: {
@@ -252,6 +263,17 @@ describe("parseOAuthAccountConfiguration", () => {
             selected_model_count: 2,
             models: ["claude-sonnet-4-6"],
             available_models: ["claude-sonnet-4-6"],
+            runtime: {
+              resolved_proxy: {
+                id: "00000000-0000-0000-0000-000000000000",
+                name: "DIRECT",
+                kind: "direct",
+                enabled: true,
+              },
+              rpm_60s: { used: 0, limit: null },
+              in_flight: 0,
+              status: "ready",
+            },
             plan_type: null,
             bot_flagged: null,
             token_refresh_failure: null,

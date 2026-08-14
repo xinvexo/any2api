@@ -56,6 +56,43 @@ pub struct TransportManagerConfig {
     pub max_cached_clients: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransportRuntimeSnapshot {
+    cached_client_pools: usize,
+    client_pool_capacity: usize,
+    max_idle_per_host: usize,
+}
+
+impl TransportRuntimeSnapshot {
+    #[must_use]
+    pub const fn new(
+        cached_client_pools: usize,
+        client_pool_capacity: usize,
+        max_idle_per_host: usize,
+    ) -> Self {
+        Self {
+            cached_client_pools,
+            client_pool_capacity,
+            max_idle_per_host,
+        }
+    }
+
+    #[must_use]
+    pub const fn cached_client_pools(self) -> usize {
+        self.cached_client_pools
+    }
+
+    #[must_use]
+    pub const fn client_pool_capacity(self) -> usize {
+        self.client_pool_capacity
+    }
+
+    #[must_use]
+    pub const fn max_idle_per_host(self) -> usize {
+        self.max_idle_per_host
+    }
+}
+
 impl Default for TransportManagerConfig {
     fn default() -> Self {
         Self {
@@ -139,6 +176,11 @@ impl fmt::Debug for TransportProxy<'_> {
 
 #[async_trait]
 pub trait TransportManager: Send + Sync {
+    /// Returns aggregate pool state when the adapter has a read-only snapshot.
+    fn runtime_snapshot(&self) -> Option<TransportRuntimeSnapshot> {
+        None
+    }
+
     /// Returns a secret-free snapshot of the policy that would be used for
     /// this request. Custom adapters may opt out; the production manager does
     /// not. The snapshot is observational and must not mutate client caches.

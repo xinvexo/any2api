@@ -1,7 +1,8 @@
 pub use crate::affinity::{AffinityPolicy, AffinityRuntimeSnapshot};
 pub use crate::configuration::{
-    ConfigPublishError, ConfigPublisher, PreparedPublishedSnapshot, PublishedSnapshot,
-    PublishedSnapshotReconciler, SnapshotCompileError, SnapshotStore,
+    ConfigPublishError, ConfigPublisher, CredentialRuntimeObservation, CredentialRuntimeStatus,
+    PreparedPublishedSnapshot, PublishedSnapshot, PublishedSnapshotReconciler,
+    SnapshotCompileError, SnapshotStore,
 };
 pub use crate::configuration::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
@@ -42,7 +43,8 @@ pub use crate::request_telemetry::{
 };
 pub use crate::routing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
-    BalancingTotalsSnapshot,
+    BalancingTotalsSnapshot, BreakerStateCounts, RouteInspectionCandidateGroup,
+    RouteInspectionItem, RouteInspectionOperation, RouteInspectionSnapshot, RouteInspectionStatus,
 };
 pub use crate::routing::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub use crate::routing::{SelectAndReserveResult, select_and_try_reserve};
@@ -63,3 +65,4 @@ pub use any2api_storage::api::{
     RequestLogOverviewTotals, RequestUsageWindowSlot, UpstreamCredentialUsageSummary,
     empty_request_usage_window_slots,
 };
+pub use any2api_transport::api::TransportRuntimeSnapshot;

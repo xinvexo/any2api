@@ -6,7 +6,6 @@ import { useSearchParams } from "react-router-dom";
 import type { OAuthAccount, OAuthProvider } from "../api/oauth-contracts";
 import { presentOAuthAccount } from "../model/oauth-account-presentation";
 import { getOAuthErrorMessage } from "../model/oauth-error";
-import { describeOAuthProxySelection } from "../model/oauth-proxy-presentation";
 import { useOAuthAccountMutations } from "../model/use-oauth-account-mutations";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
 import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
@@ -115,7 +114,6 @@ export function OAuthAccounts({
           renderItem={(account) => (
             <OAuthAccountItem
               account={account}
-              proxyConfiguration={proxyConfiguration}
               pending={pending}
               quotaRefreshPending={quotaRefreshPending}
               onToggleEnabled={(enabled) => toggleAccount(account, enabled)}
@@ -214,7 +212,6 @@ export function OAuthAccounts({
 
 function OAuthAccountItem({
   account,
-  proxyConfiguration,
   pending,
   quotaRefreshPending,
   onToggleEnabled,
@@ -223,7 +220,6 @@ function OAuthAccountItem({
   onDelete,
 }: {
   account: OAuthAccount;
-  proxyConfiguration: ProxyConfiguration;
   pending: boolean;
   quotaRefreshPending: boolean;
   onToggleEnabled: (enabled: boolean) => void;
@@ -242,7 +238,7 @@ function OAuthAccountItem({
   return (
     <OAuthAccountCard
       presentation={presentOAuthAccount(account, quota)}
-      proxyLabel={describeOAuthProxySelection(account.proxySelection, proxyConfiguration)}
+      proxyLabel={runtimeProxyLabel(account)}
       pending={pending}
       onToggleEnabled={onToggleEnabled}
       onViewModels={onViewModels}
@@ -270,4 +266,11 @@ function OAuthAccountItem({
       }
     />
   );
+}
+
+function runtimeProxyLabel(account: OAuthAccount) {
+  const proxy = account.runtime.resolvedProxy;
+  const selection = account.proxySelection.mode === "global" ? "跟随全局" : "指定";
+  const kind = { direct: "直连", http: "HTTP", socks5: "SOCKS5" }[proxy.kind];
+  return `${selection} · ${proxy.name}（${kind}）${proxy.enabled ? "" : " · 已停用"}`;
 }

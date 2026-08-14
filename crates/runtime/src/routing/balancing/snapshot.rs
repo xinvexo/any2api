@@ -36,6 +36,7 @@ pub(crate) fn snapshot(
         },
         totals: aggregate.totals,
         providers: aggregate.providers.into_values().collect(),
+        breakers: published.breaker_state_counts(),
     }
 }
 

@@ -70,9 +70,22 @@ export function presentOAuthAccount(
 
   const metrics: OAuthAccountMetric[] = [
     {
+      key: "runtime-status",
+      label: "状态",
+      value: runtimeStatusLabel(account.runtime.status),
+    },
+    {
       key: "rpm",
-      label: "RPM",
-      value: account.requestsPerMinute === null ? "无限制" : String(account.requestsPerMinute),
+      label: "近 60 秒 RPM",
+      value:
+        account.runtime.rpm60s.limit === null
+          ? "无限制（未计窗口）"
+          : `${account.runtime.rpm60s.used} / ${account.runtime.rpm60s.limit}`,
+    },
+    {
+      key: "in-flight",
+      label: "处理中",
+      value: String(account.runtime.inFlight),
     },
     {
       key: "models",
@@ -98,6 +111,23 @@ export function presentOAuthAccount(
       left.localeCompare(right),
     ),
   };
+}
+
+function runtimeStatusLabel(status: OAuthAccount["runtime"]["status"]) {
+  switch (status) {
+    case "ready":
+      return "正常";
+    case "disabled":
+      return "停用";
+    case "endpoint_disabled":
+      return "Endpoint 停用";
+    case "authentication_expired":
+      return "认证过期";
+    case "rate_limited":
+      return "RPM 用尽";
+    case "proxy_disabled":
+      return "代理停用";
+  }
 }
 
 function quotaIsExhausted(quota: OAuthQuotaSnapshot | null) {

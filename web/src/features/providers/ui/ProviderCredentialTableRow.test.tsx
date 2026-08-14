@@ -3,7 +3,6 @@ import { expect, test, vi } from "vitest";
 
 import type { ProviderCredential } from "../api/provider-credential-contracts";
 import { ProviderCredentialTableRow } from "./ProviderCredentialTableRow";
-import type { ProxyConfiguration } from "@/features/proxies";
 
 test("shows DIRECT without inheriting the OAuth global proxy", () => {
   render(
@@ -11,7 +10,6 @@ test("shows DIRECT without inheriting the OAuth global proxy", () => {
       <tbody>
         <ProviderCredentialTableRow
           credential={credential}
-          proxies={proxies}
           pending={false}
           onEdit={vi.fn()}
           onModels={vi.fn()}
@@ -22,7 +20,9 @@ test("shows DIRECT without inheriting the OAuth global proxy", () => {
     </table>,
   );
 
-  expect(screen.getByText("DIRECT")).toBeInTheDocument();
+  expect(screen.getByText("DIRECT（直连）")).toBeInTheDocument();
+  expect(screen.getByText("无限制（未计窗口）")).toBeInTheDocument();
+  expect(screen.getByText("正常")).toBeInTheDocument();
   expect(screen.queryByText(/继承/)).not.toBeInTheDocument();
   expect(screen.queryByText("OAuth Proxy")).not.toBeInTheDocument();
 });
@@ -41,6 +41,17 @@ const credential = {
   credentialGeneration: 1,
   configVersion: 1,
   models: [],
+  runtime: {
+    resolvedProxy: {
+      id: "00000000-0000-0000-0000-000000000000",
+      name: "DIRECT",
+      kind: "direct",
+      enabled: true,
+    },
+    rpm60s: { used: 0, limit: null },
+    inFlight: 0,
+    status: "ready",
+  },
   usage: {
     totalRequests: 0,
     successfulRequests: 0,
@@ -49,36 +60,3 @@ const credential = {
     windowSlots: [],
   },
 } satisfies ProviderCredential;
-
-const proxies = {
-  configRevision: 2,
-  globalProxyId: "f0335fed-e5a9-4081-966b-37efe4a109a8",
-  items: [
-    {
-      id: "00000000-0000-0000-0000-000000000000",
-      name: "DIRECT",
-      kind: "direct",
-      host: null,
-      port: null,
-      username: null,
-      passwordConfigured: false,
-      authenticationVersion: 0,
-      enabled: true,
-      builtIn: true,
-      configVersion: 1,
-    },
-    {
-      id: "f0335fed-e5a9-4081-966b-37efe4a109a8",
-      name: "OAuth Proxy",
-      kind: "http",
-      host: "proxy.example.com",
-      port: 8080,
-      username: null,
-      passwordConfigured: false,
-      authenticationVersion: 0,
-      enabled: true,
-      builtIn: false,
-      configVersion: 1,
-    },
-  ],
-} satisfies ProxyConfiguration;

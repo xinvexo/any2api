@@ -73,10 +73,10 @@ pub use telemetry::{
     MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT,
     MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
-    RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestQuotaCost,
-    RequestQuotaCostRate, RequestRoutingMode, RequestTelemetryPosition,
-    RequestTransportResolverMode, RequestTransportTrafficClass, TokenUsage, bound_error_message,
-    bound_thinking_level, gateway_auth_rejected_capacity,
+    RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestLogFilter,
+    RequestLogOutcomeFilter, RequestQuotaCost, RequestQuotaCostRate, RequestRoutingMode,
+    RequestTelemetryPosition, RequestTransportResolverMode, RequestTransportTrafficClass,
+    TokenUsage, bound_error_message, bound_thinking_level, gateway_auth_rejected_capacity,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, MAX_UPSTREAM_ERROR_MESSAGE_BYTES, RetryAfterHint, UpstreamError,

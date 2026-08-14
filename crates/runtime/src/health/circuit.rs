@@ -22,6 +22,13 @@ struct CircuitState {
     last_failure_at: Option<Instant>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CircuitStateSnapshot {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
 impl CircuitRuntime {
     pub(super) fn new(scheduler_epoch: Arc<SchedulerEpoch>) -> Arc<Self> {
         let wake = scheduler_epoch.wake_slot();
@@ -75,6 +82,15 @@ impl CircuitRuntime {
                 Err(now + Duration::from_millis(10))
             }
             _ => Ok(()),
+        }
+    }
+
+    pub(crate) fn state_at(&self, now: Instant) -> CircuitStateSnapshot {
+        let state = self.state.lock().expect("circuit state lock poisoned");
+        match state.open_until {
+            Some(until) if now < until => CircuitStateSnapshot::Open,
+            Some(_) => CircuitStateSnapshot::HalfOpen,
+            None => CircuitStateSnapshot::Closed,
         }
     }
 

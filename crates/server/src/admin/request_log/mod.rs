@@ -1,6 +1,8 @@
 mod attempt_dto;
 mod dto;
+mod filter_options;
 mod handlers;
+mod query;
 
 use super::error;
 use crate::state::AppState;

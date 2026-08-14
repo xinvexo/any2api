@@ -9,7 +9,7 @@ use std::{
 use any2api_domain::{GatewayApiKeyId, ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
 use any2api_provider::api::ProviderRegistry;
-use any2api_transport::api::TransportManager;
+use any2api_transport::api::{TransportManager, TransportRuntimeSnapshot};
 use bytes::Bytes;
 use futures_util::Stream;
 use http::{HeaderMap, StatusCode};
@@ -24,7 +24,7 @@ use crate::{
     credential::RoutingPermit,
     oauth::{OAuthQuotaActivity, OAuthService, refresh::OAuthRefresher},
     request_telemetry::{RequestRecorder, RequestTelemetry, public_error_class},
-    routing::RouteCandidate,
+    routing::{RouteCandidate, RouteInspectionSnapshot, inspect_routes},
 };
 
 #[derive(Clone)]
@@ -163,6 +163,16 @@ impl PublicRequestService {
             .expect("validated protocol registry")
             .error_response(error)
             .into()
+    }
+
+    #[must_use]
+    pub fn route_inspection(&self, snapshot: &PublishedSnapshot) -> RouteInspectionSnapshot {
+        inspect_routes(snapshot, self.protocols.as_ref(), self.providers.as_ref())
+    }
+
+    #[must_use]
+    pub fn transport_runtime_snapshot(&self) -> Option<TransportRuntimeSnapshot> {
+        self.transport.runtime_snapshot()
     }
 
     async fn execute_inner(

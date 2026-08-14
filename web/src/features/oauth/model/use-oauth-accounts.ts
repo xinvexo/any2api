@@ -7,5 +7,6 @@ export function useOAuthAccounts() {
   return useQuery({
     queryKey: oauthQueryKeys.accounts,
     queryFn: ({ signal }) => listOAuthAccounts(signal),
+    refetchInterval: 15_000,
   });
 }

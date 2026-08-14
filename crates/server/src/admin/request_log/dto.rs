@@ -2,9 +2,10 @@ use any2api_domain::{CompletedRequestLog, ErrorClass, LogPage, RequestAttemptOut
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
-use crate::log_pagination::LogCursorKind;
+use crate::log_pagination::LogCursorScope;
 
 use super::attempt_dto::RequestAttemptResponse;
+use super::filter_options::RequestLogFilterOptionsResponse;
 
 #[derive(Serialize)]
 pub(crate) struct RequestLogListResponse {
@@ -14,6 +15,7 @@ pub(crate) struct RequestLogListResponse {
     cursor: Option<String>,
     next_cursor: Option<String>,
     telemetry: RequestTelemetryResponse,
+    filter_options: RequestLogFilterOptionsResponse,
 }
 
 impl RequestLogListResponse {
@@ -22,15 +24,17 @@ impl RequestLogListResponse {
         page_size: u32,
         metrics: RequestTelemetryMetrics,
         snapshot: &PublishedSnapshot,
+        filter_fingerprint: &str,
     ) -> Self {
+        let filter_options = RequestLogFilterOptionsResponse::new(&logs.items, snapshot);
         let cursor = logs
             .cursor
             .as_ref()
-            .map(|cursor| LogCursorKind::Request.encode(cursor));
+            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor));
         let next_cursor = logs
             .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorKind::Request.encode(cursor));
+            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor));
         Self {
             items: logs
                 .items
@@ -42,6 +46,7 @@ impl RequestLogListResponse {
             cursor,
             next_cursor,
             telemetry: metrics.into(),
+            filter_options,
         }
     }
 }

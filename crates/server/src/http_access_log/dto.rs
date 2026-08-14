@@ -2,7 +2,7 @@ use any2api_domain::{HttpAccessLogSummary, LogPage};
 use any2api_runtime::api::RequestTelemetryMetrics;
 use serde::Serialize;
 
-use crate::log_pagination::LogCursorKind;
+use crate::log_pagination::LogCursorScope;
 
 #[derive(Serialize)]
 pub(super) struct SystemLogListResponse {
@@ -23,11 +23,11 @@ impl SystemLogListResponse {
         let cursor = logs
             .cursor
             .as_ref()
-            .map(|cursor| LogCursorKind::System.encode(cursor));
+            .map(|cursor| LogCursorScope::System.encode(cursor));
         let next_cursor = logs
             .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorKind::System.encode(cursor));
+            .map(|cursor| LogCursorScope::System.encode(cursor));
         Self {
             items: logs
                 .items

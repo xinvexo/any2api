@@ -5,7 +5,14 @@ import { parseBalancingRuntime } from "./balancing-contracts";
 test("parses aggregate-only balancing runtime", () => {
   const parsed = parseBalancingRuntime(runtimeResponse());
 
-  expect(parsed.process).toEqual({ activeRequests: 4, backgroundTasks: 6 });
+  expect(parsed.process).toEqual({ activeRequests: 4, backgroundTasks: 6, shutdownPhase: "running" });
+  expect(parsed.transport).toEqual({
+    cachedClientPools: 3,
+    clientPoolCapacity: 64,
+    maxIdlePerHost: 8,
+  });
+  expect(parsed.breakers).toEqual({ closed: 8, open: 1, halfOpen: 2 });
+  expect(parsed.telemetry).toEqual({ queued: 4, inFlight: 1, capacity: 100_000, dropped: 7 });
   expect(parsed.queue).toEqual({
     waiting: 1,
     maxWaiting: 128,
@@ -43,7 +50,14 @@ function runtimeResponse() {
   return {
     config_revision: 3,
     scheduler_epoch: 8,
-    process: { active_requests: 4, background_tasks: 6 },
+    process: { active_requests: 4, background_tasks: 6, shutdown_phase: "running" },
+    transport: {
+      cached_client_pools: 3,
+      client_pool_capacity: 64,
+      max_idle_per_host: 8,
+    },
+    breakers: { closed: 8, open: 1, half_open: 2 },
+    telemetry: { queued: 4, in_flight: 1, capacity: 100_000, dropped: 7 },
     queue: {
       waiting: 1,
       max_waiting: 128,

@@ -1,6 +1,7 @@
 use any2api_domain::ProviderKind;
 use any2api_runtime::api::{
-    BalancingProviderSnapshot, BalancingRuntimeSnapshot, BalancingTotalsSnapshot, PublishedSnapshot,
+    BalancingProviderSnapshot, BalancingRuntimeSnapshot, BalancingTotalsSnapshot, ProcessLifecycle,
+    PublishedSnapshot, RequestTelemetryMetrics, TransportRuntimeSnapshot,
 };
 use serde::Serialize;
 
@@ -9,6 +10,9 @@ pub(crate) struct BalancingRuntimeResponse {
     config_revision: u64,
     scheduler_epoch: u64,
     process: ProcessResponse,
+    transport: Option<TransportResponse>,
+    breakers: BreakerResponse,
+    telemetry: TelemetryResponse,
     queue: QueueResponse,
     totals: TotalsResponse,
     providers: Vec<ProviderResponse>,
@@ -18,15 +22,30 @@ impl BalancingRuntimeResponse {
     pub(crate) fn new(
         published: &PublishedSnapshot,
         runtime: &BalancingRuntimeSnapshot,
-        active_requests: usize,
-        background_tasks: usize,
+        lifecycle: &ProcessLifecycle,
+        transport: Option<TransportRuntimeSnapshot>,
+        telemetry: RequestTelemetryMetrics,
     ) -> Self {
+        let breakers = runtime.breakers();
         Self {
             config_revision: published.revision().get(),
             scheduler_epoch: runtime.scheduler_epoch(),
             process: ProcessResponse {
-                active_requests,
-                background_tasks,
+                active_requests: lifecycle.active_requests().saturating_sub(1),
+                background_tasks: lifecycle.background_task_count(),
+                shutdown_phase: lifecycle.phase().as_str(),
+            },
+            transport: transport.map(TransportResponse::from),
+            breakers: BreakerResponse {
+                closed: breakers.closed(),
+                open: breakers.open(),
+                half_open: breakers.half_open(),
+            },
+            telemetry: TelemetryResponse {
+                queued: telemetry.queued_records,
+                in_flight: telemetry.in_flight_records,
+                capacity: published.settings().logging().telemetry_queue_capacity(),
+                dropped: telemetry.dropped_records,
             },
             queue: QueueResponse::from(runtime),
             totals: TotalsResponse::from(runtime.totals()),
@@ -44,6 +63,39 @@ impl BalancingRuntimeResponse {
 struct ProcessResponse {
     active_requests: usize,
     background_tasks: usize,
+    shutdown_phase: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct TransportResponse {
+    cached_client_pools: usize,
+    client_pool_capacity: usize,
+    max_idle_per_host: usize,
+}
+
+impl From<TransportRuntimeSnapshot> for TransportResponse {
+    fn from(value: TransportRuntimeSnapshot) -> Self {
+        Self {
+            cached_client_pools: value.cached_client_pools(),
+            client_pool_capacity: value.client_pool_capacity(),
+            max_idle_per_host: value.max_idle_per_host(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct BreakerResponse {
+    closed: usize,
+    open: usize,
+    half_open: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct TelemetryResponse {
+    queued: usize,
+    in_flight: usize,
+    capacity: u64,
+    dropped: u64,
 }
 
 #[derive(Debug, Serialize)]

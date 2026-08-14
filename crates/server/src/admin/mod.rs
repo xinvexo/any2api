@@ -3,6 +3,7 @@ mod affinity;
 mod auth;
 mod balancing;
 mod config_publish_error;
+mod credential_runtime;
 mod error;
 mod gateway_api_key;
 mod log_events;
@@ -15,6 +16,7 @@ mod request_json;
 mod request_log;
 mod request_usage;
 mod revision;
+mod route_inspection;
 mod settings;
 mod upstream_usage;
 
@@ -49,6 +51,7 @@ fn protected_routes() -> Router<AppState> {
         .merge(proxy::routes())
         .merge(provider::routes())
         .merge(request_log::routes())
+        .merge(route_inspection::routes())
         .merge(crate::http_access_log::routes())
         .merge(settings::routes())
 }

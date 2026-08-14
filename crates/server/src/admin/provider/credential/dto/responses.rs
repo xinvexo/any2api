@@ -8,6 +8,7 @@ use any2api_runtime::api::{
 };
 use serde::Serialize;
 
+use crate::admin::credential_runtime::CredentialRuntimeResponse;
 use crate::admin::{request_usage::RequestUsageResponse, upstream_usage};
 
 #[derive(Serialize)]
@@ -29,7 +30,7 @@ impl ProviderCredentialCollectionResponse {
             items: snapshot
                 .provider_credentials()
                 .for_endpoint(endpoint_id)
-                .map(|credential| ProviderCredentialResponse::new(credential, usage))
+                .map(|credential| ProviderCredentialResponse::new(snapshot, credential, usage))
                 .collect(),
         }
     }
@@ -50,11 +51,21 @@ struct ProviderCredentialResponse {
     credential_generation: u64,
     config_version: u64,
     models: Vec<String>,
+    runtime: CredentialRuntimeResponse,
     usage: RequestUsageResponse,
 }
 
 impl ProviderCredentialResponse {
-    fn new(credential: &ProviderCredential, usage: &[UpstreamCredentialUsageSummary]) -> Self {
+    fn new(
+        snapshot: &PublishedSnapshot,
+        credential: &ProviderCredential,
+        usage: &[UpstreamCredentialUsageSummary],
+    ) -> Self {
+        let runtime = snapshot
+            .credential_runtime_observation(RoutingCredentialId::provider_credential(
+                credential.id(),
+            ))
+            .expect("published provider credential has runtime observation");
         Self {
             id: credential.id(),
             provider_endpoint_id: credential.provider_endpoint_id(),
@@ -73,6 +84,7 @@ impl ProviderCredentialResponse {
                 .iter()
                 .map(|model| model.as_str().to_owned())
                 .collect(),
+            runtime: runtime.into(),
             usage: upstream_usage::for_id(
                 RoutingCredentialId::provider_credential(credential.id()),
                 usage,

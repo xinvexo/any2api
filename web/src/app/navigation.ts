@@ -8,6 +8,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ export const navigationItems: NavigationItem[] = [
   { label: "系统总览", path: "/", icon: Gauge },
   { label: "上游提供", path: "/providers", icon: Server },
   { label: "认证文件", path: "/oauth", icon: Fingerprint },
+  { label: "路由检查", path: "/routes", icon: Waypoints },
   { label: "额度费率", path: "/quota-rates", icon: BadgeDollarSign },
   { label: "网关密钥", path: "/keys", icon: KeyRound },
   { label: "出口代理", path: "/proxies", icon: Network },

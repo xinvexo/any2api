@@ -28,6 +28,7 @@ export const appRoutes = [
       { path: "proxies", element: page(() => import("@/pages/ProxiesPage"), "ProxiesPage") },
       { path: "providers", element: page(() => import("@/pages/ProvidersPage"), "ProvidersPage") },
       { path: "oauth", element: page(() => import("@/pages/OAuthPage"), "OAuthPage") },
+      { path: "routes", element: page(() => import("@/pages/RoutesPage"), "RoutesPage") },
       {
         path: "quota-rates",
         element: page(() => import("@/pages/QuotaRatesPage"), "QuotaRatesPage"),

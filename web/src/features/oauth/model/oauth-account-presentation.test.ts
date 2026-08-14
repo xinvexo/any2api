@@ -13,6 +13,9 @@ test("real Credits keep a rolling-limit account visually available", () => {
 
   expect(available.badges.map((badge) => badge.key)).not.toContain("quota-exhausted");
   expect(hardStopped.badges.map((badge) => badge.key)).toContain("quota-exhausted");
+  expect(available.metrics.find((metric) => metric.key === "rpm")?.value).toBe(
+    "无限制（未计窗口）",
+  );
 });
 
 function account(): OAuthAccount {
@@ -31,6 +34,17 @@ function account(): OAuthAccount {
     selectedModelCount: 1,
     models: ["gpt-5.6-sol"],
     availableModels: ["gpt-5.6-sol"],
+    runtime: {
+      resolvedProxy: {
+        id: "00000000-0000-0000-0000-000000000000",
+        name: "DIRECT",
+        kind: "direct",
+        enabled: true,
+      },
+      rpm60s: { used: 0, limit: null },
+      inFlight: 0,
+      status: "ready",
+    },
     planType: "plus",
     botFlagged: null,
     tokenRefreshFailure: null,

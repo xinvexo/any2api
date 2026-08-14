@@ -9,7 +9,10 @@ use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
 
 use crate::{
-    configuration::{ConfigPublishError, ConfigPublisher, PublishedSnapshot, SnapshotStore},
+    configuration::{
+        ConfigPublishError, ConfigPublisher, CredentialRuntimeStatus, PublishedSnapshot,
+        SnapshotStore,
+    },
     credential::ProviderApiKeySecret,
     registry::RuntimeRegistry,
     routing::{QueuePolicy, RateLimitAction},
@@ -145,6 +148,14 @@ async fn published_rpm_update_preserves_the_stable_runtime_window() {
         .try_reserve()
         .expect("raised RPM allows one more reservation");
     assert!(after_binding.try_reserve().is_err());
+    let observation = after_update
+        .credential_runtime_observation(credential_id.into())
+        .expect("credential observation");
+    assert_eq!(observation.resolved_proxy().id(), ProxyProfileId::DIRECT);
+    assert_eq!(observation.rpm_window_used(), 2);
+    assert_eq!(observation.rpm_limit(), Some(2));
+    assert_eq!(observation.in_flight(), 2);
+    assert_eq!(observation.status(), CredentialRuntimeStatus::RateLimited);
     assert_eq!(runtime.scheduler_epoch(), epoch_before_publish + 1);
     drop((first, second));
     assert_eq!(after_binding.rate_snapshot().requests_in_window(), 2);

@@ -1,15 +1,21 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getRequestLog, getRequestLogs } from "../api/request-log-api";
+import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 import { requestLogQueryKeys } from "./request-log-query-keys";
 import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
-export function useRequestLogs(cursor: string | null, pageSize: number) {
+export function useRequestLogs(
+  cursor: string | null,
+  pageSize: number,
+  filters: RequestLogFilters,
+) {
   const queryClient = useQueryClient();
-  const queryKey = requestLogQueryKeys.list(cursor, pageSize);
+  const queryKey = requestLogQueryKeys.list(cursor, pageSize, filters);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getRequestLogs(cursor, pageSize, signal),
+    queryFn: ({ signal }) => getRequestLogs(cursor, pageSize, filters, signal),
+    placeholderData: keepPreviousData,
   });
 
   useLogChangeEvent("request_logs_changed", cursor === null, () => {

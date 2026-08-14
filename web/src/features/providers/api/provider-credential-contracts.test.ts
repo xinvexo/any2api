@@ -13,6 +13,17 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
     secretTail: "test",
     requestsPerMinute: 4,
     models: ["gpt-5.1-codex"],
+    runtime: {
+      resolvedProxy: {
+        id: "00000000-0000-0000-0000-000000000000",
+        name: "DIRECT",
+        kind: "direct",
+        enabled: true,
+      },
+      rpm60s: { used: 3, limit: 4 },
+      inFlight: 2,
+      status: "ready",
+    },
     usage: {
       totalRequests: 3,
       successfulRequests: 2,
@@ -87,6 +98,17 @@ function configuration(overrides: Record<string, unknown> = {}) {
         credential_generation: 1,
         config_version: 1,
         models: ["gpt-5.1-codex"],
+        runtime: {
+          resolved_proxy: {
+            id: "00000000-0000-0000-0000-000000000000",
+            name: "DIRECT",
+            kind: "direct",
+            enabled: true,
+          },
+          rpm_60s: { used: 3, limit: 4 },
+          in_flight: 2,
+          status: "ready",
+        },
         usage: {
           total_requests: 3,
           successful_requests: 2,

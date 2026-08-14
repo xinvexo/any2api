@@ -24,9 +24,12 @@ RequestLog 与 HttpAccessLog 原先使用 `page + page_size + OFFSET`。单次�
   Web 的本次导航状态。
 - Cursor 是不透明、版本化、按 RequestLog/HttpAccessLog 类型隔离的管理 API 值。它编码：
   1. 首次读取时最新可见行的 `(started_at_ms, request_id)` 头部锚点；
-  2. 后续页可选的上一页末行排他边界。
+  2. 后续页可选的上一页末行排他边界；
+  3. RequestLog 当前规范化结构化筛选的固定长度指纹；HttpAccessLog 使用空筛选指纹。
   Server 对长度、版本、类型、整数、Base64 文本和边界顺序做有界校验；格式错误返回既有
-  `invalid_request`，客户端不能借 Cursor 改变日志保留谓词或查询其他数据。
+  `invalid_request`。RequestLog Cursor 的指纹与本次 query 不一致时同样拒绝，客户端不能借 Cursor
+  改变筛选集合、日志保留谓词或查询其他数据。项目不保留旧 Cursor 版本兼容分支；Cursor 本来就只存在于
+  当前页面内存，部署后自然重新读取第一页。
 - Storage 继续按 `(started_at_ms DESC, request_id DESC)` 排序。所有锚定读取先约束行键不大于头部锚点，
   下一页再约束行键严格小于上一页末行；每次最多读取 `page_size + 1` 个摘要行，用额外一行判断是否生成
   `next_cursor`。现有时间/排序索引和 HttpAccessLog 摘要覆盖索引继续承担查询，不增加 Migration。
@@ -38,7 +41,7 @@ RequestLog 与 HttpAccessLog 原先使用 `page + page_size + OFFSET`。单次�
   不用 OFFSET 再跳过一行。
 - Web 为当前浏览保存一条仅在内存中的 Cursor 栈。首次页保持实时；首次进入下一页时把响应的当前 Cursor
   固定为第一页 Cursor，并保存 `next_cursor`。上一页使用栈中已有 Cursor，不要求服务端生成反向 Cursor。
-  修改每页条数、清理成功或手动刷新都清空 Cursor 栈并回到最新第一页。
+  修改每页条数、任一 RequestLog 筛选条件、清理成功或手动刷新都清空 Cursor 栈并回到最新第一页。
 - 已固定 Cursor 的历史页不再响应日志变更 SSE 自动重读，避免无变化查询和浏览视图漂移；第一页未固定时
   仍按现有开关响应事件。系统日志自动刷新偏好本身仍按浏览器持久化，Cursor 和页码都不持久化。
 - `total` 每次仍按同一 SQLite 事务、当前 3 天窗口和头部锚点精确计算，因此 retention 或清理后可以收缩。
@@ -53,6 +56,7 @@ RequestLog 与 HttpAccessLog 原先使用 `page + page_size + OFFSET`。单次�
 
 Cursor 不进入 SQLite、浏览器持久化或运行态恢复，不形成新的会话管理、清理 Worker 或容量边界。代价是每个
 标签页只在当前挂载期间保留返回路径；刷新页面会自然回到最新第一页，这与日志管理页的实时定位一致。
+筛选指纹只绑定分页集合，不用于鉴权或防篡改；Server 仍必须独立解析并校验每个结构化筛选字段。
 
 ## 验证
 
@@ -60,5 +64,7 @@ Cursor 不进入 SQLite、浏览器持久化或运行态恢复，不形成新的
   行不重复、不因头部插入漏过，迟到且位于未遍历区间的行可见。
 - Storage 回归在两页之间删除最旧行，断言 Keyset 从边界后的首个现存行继续；RequestLog 损坏行仍可跨过。
 - Server/HTTP 契约覆盖两类 Cursor 类型隔离、畸形 Cursor 拒绝、响应 Cursor 链和 `total`。
+- RequestLog Server/Storage 契约覆盖筛选后的列表与 `COUNT` 使用同一谓词、筛选指纹稳定，以及跨筛选复用
+  Cursor 被拒绝。
 - Web 契约与组件测试覆盖下一页固定头部、上一页复用 Cursor、历史页暂停 SSE、手动刷新/每页条数/清理重置
   到最新，以及总数收缩后的页码与 Cursor 栈收敛。

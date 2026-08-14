@@ -337,7 +337,6 @@ export function ProviderCredentialManagement({
         <div className={embedded ? "min-h-[109px] sm:min-h-[51px]" : undefined}>
           <ProviderCredentialList
             configuration={configuration}
-            proxies={proxies.data}
             pending={pending}
             refreshing={credentials.isFetching || proxies.isFetching}
             embedded={embedded}

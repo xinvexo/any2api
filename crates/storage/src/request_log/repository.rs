@@ -1,4 +1,6 @@
-use any2api_domain::{CompletedRequestLog, LogPage, LogPageCursor, RequestId, RequestLog};
+use any2api_domain::{
+    CompletedRequestLog, LogPage, LogPageCursor, RequestId, RequestLog, RequestLogFilter,
+};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
@@ -29,6 +31,7 @@ pub trait RequestLogRepository: Send + Sync {
     async fn list_request_logs(
         &self,
         since_ms: u64,
+        filter: &RequestLogFilter,
         cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError>;
@@ -97,10 +100,11 @@ impl RequestLogRepository for SqliteStore {
     async fn list_request_logs(
         &self,
         since_ms: u64,
+        filter: &RequestLogFilter,
         cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
-        pagination::list(self, since_ms, cursor, limit).await
+        pagination::list(self, since_ms, filter, cursor, limit).await
     }
 
     async fn get_request_log(

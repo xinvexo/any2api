@@ -121,6 +121,17 @@ const CREDENTIAL = {
   credentialGeneration: 1,
   configVersion: 1,
   models: [],
+  runtime: {
+    resolvedProxy: {
+      id: DIRECT_PROXY_ID,
+      name: "DIRECT",
+      kind: "direct",
+      enabled: true,
+    },
+    rpm60s: { used: 0, limit: 4 },
+    inFlight: 0,
+    status: "ready",
+  },
   usage: {
     totalRequests: 0,
     successfulRequests: 0,

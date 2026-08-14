@@ -42,7 +42,7 @@ test("OAuth JSON accounts remain server-side and support editing, model selectio
   await editDrawer.getByLabel("RPM 限制").fill("17");
   await editDrawer.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("E2E Codex Updated", { exact: true })).toBeVisible();
-  await expect(page.getByText("17", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("0 / 17", { exact: true }).first()).toBeVisible();
 
   await page
     .getByRole("button", { name: "查看 E2E Codex Updated 的可用模型" })

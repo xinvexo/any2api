@@ -3,6 +3,7 @@ mod log_page;
 mod quota_cost;
 mod request_attempt_diagnostics;
 mod request_log;
+mod request_log_filter;
 mod token_usage;
 
 pub use http_access_log::{
@@ -25,4 +26,5 @@ pub use request_log::{
     RequestLog, RequestRoutingMode, RequestTelemetryPosition, bound_error_message,
     bound_thinking_level,
 };
+pub use request_log_filter::{RequestLogFilter, RequestLogOutcomeFilter};
 pub use token_usage::{MAX_TOKEN_COUNT, TokenUsage};

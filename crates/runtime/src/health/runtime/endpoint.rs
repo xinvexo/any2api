@@ -55,6 +55,13 @@ impl EndpointHealthRuntime {
             .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
     }
 
+    pub(crate) fn breaker_state_at(
+        &self,
+        now: Instant,
+    ) -> super::super::circuit::CircuitStateSnapshot {
+        self.circuit.state_at(now)
+    }
+
     fn check_transient(&self) -> Result<(), HealthAcquireError> {
         let now = Instant::now();
         let current = *self

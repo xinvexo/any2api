@@ -100,6 +100,17 @@ const credential: ProviderCredential = {
   credentialGeneration: 1,
   configVersion: 1,
   models: [],
+  runtime: {
+    resolvedProxy: {
+      id: "00000000-0000-0000-0000-000000000000",
+      name: "DIRECT",
+      kind: "direct",
+      enabled: true,
+    },
+    rpm60s: { used: 0, limit: null },
+    inFlight: 0,
+    status: "ready",
+  },
   usage: {
     totalRequests: 0,
     successfulRequests: 0,

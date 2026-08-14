@@ -2,6 +2,10 @@ import {
   parseRequestUsage,
   type RequestUsage,
 } from "@/shared/api/request-usage";
+import {
+  parseCredentialRuntime,
+  type CredentialRuntime,
+} from "@/shared/api/credential-runtime";
 
 import {
   parseOAuthRefreshFailure,
@@ -82,6 +86,7 @@ export interface OAuthAccount {
   /** Safe Grok Build `bot_flag_source` derivation. */
   botFlagged: boolean | null;
   tokenRefreshFailure: OAuthRefreshFailure | null;
+  runtime: CredentialRuntime;
   usage: RequestUsage;
 }
 
@@ -278,6 +283,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     planType: readOptionalString(value.plan_type),
     botFlagged: readOptionalBoolean(value.bot_flagged),
     tokenRefreshFailure: parseOAuthRefreshFailure(value.token_refresh_failure),
+    runtime: parseCredentialRuntime(value.runtime, "invalid OAuth2 login response"),
     usage: parseRequestUsage(value.usage),
   };
 }

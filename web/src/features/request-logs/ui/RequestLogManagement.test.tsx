@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { expect, test } from "vitest";
 
 import type { RequestLogList } from "../api/request-log-contracts";
@@ -15,9 +16,11 @@ test("shows client IP and explicit token metric names in the request list", () =
   client.setQueryData(requestLogQueryKeys.list(null, 20), requestLogs());
 
   render(
-    <QueryClientProvider client={client}>
-      <RequestLogManagement />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <RequestLogManagement />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 
   expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
@@ -62,19 +65,25 @@ function requestLogs(): RequestLogList {
         inputTokens: 125,
         outputTokens: 25,
         cacheReadTokens: 100,
-      cacheCreationTokens: null,
+        cacheCreationTokens: null,
         isStream: true,
       },
     ],
     total: 1,
     pageSize: 20,
-    cursor: "r1.cursor",
+    cursor: "r2.cursor",
     nextCursor: null,
     telemetry: {
       queuedRecords: 0,
       inFlightRecords: 0,
       droppedRecords: 0,
       persistedRecords: 1,
+    },
+    filterOptions: {
+      publicModels: ["claude-test"],
+      gatewayApiKeys: [],
+      providerCredentials: [],
+      oauthAccounts: [],
     },
   };
 }

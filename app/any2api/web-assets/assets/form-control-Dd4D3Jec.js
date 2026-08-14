@@ -1,0 +1,1 @@
+import{t as e}from"./cn-BtRqtsxU.js";var t=`focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted px-2.5 text-[12px] text-primary placeholder:text-tertiary disabled:opacity-60`;function n(n=!1,r){return e(t,n&&`bg-danger/[0.05] ring-1 ring-inset ring-danger/40`,r)}export{n as t};

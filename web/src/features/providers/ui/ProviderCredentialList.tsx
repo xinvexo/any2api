@@ -6,13 +6,11 @@ import type {
   ProviderCredentialConfiguration,
 } from "../api/provider-credential-contracts";
 import { ProviderCredentialTableRow } from "./ProviderCredentialTableRow";
-import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { cn } from "@/shared/lib/cn";
 
 export interface ProviderCredentialListProps {
   configuration: ProviderCredentialConfiguration;
-  proxies: ProxyConfiguration;
   pending: boolean;
   refreshing: boolean;
   embedded?: boolean;
@@ -26,7 +24,6 @@ export interface ProviderCredentialListProps {
 
 export function ProviderCredentialList({
   configuration,
-  proxies,
   pending,
   refreshing,
   embedded = false,
@@ -44,13 +41,17 @@ export function ProviderCredentialList({
       return configuration.items;
     }
     return configuration.items.filter((credential) => {
-      const proxy = proxies.items.find((item) => item.id === credential.proxyProfileId);
-      return [credential.label, proxy?.name ?? "", credential.secretTail ?? "", credential.fingerprint]
+      return [
+        credential.label,
+        credential.runtime.resolvedProxy.name,
+        credential.secretTail ?? "",
+        credential.fingerprint,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(needle);
     });
-  }, [configuration.items, proxies.items, query]);
+  }, [configuration.items, query]);
 
   return (
     <div>
@@ -102,7 +103,6 @@ export function ProviderCredentialList({
             <ProviderCredentialTableRow
               key={credential.id}
               credential={credential}
-              proxies={proxies}
               pending={pending}
               embedded
               onEdit={onEdit}
@@ -119,7 +119,7 @@ export function ProviderCredentialList({
               <tr className="text-[11px] text-tertiary">
                 <th className="py-1.5 pr-3 font-medium">名称</th>
                 <th className="px-3 py-1.5 font-medium">出口代理</th>
-                <th className="px-3 py-1.5 font-medium">RPM</th>
+                <th className="px-3 py-1.5 font-medium">近 60 秒 RPM</th>
                 <th className="px-3 py-1.5 font-medium">状态</th>
                 <th className="px-3 py-1.5 font-medium">密钥</th>
                 <th className="px-3 py-1.5 font-medium">请求统计</th>
@@ -131,7 +131,6 @@ export function ProviderCredentialList({
                 <ProviderCredentialTableRow
                   key={credential.id}
                   credential={credential}
-                  proxies={proxies}
                   pending={pending}
                   onEdit={onEdit}
                   onModels={onModels}

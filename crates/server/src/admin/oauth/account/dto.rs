@@ -6,8 +6,8 @@ use any2api_runtime::api::{OAuthService, PublishedSnapshot, UpstreamCredentialUs
 use serde::{Deserialize, Serialize};
 
 use crate::admin::{
-    error::AdminApiError, request_usage::RequestUsageResponse, revision::parse_revision,
-    upstream_usage,
+    credential_runtime::CredentialRuntimeResponse, error::AdminApiError,
+    request_usage::RequestUsageResponse, revision::parse_revision, upstream_usage,
 };
 
 use super::super::proxy_selection::OAuthProxySelectionDto;
@@ -70,6 +70,7 @@ struct OAuthAccountResponse {
     /// Safe Grok Build `bot_flag_source` derivation; never exposes JWT claims.
     bot_flagged: Option<bool>,
     token_refresh_failure: Option<OAuthRefreshFailureResponse>,
+    runtime: CredentialRuntimeResponse,
     usage: RequestUsageResponse,
 }
 
@@ -94,6 +95,9 @@ impl OAuthAccountResponse {
                     .collect()
             })
             .unwrap_or_else(|| selected.clone());
+        let runtime = snapshot
+            .credential_runtime_observation(RoutingCredentialId::oauth_account(account.id()))
+            .expect("published OAuth account has runtime observation");
         Self {
             id: account.id(),
             provider_kind: account.provider_kind(),
@@ -114,6 +118,7 @@ impl OAuthAccountResponse {
             token_refresh_failure: oauth
                 .and_then(|oauth| oauth.refresh_failure(account.id(), account.token_version()))
                 .map(Into::into),
+            runtime: runtime.into(),
             usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
         }
     }

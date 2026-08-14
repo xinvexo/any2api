@@ -1,4 +1,7 @@
-use any2api_domain::{LogPage, LogPageCursor, LogPagePosition, RequestLog};
+use any2api_domain::{
+    LogPage, LogPageCursor, LogPagePosition, RequestLog, RequestLogFilter, RequestLogOutcomeFilter,
+};
+use sqlx::{QueryBuilder, Sqlite};
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
@@ -14,6 +17,7 @@ const REQUEST_LOG_PAGE_COLUMNS: &str = "request_id, started_at_ms, client_ip, co
 pub(super) async fn list(
     store: &SqliteStore,
     since_ms: u64,
+    filter: &RequestLogFilter,
     cursor: Option<LogPageCursor>,
     limit: u32,
 ) -> Result<LogPage<RequestLog>, StorageError> {
@@ -22,13 +26,15 @@ pub(super) async fn list(
     let cursor = match cursor {
         Some(cursor) => cursor,
         None => {
-            let row = sqlx::query_as::<_, (i64, String)>(
-                "SELECT started_at_ms, request_id FROM request_logs \
-                 WHERE started_at_ms >= ? ORDER BY started_at_ms DESC, request_id DESC LIMIT 1",
-            )
-            .bind(since_ms)
-            .fetch_optional(&mut *transaction)
-            .await?;
+            let mut query = QueryBuilder::<Sqlite>::new(
+                "SELECT started_at_ms, request_id FROM request_logs WHERE ",
+            );
+            push_window_predicates(&mut query, since_ms, filter, None)?;
+            query.push(" ORDER BY started_at_ms DESC, request_id DESC LIMIT 1");
+            let row = query
+                .build_query_as::<(i64, String)>()
+                .fetch_optional(&mut *transaction)
+                .await?;
             let Some((started_at_ms, request_id)) = row else {
                 transaction.commit().await?;
                 return Ok(LogPage::empty());
@@ -38,51 +44,33 @@ pub(super) async fn list(
     };
 
     let anchor = cursor.anchor();
-    let anchor_started_at_ms = to_i64(anchor.started_at_ms())?;
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM request_logs WHERE started_at_ms >= ? \
-         AND (started_at_ms, request_id) <= (?, ?)",
-    )
-    .bind(since_ms)
-    .bind(anchor_started_at_ms)
-    .bind(anchor.request_id())
-    .fetch_one(&mut *transaction)
-    .await?;
+    let mut count_query = QueryBuilder::<Sqlite>::new("SELECT COUNT(*) FROM request_logs WHERE ");
+    push_window_predicates(&mut count_query, since_ms, filter, Some(anchor))?;
+    let total: i64 = count_query
+        .build_query_scalar()
+        .fetch_one(&mut *transaction)
+        .await?;
 
     let fetch_limit = i64::from(limit) + 1;
-    let mut rows = match cursor.before() {
-        Some(before) => {
-            let statement = format!(
-                "SELECT {REQUEST_LOG_PAGE_COLUMNS} FROM request_logs WHERE started_at_ms >= ? \
-                 AND (started_at_ms, request_id) <= (?, ?) \
-                 AND (started_at_ms, request_id) < (?, ?) \
-                 ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
-            );
-            sqlx::query_as::<_, RequestLogRow>(&statement)
-                .bind(since_ms)
-                .bind(anchor_started_at_ms)
-                .bind(anchor.request_id())
-                .bind(to_i64(before.started_at_ms())?)
-                .bind(before.request_id())
-                .bind(fetch_limit)
-                .fetch_all(&mut *transaction)
-                .await?
-        }
-        None => {
-            let statement = format!(
-                "SELECT {REQUEST_LOG_PAGE_COLUMNS} FROM request_logs WHERE started_at_ms >= ? \
-                 AND (started_at_ms, request_id) <= (?, ?) \
-                 ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
-            );
-            sqlx::query_as::<_, RequestLogRow>(&statement)
-                .bind(since_ms)
-                .bind(anchor_started_at_ms)
-                .bind(anchor.request_id())
-                .bind(fetch_limit)
-                .fetch_all(&mut *transaction)
-                .await?
-        }
-    };
+    let mut page_query = QueryBuilder::<Sqlite>::new(format!(
+        "SELECT {REQUEST_LOG_PAGE_COLUMNS} FROM request_logs WHERE "
+    ));
+    push_window_predicates(&mut page_query, since_ms, filter, Some(anchor))?;
+    if let Some(before) = cursor.before() {
+        page_query
+            .push(" AND (started_at_ms, request_id) < (")
+            .push_bind(to_i64(before.started_at_ms())?)
+            .push(", ")
+            .push_bind(before.request_id().to_owned())
+            .push(")");
+    }
+    page_query
+        .push(" ORDER BY started_at_ms DESC, request_id DESC LIMIT ")
+        .push_bind(fetch_limit);
+    let mut rows = page_query
+        .build_query_as::<RequestLogRow>()
+        .fetch_all(&mut *transaction)
+        .await?;
     transaction.commit().await?;
 
     let has_more = rows.len() > limit as usize;
@@ -109,6 +97,69 @@ pub(super) async fn list(
         Some(cursor),
         next_cursor,
     ))
+}
+
+fn push_window_predicates(
+    query: &mut QueryBuilder<'_, Sqlite>,
+    since_ms: i64,
+    filter: &RequestLogFilter,
+    anchor: Option<&LogPagePosition>,
+) -> Result<(), StorageError> {
+    query.push("started_at_ms >= ").push_bind(since_ms);
+    push_filter_predicates(query, filter);
+    if let Some(anchor) = anchor {
+        query
+            .push(" AND (started_at_ms, request_id) <= (")
+            .push_bind(to_i64(anchor.started_at_ms())?)
+            .push(", ")
+            .push_bind(anchor.request_id().to_owned())
+            .push(")");
+    }
+    Ok(())
+}
+
+fn push_filter_predicates(query: &mut QueryBuilder<'_, Sqlite>, filter: &RequestLogFilter) {
+    if let Some(outcome) = filter.outcome() {
+        match outcome {
+            RequestLogOutcomeFilter::Success => {
+                query.push(" AND error_class IS NULL AND status_code >= 200 AND status_code < 300");
+            }
+            RequestLogOutcomeFilter::Failed => {
+                query.push(
+                    " AND (error_class IS NULL OR error_class <> 'cancelled') \
+                     AND (error_class IS NOT NULL OR status_code < 200 OR status_code >= 300)",
+                );
+            }
+            RequestLogOutcomeFilter::Cancelled => {
+                query.push(" AND error_class = 'cancelled'");
+            }
+        }
+    }
+    if let Some(operation) = filter.operation() {
+        query
+            .push(" AND operation = ")
+            .push_bind(operation.as_str());
+    }
+    if let Some(public_model) = filter.public_model() {
+        query
+            .push(" AND public_model = ")
+            .push_bind(public_model.as_str().to_owned());
+    }
+    if let Some(id) = filter.gateway_api_key_id() {
+        query
+            .push(" AND gateway_api_key_id = ")
+            .push_bind(id.to_string());
+    }
+    if let Some(id) = filter.credential_id() {
+        query
+            .push(" AND credential_id = ")
+            .push_bind(id.to_string());
+    }
+    if let Some(id) = filter.oauth_account_id() {
+        query
+            .push(" AND oauth_account_id = ")
+            .push_bind(id.to_string());
+    }
 }
 
 fn parse_page_rows(rows: Vec<RequestLogRow>) -> Result<(Vec<RequestLog>, usize), StorageError> {

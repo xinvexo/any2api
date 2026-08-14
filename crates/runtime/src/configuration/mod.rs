@@ -17,5 +17,6 @@ pub use publisher::ConfigPublisher;
 pub(crate) use publisher::OAuthAccountActivation;
 pub use reconciler::PublishedSnapshotReconciler;
 pub use snapshot::{
-    PreparedPublishedSnapshot, PublishedSnapshot, SnapshotCompileError, SnapshotStore,
+    CredentialRuntimeObservation, CredentialRuntimeStatus, PreparedPublishedSnapshot,
+    PublishedSnapshot, SnapshotCompileError, SnapshotStore,
 };

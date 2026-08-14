@@ -10,6 +10,9 @@ describe("request log contracts", () => {
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
     expect(list.telemetry.inFlightRecords).toBe(4);
     expect(list.telemetry.droppedRecords).toBe(2);
+    expect(list.filterOptions.providerCredentials[0]?.label).toBe(
+      "Codex / Primary credential",
+    );
 
     const detail = parseRequestLogDetail({
       request: request(),
@@ -236,7 +239,7 @@ describe("request log contracts", () => {
       parseRequestLogList({ ...requestLogPage([request()]), cursor: null }),
     ).toThrow("invalid request log response");
     expect(() =>
-      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r1.next" }),
+      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r2.next" }),
     ).toThrow("invalid request log response");
   });
 
@@ -262,12 +265,12 @@ describe("request log contracts", () => {
     const page = parseRequestLogList({
       ...requestLogPage([]),
       total: 2,
-      cursor: "r1.current",
-      next_cursor: "r1.next",
+      cursor: "r2.current",
+      next_cursor: "r2.next",
     });
 
     expect(page.items).toEqual([]);
-    expect(page.nextCursor).toBe("r1.next");
+    expect(page.nextCursor).toBe("r2.next");
   });
 });
 
@@ -276,9 +279,31 @@ function requestLogPage(items: unknown[]) {
     items,
     total: items.length,
     page_size: 20,
-    cursor: items.length > 0 ? "r1.current" : null,
+    cursor: items.length > 0 ? "r2.current" : null,
     next_cursor: null,
     telemetry: telemetry(),
+    filter_options: filterOptions(),
+  };
+}
+
+function filterOptions() {
+  return {
+    public_models: ["codex-local"],
+    gateway_api_keys: [
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        label: "Desktop",
+        deleted: false,
+      },
+    ],
+    provider_credentials: [
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        label: "Codex / Primary credential",
+        deleted: false,
+      },
+    ],
+    oauth_accounts: [],
   };
 }
 

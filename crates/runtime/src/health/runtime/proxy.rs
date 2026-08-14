@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tokio::time::Instant;
+
 use super::error::{HealthAcquireError, TemporaryUnavailability};
 use crate::{
     health::{
@@ -41,6 +43,13 @@ impl ProxyHealthRuntime {
         self.circuit
             .availability(policy.half_open_max_probes)
             .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
+    }
+
+    pub(crate) fn breaker_state_at(
+        &self,
+        now: Instant,
+    ) -> super::super::circuit::CircuitStateSnapshot {
+        self.circuit.state_at(now)
     }
 }
 

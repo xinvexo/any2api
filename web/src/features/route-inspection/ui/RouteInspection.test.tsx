@@ -1,0 +1,94 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+
+import { RouteInspection } from "./RouteInspection";
+
+afterEach(() => vi.restoreAllMocks());
+
+test("filters by exact model name and finite route status", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(response()));
+  renderInspection();
+
+  expect(await screen.findByRole("heading", { level: 1, name: "路由检查" })).toBeInTheDocument();
+  expect(await screen.findByText("available-model")).toBeInTheDocument();
+  expect(screen.getByText("blocked-model")).toBeInTheDocument();
+  expect(screen.getByText("未发布")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: "精确模型搜索" }), {
+    target: { value: "available" },
+  });
+  expect(screen.queryByText("available-model")).not.toBeInTheDocument();
+  expect(screen.getByText("没有匹配的路由")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole("textbox", { name: "精确模型搜索" }), {
+    target: { value: "" },
+  });
+  fireEvent.click(screen.getByRole("combobox", { name: "状态筛选" }));
+  fireEvent.click(screen.getByRole("option", { name: "策略阻止" }));
+  await waitFor(() => {
+    expect(screen.getByText("blocked-model")).toBeInTheDocument();
+    expect(screen.queryByText("available-model")).not.toBeInTheDocument();
+  });
+});
+
+function renderInspection() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <RouteInspection />
+    </QueryClientProvider>,
+  );
+}
+
+function response() {
+  return {
+    config_revision: 3,
+    items: [
+      item("available-model", "available", true),
+      item("blocked-model", "blocked_by_policy", false),
+      item("disabled-model", "no_enabled_candidate", true, false),
+    ],
+  };
+}
+
+function item(
+  publicModel: string,
+  status: string,
+  allowed: boolean,
+  published = true,
+) {
+  return {
+    public_model: publicModel,
+    ingress_protocol: "openai_responses",
+    allowed,
+    published,
+    status,
+    operations: [
+      {
+        operation: "responses",
+        candidate_groups:
+          status === "no_enabled_candidate"
+            ? []
+            : [
+                {
+                  provider_kind: "codex",
+                  provider_endpoint_id: "5ba99aba-62e2-44d2-b98d-5ef6906c479a",
+                  provider_endpoint_name: "Codex Primary",
+                  upstream_protocol_dialect: "openai_responses",
+                  enabled_candidate_count: 1,
+                },
+              ],
+      },
+    ],
+  };
+}
+
+function jsonResponse(value: unknown) {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}

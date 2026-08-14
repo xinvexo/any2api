@@ -6,6 +6,7 @@ pub struct BalancingRuntimeSnapshot {
     pub(super) queue: BalancingQueueSnapshot,
     pub(super) totals: BalancingTotalsSnapshot,
     pub(super) providers: Vec<BalancingProviderSnapshot>,
+    pub(super) breakers: BreakerStateCounts,
 }
 
 impl BalancingRuntimeSnapshot {
@@ -23,6 +24,39 @@ impl BalancingRuntimeSnapshot {
 
     pub fn providers(&self) -> &[BalancingProviderSnapshot] {
         &self.providers
+    }
+
+    pub const fn breakers(&self) -> BreakerStateCounts {
+        self.breakers
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BreakerStateCounts {
+    pub(super) closed: usize,
+    pub(super) open: usize,
+    pub(super) half_open: usize,
+}
+
+impl BreakerStateCounts {
+    pub const fn closed(self) -> usize {
+        self.closed
+    }
+
+    pub const fn open(self) -> usize {
+        self.open
+    }
+
+    pub const fn half_open(self) -> usize {
+        self.half_open
+    }
+
+    pub(crate) fn record(&mut self, state: crate::health::CircuitStateSnapshot) {
+        match state {
+            crate::health::CircuitStateSnapshot::Closed => self.closed += 1,
+            crate::health::CircuitStateSnapshot::Open => self.open += 1,
+            crate::health::CircuitStateSnapshot::HalfOpen => self.half_open += 1,
+        }
     }
 }
 

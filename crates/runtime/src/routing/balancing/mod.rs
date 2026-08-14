@@ -5,6 +5,6 @@ mod tests;
 
 pub use runtime::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
-    BalancingTotalsSnapshot,
+    BalancingTotalsSnapshot, BreakerStateCounts,
 };
 pub(crate) use snapshot::snapshot;

@@ -24,7 +24,7 @@ use crate::{
     api::{
         BoxByteStream, EndpointNetworkPolicy, TransportIsolationKey, TransportManager,
         TransportManagerConfig, TransportProxy, TransportRequest, TransportRequestDiagnostics,
-        TransportResponse,
+        TransportResponse, TransportRuntimeSnapshot,
     },
     connection::TlsConfigFactory,
     error::{
@@ -268,6 +268,14 @@ impl Default for ReqwestTransportManager {
 
 #[async_trait]
 impl TransportManager for ReqwestTransportManager {
+    fn runtime_snapshot(&self) -> Option<TransportRuntimeSnapshot> {
+        Some(TransportRuntimeSnapshot::new(
+            self.cached_client_count(),
+            self.config.max_cached_clients,
+            self.config.pool_max_idle_per_host,
+        ))
+    }
+
     fn request_diagnostics(
         &self,
         proxy: TransportProxy<'_>,

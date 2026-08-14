@@ -21,9 +21,10 @@ use crate::{
     proxy::ProxyAuthMaterials,
     registry::RuntimeRegistry,
     routing::{
-        CandidateRequirements, OAuthRoute, QueueCoordinator, QueuePolicy, RouteCandidateCache,
-        RouteCandidateTiers, RouteTierCursorBinding, RouteTierCursorBindings, RoutingCredential,
-        RoutingCredentials, build_oauth_route_candidates, build_route_candidates,
+        BreakerStateCounts, CandidateRequirements, OAuthRoute, QueueCoordinator, QueuePolicy,
+        RouteCandidateCache, RouteCandidateTiers, RouteTierCursorBinding, RouteTierCursorBindings,
+        RoutingCredential, RoutingCredentials, build_oauth_route_candidates,
+        build_route_candidates,
     },
 };
 
@@ -212,6 +213,10 @@ impl PublishedSnapshot {
         id: any2api_domain::ProxyProfileId,
     ) -> Option<&Arc<crate::health::ProxyHealthRuntime>> {
         self.health.proxy(id)
+    }
+
+    pub(crate) fn breaker_state_counts(&self) -> BreakerStateCounts {
+        self.health.breaker_state_counts()
     }
 
     pub(crate) fn egress_path_health(

@@ -1044,7 +1044,9 @@ request_logs
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
-请求日志管理列表固定查询最近 3 天，使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点和后续页的排他末行边界；Storage 只查询不大于锚点且小于末行边界的行。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新或改变页大小清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
+请求日志列表只提供有界、精确的结构化筛选：`outcome=success|failed|cancelled`、`operation`、精确 `public_model`、`gateway_api_key_id`，以及互斥的 `credential_id` / `oauth_account_id`。Request ID 使用既有单条详情端点精确定位；筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 必须从当前配置快照提供凭据选择项，同时允许已经从配置删除但仍出现在当前日志页中的稳定 ID 保持可见。
+
+请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、后续页的排他末行边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝，禁止把旧筛选的锚点静默用于新结果集。Storage 的列表与精确 `COUNT(*)` 必须复用同一筛选谓词。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新、改变页大小或改变任一筛选条件都清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
 
 ### 9.9 HttpAccessLog
 
@@ -2898,11 +2900,11 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.9 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览只返回当前配置 revision、全局与 Provider 级聚合的 `in_flight`、RPM、等待者、Transport Client/连接池数量、熔断状态计数、遥测队列压力与日志丢弃数，以及 shutdown phase。两者都读取 PublishedSnapshot 和现有进程内 Runtime/Transport/Telemetry 快照，不建立第二套采集服务或持久化运行指标。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 
-稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；过滤计数按请求、凭据与原因去重，不表示排队轮询次数。这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
+稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；过滤计数按请求、凭据与原因去重，不表示排队轮询次数。这些计数不持久化、不恢复，也不通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级页面只投影该账号现有句柄的 RPM、`in_flight`、实际代理和有限状态 `ready|disabled|endpoint_disabled|authentication_expired|proxy_disabled|rate_limited`；这些状态分别表示账号自身停用、Endpoint 停用、OAuth 认证过期、所选代理停用和本地 RPM 窗口用尽，禁止用笼统“不可路由”掩盖已知原因。不返回逐模型健康、过滤计数、熔断细节或会话样本。RequestLog 历史统计仍由各自管理页面负责，总览不复制第二份账号目录。
 
 历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数，并读取最近 1 小时固定 2 分钟桶的趋势；成功必须同时满足 2xx 与最终 `error_class IS NULL`，不能把已经建立 200 响应头的流内失败算成功。Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值与完整空时间条带。
 
@@ -2970,6 +2972,8 @@ oauth_token_refresh_failed
 系统总览
 上游提供
 认证文件
+路由检查
+额度费率
 网关密钥
 出口代理
 请求日志
@@ -3027,9 +3031,17 @@ Provider Driver 定义的模型目录，展示可搜索的模型多选列表。�
 修改入口。手工模型名不是别名，`public_model` 仍固定等于 `upstream_model`。原始模型响应
 不进入浏览器缓存或 SQLite。
 
-Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、启用状态、指纹和 API Key 可选尾号，不显示配置版本，也不显示或导出明文 Secret。
+Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、当前 60 秒已用、`in_flight`、有限运行状态、启用状态、指纹和 API Key 可选尾号，不显示配置版本，也不显示或导出明文 Secret。
 
 每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定时间条带；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。时间条带按 2 分钟分桶，鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数。
+
+### 19.2.1 路由检查
+
+- 作为独立一级菜单和 `/routes` deep link 页面存在，管理 API 固定为 `GET /api/admin/route-inspection`；
+- 响应只从本次请求加载的 PublishedSnapshot 和已编译路由候选派生，并携带 `config_revision`，不读取或写入第二份 Route 配置；
+- 按精确 `public_model` 与 `ingress_protocol` 展示全局模型策略是否允许、对应 `ProtocolOperation`、有效上游方言，以及按 Provider/Endpoint 聚合的已启用配置候选数量；
+- 页面提供模型精确搜索与状态筛选，状态只有 `available`、`blocked_by_policy`、`no_enabled_candidate`，不得把瞬时 RPM、健康、熔断或网络探测结果混入配置态结论；
+- 该页面不提供 Route、Target、fallback tier、模型别名或 Credential 的编辑入口，也不展示 Secret、Token、代理密码和内部健康键。
 
 ### 19.3 OAuth2 登录
 
@@ -3037,7 +3049,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 只选择 Codex、Claude 或 Grok，不选择 Provider Endpoint 或 Provider API Key；
 - 开始登录前手动选择 Global（跟随 OAuth 默认出口）或具体 Profile；选择 DIRECT 明确表示本机直连，所有授权网络阶段复用该选择；
 - Codex/Claude 打开授权页面后允许粘贴完整 localhost callback URL；Grok 显示 Device user code 和验证地址，并按服务端给出的间隔自动轮询，不显示 callback 输入；
-- 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、代理选择、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；新建与重新授权后的账号都保存本次登录选择；
+- 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、代理选择与实际代理、可选 RPM、当前 60 秒已用、`in_flight`、有限运行状态和已选模型，可在当前页面编辑可持久化的账号属性或删除账号；新建与重新授权后的账号都保存本次登录选择；
 - 当前 Provider 的完整账号集合按 `OAuthAccount.created_at` 升序展示，最早添加的账号在前、新建账号在末尾；创建时间相同时按稳定账号 ID 升序打破平局。该顺序只属于管理面展示，不改变数据面候选池与稳定轮询语义；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示本机容量统计：尚无累计区间时显示“尚无本地统计”，有统计时只用紧凑 `$已用/$总量`。悬浮详情只展示金额、Credits 换算和累计区间数，不显示证据、置信度、样本质量、最近区间或近似符号；显式 reset 前形成的全部区间始终计入累计值。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后保留现有快照并立即重新查询；只有该查询拿到的官方 reset 边界才能开始下一个窗口周期；

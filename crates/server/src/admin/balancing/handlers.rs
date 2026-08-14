@@ -8,10 +8,9 @@ pub(crate) async fn get(State(state): State<AppState>) -> Json<BalancingRuntimeR
     let published = state.snapshots().load();
     let runtime = state.runtime().balancing_snapshot(&published);
     let lifecycle = state.runtime().lifecycle();
+    let transport = state.public_requests().transport_runtime_snapshot();
+    let telemetry = state.request_telemetry().metrics();
     Json(BalancingRuntimeResponse::new(
-        &published,
-        &runtime,
-        lifecycle.active_requests().saturating_sub(1),
-        lifecycle.background_task_count(),
+        &published, &runtime, &lifecycle, transport, telemetry,
     ))
 }

@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
+use tokio::time::Instant;
 
 use any2api_domain::{
     ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration, ProxyProfileId,
@@ -9,7 +10,7 @@ use any2api_domain::{
 
 use super::path::{CandidatePathBaseKey, CandidatePathKey, EgressPathKey};
 use super::runtime::{EndpointHealthRuntime, ProxyHealthRuntime};
-use crate::routing::SchedulerEpoch;
+use crate::routing::{BreakerStateCounts, SchedulerEpoch};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct EndpointKey {
@@ -233,6 +234,19 @@ impl HealthBindings {
         self.proxies.get(&id)
     }
 
+    pub(crate) fn breaker_state_counts(&self) -> BreakerStateCounts {
+        let now = Instant::now();
+        let mut counts = BreakerStateCounts::default();
+        for runtime in self.endpoints.values() {
+            counts.record(runtime.breaker_state_at(now));
+        }
+        for runtime in self.proxies.values() {
+            counts.record(runtime.breaker_state_at(now));
+        }
+        self.registry.record_path_breaker_states(now, &mut counts);
+        counts
+    }
+
     pub(crate) fn egress_path(&self, key: EgressPathKey) -> Arc<EndpointHealthRuntime> {
         self.registry.egress_path(key)
     }
@@ -242,16 +256,43 @@ impl HealthBindings {
     }
 }
 
+impl HealthRegistry {
+    fn record_path_breaker_states(&self, now: Instant, counts: &mut BreakerStateCounts) {
+        for runtime in self
+            .egress_paths
+            .read()
+            .expect("egress path health registry lock poisoned")
+            .runtimes
+            .values()
+        {
+            counts.record(runtime.breaker_state_at(now));
+        }
+        for runtime in self
+            .candidate_paths
+            .read()
+            .expect("candidate path health registry lock poisoned")
+            .runtimes
+            .values()
+        {
+            counts.record(runtime.breaker_state_at(now));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
     use any2api_domain::{
         CredentialId, ProtocolOperation, ProviderEndpointId, ProxyProfileId, RouteTargetId,
         RoutingCredentialId,
     };
 
-    use super::{CandidatePathBaseKey, CandidatePathKey, HealthRegistry};
+    use super::{CandidatePathBaseKey, CandidatePathKey, HealthBindings, HealthRegistry};
+    use crate::health::{EndpointHealthRuntime, ProxyHealthRuntime};
     use crate::routing::SchedulerEpoch;
 
     #[test]
@@ -278,6 +319,32 @@ mod tests {
         registry.candidate_path(attempt_key(current));
         assert_eq!(registry.egress_paths.read().unwrap().runtimes.len(), 1);
         assert_eq!(registry.candidate_paths.read().unwrap().runtimes.len(), 1);
+    }
+
+    #[test]
+    fn breaker_counts_include_bound_layers_and_only_instantiated_active_paths() {
+        let epoch = SchedulerEpoch::new();
+        let registry = Arc::new(HealthRegistry::new(Arc::clone(&epoch)));
+        let instantiated = path_base(1);
+        let uninstantiated = path_base(2);
+        registry.reconcile_paths(&HashSet::from([instantiated, uninstantiated]));
+        let bindings = HealthBindings {
+            endpoints: HashMap::from([(
+                ProviderEndpointId::new(),
+                EndpointHealthRuntime::new(Arc::clone(&epoch)),
+            )]),
+            proxies: HashMap::from([(
+                ProxyProfileId::new(),
+                ProxyHealthRuntime::new(Arc::clone(&epoch)),
+            )]),
+            registry: Arc::clone(&registry),
+        };
+
+        assert_eq!(bindings.breaker_state_counts().closed(), 2);
+        registry.egress_path(instantiated.egress_path());
+        assert_eq!(bindings.breaker_state_counts().closed(), 3);
+        registry.candidate_path(attempt_key(instantiated));
+        assert_eq!(bindings.breaker_state_counts().closed(), 4);
     }
 
     fn path_base(version: u64) -> CandidatePathBaseKey {
