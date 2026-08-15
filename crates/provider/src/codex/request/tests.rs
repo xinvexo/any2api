@@ -211,3 +211,59 @@ fn oauth_responses_request_contract_has_an_explicit_wire_golden() {
         )
     );
 }
+
+fn memory_marked_body(store: bool) -> Bytes {
+    Bytes::from(
+        serde_json::to_vec(&json!({
+            "model": "gpt-5.6-sol",
+            "instructions": "memory-instructions",
+            "input": [{"type": "message", "role": "user", "content": "rollout"}],
+            "reasoning": {"effort": "low"},
+            "store": store,
+            "prompt_cache_key": "task-session",
+            "user": "request-owner",
+            "client_metadata": {
+                "session_id": "task-session",
+                "x-codex-turn-metadata": "{\"request_kind\":\"memory\"}"
+            }
+        }))
+        .expect("request JSON"),
+    )
+}
+
+#[test]
+fn api_key_memory_requests_get_the_derived_cache_key_without_oauth_normalization() {
+    let output = prepare(
+        context(false, ProtocolOperation::Responses),
+        memory_marked_body(true),
+    )
+    .expect("stabilized request");
+    let output: Value = serde_json::from_slice(&output).expect("stabilized JSON");
+
+    assert_eq!(
+        output["prompt_cache_key"],
+        "860acffa-b5ad-4192-ac67-1708a8316480"
+    );
+    assert_eq!(output["store"], true);
+    assert_eq!(output["user"], "request-owner");
+    assert!(output.get("include").is_none());
+}
+
+#[test]
+fn oauth_memory_requests_combine_the_profile_with_the_derived_cache_key() {
+    let output = prepare(
+        context(true, ProtocolOperation::Responses),
+        memory_marked_body(true),
+    )
+    .expect("normalized request");
+    let output: Value = serde_json::from_slice(&output).expect("normalized JSON");
+
+    assert_eq!(
+        output["prompt_cache_key"],
+        "860acffa-b5ad-4192-ac67-1708a8316480"
+    );
+    assert_eq!(output["store"], false);
+    assert_eq!(output["include"], json!(["reasoning.encrypted_content"]));
+    assert!(output.get("user").is_none());
+    assert_eq!(output["instructions"], "memory-instructions");
+}

@@ -9,6 +9,8 @@ use serde_json::value::RawValue;
 
 use crate::{ProviderError, api::ProviderRequestContext};
 
+mod cache_key;
+
 const REQUIRED_INCLUDE: &[u8] = br#"["reasoning.encrypted_content"]"#;
 const REMOVED_FIELDS: &[&str] = &[
     "context_management",
@@ -24,7 +26,11 @@ pub(crate) fn prepare(
     context: ProviderRequestContext<'_>,
     body: Bytes,
 ) -> Result<Bytes, ProviderError> {
-    if !context.oauth || context.upstream_operation != ProtocolOperation::Responses {
+    if context.upstream_operation != ProtocolOperation::Responses {
+        return Ok(body);
+    }
+    let body = cache_key::stabilize_memory_prompt_cache_key(context.upstream_model, body)?;
+    if !context.oauth {
         return Ok(body);
     }
     normalize_responses(body)

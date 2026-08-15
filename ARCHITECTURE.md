@@ -873,6 +873,8 @@ Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profil
 
 Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。`chatgpt_account_id` 表示 Token 当前选择的个人账户或工作区，继续用于数据面 `chatgpt-account-id` Header；`chatgpt_user_id`（兼容 `user_id`）才表示成员主体，两者不得混为 OAuthAccount 去重身份。选中 Codex OAuthAccount 的普通 Responses Attempt 在协议编码后、zstd 与上游 I/O 前应用固定出站 Profile：强制 `store=false`，删除 ChatGPT Codex 后端不支持的已登记字段，把字符串 input 与 `system` role 规范成该后端接受的等价形状，并补齐 reasoning include；该 Profile 不按 User-Agent 识别客户端、不修改 `stream`，也绝不应用于 Codex API Key 或 Responses Compact。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言、目录和 Provider Endpoint Profile 只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。完整决策见 `docs/adr/0115-codex-oauth-responses-request-profile.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
 
+`prompt_cache_key` 默认一律原值转发，唯一例外是 Codex Driver 的 Responses 上游请求命中官方 memory 标记时：请求体 `client_metadata["x-codex-turn-metadata"]` 解析出的 `request_kind` 为 `memory` 或 `memory_consolidation` 且 `instructions` 非空，any2api 才把 `prompt_cache_key` 替换为 `SHA-256(版本盐 + 实际上游模型 + reasoning.effort + instructions)` 派生的 UUID 形态稳定 key，使全局固定的 memory instructions 前缀跨 Codex 任务命中上游 prompt cache。该规则与凭据类型（OAuth/API Key）和公开模型名无关，只改写这一个字段，判定有任何歧义即原样放行；派生 key 是请求内容的确定函数，换凭据重试的字节仍完全一致（ADR-0149）。完整决策见 `docs/adr/0154-codex-memory-prompt-cache-key.md`。
+
 ### 9.5 内部 ModelRoute
 
 ```text
