@@ -12,8 +12,8 @@ use tokio::sync::watch;
 use crate::{
     configuration::{
         ConfigPublishError, ConfigurationCapabilities, PreparedPublishedSnapshot,
-        PublishedSnapshot, PublishedSnapshotReconciler, SnapshotStore, command::ConfigCommand,
-        publish_task,
+        PublicationSource, PublishedSnapshot, PublishedSnapshotReconciler, SnapshotStore,
+        command::ConfigCommand, publish_task,
     },
     registry::RuntimeRegistry,
 };
@@ -96,26 +96,37 @@ impl ConfigPublisher {
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
-        if current.revision() != expected {
-            return Err(ConfigPublishError::RevisionConflict {
-                expected,
-                actual: current.revision(),
-            });
-        }
+        let actual = current.revision();
+        let transaction_revision = if actual == expected {
+            expected
+        } else if self
+            .snapshots
+            .can_rebase_after_automatic_publications(expected, actual)
+        {
+            actual
+        } else {
+            return Err(ConfigPublishError::RevisionConflict { expected, actual });
+        };
         self.validate_command(current.as_ref(), &command)?;
         let (published, _) = self
-            .publish_mutation_serialized(current, expected, command.into_mutation())
+            .publish_mutation_serialized_with_source(
+                current,
+                transaction_revision,
+                command.into_mutation(),
+                PublicationSource::Operator,
+            )
             .await?;
         Ok(published)
     }
 
     pub(super) async fn publish_current(
         &self,
+        source: PublicationSource,
         command: ConfigCommand,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let publisher = self.clone();
         publish_task::run(self.runtime.lifecycle(), async move {
-            publisher.publish_current_serialized(command).await
+            publisher.publish_current_serialized(source, command).await
         })
         .await
         .ok_or(ConfigPublishError::ShuttingDown)?
@@ -123,6 +134,7 @@ impl ConfigPublisher {
 
     async fn publish_current_serialized(
         &self,
+        source: PublicationSource,
         command: ConfigCommand,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let _guard = self.snapshots.acquire_publish().await;
@@ -130,7 +142,12 @@ impl ConfigPublisher {
         let expected = current.revision();
         self.validate_command(current.as_ref(), &command)?;
         let (published, _) = self
-            .publish_mutation_serialized(current, expected, command.into_mutation())
+            .publish_mutation_serialized_with_source(
+                current,
+                expected,
+                command.into_mutation(),
+                source,
+            )
             .await?;
         Ok(published)
     }
@@ -140,6 +157,22 @@ impl ConfigPublisher {
         current: Arc<PublishedSnapshot>,
         expected: ConfigRevision,
         mutation: ConfigurationMutation,
+    ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
+        self.publish_mutation_serialized_with_source(
+            current,
+            expected,
+            mutation,
+            PublicationSource::Operator,
+        )
+        .await
+    }
+
+    pub(super) async fn publish_mutation_serialized_with_source(
+        &self,
+        current: Arc<PublishedSnapshot>,
+        expected: ConfigRevision,
+        mutation: ConfigurationMutation,
+        source: PublicationSource,
     ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
         let capabilities = Arc::clone(&self.capabilities);
         let outcome = match self
@@ -167,7 +200,7 @@ impl ConfigPublisher {
 
         let published = self
             .snapshots
-            .replace(prepared_snapshot.bind(&self.runtime));
+            .replace(prepared_snapshot.bind(&self.runtime), source);
         if let Some(reconciler) = &self.snapshot_reconciler {
             reconciler.reconcile(published.as_ref());
         }

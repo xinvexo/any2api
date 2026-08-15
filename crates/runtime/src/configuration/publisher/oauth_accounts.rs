@@ -10,8 +10,8 @@ use any2api_storage::api::{
 
 use super::ConfigPublisher;
 use crate::configuration::{
-    ConfigPublishError, OAuthImportIdentity, OAuthImportIdentityIndex, PublishedSnapshot,
-    command::ConfigCommand, publish_task,
+    ConfigPublishError, OAuthImportIdentity, OAuthImportIdentityIndex, PublicationSource,
+    PublishedSnapshot, command::ConfigCommand, publish_task,
 };
 
 pub(crate) struct OAuthAccountActivation {
@@ -63,16 +63,19 @@ impl ConfigPublisher {
         models: Vec<String>,
         document: OAuthAccountDocument,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish_current(ConfigCommand::CreateOAuthAccount {
-            id,
-            provider_kind,
-            draft,
-            proxy_selection,
-            safe_account_email,
-            expires_at,
-            models,
-            document,
-        })
+        self.publish_current(
+            PublicationSource::Operator,
+            ConfigCommand::CreateOAuthAccount {
+                id,
+                provider_kind,
+                draft,
+                proxy_selection,
+                safe_account_email,
+                expires_at,
+                models,
+                document,
+            },
+        )
         .await
     }
 
@@ -185,13 +188,16 @@ impl ConfigPublisher {
         expires_at: Option<i64>,
         document: OAuthAccountDocument,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish_current(ConfigCommand::RefreshOAuthAccount {
-            id,
-            expected_token_version,
-            safe_account_email,
-            expires_at,
-            document,
-        })
+        self.publish_current(
+            PublicationSource::AutomaticOAuthRefresh,
+            ConfigCommand::RefreshOAuthAccount {
+                id,
+                expected_token_version,
+                safe_account_email,
+                expires_at,
+                document,
+            },
+        )
         .await
     }
 
@@ -220,10 +226,11 @@ impl ConfigPublisher {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         let expected = current.revision();
-        self.publish_mutation_serialized(
+        self.publish_mutation_serialized_with_source(
             current,
             expected,
             ConfigurationMutation::RefreshOAuthAccounts { refreshes },
+            PublicationSource::AutomaticOAuthRefresh,
         )
         .await
     }

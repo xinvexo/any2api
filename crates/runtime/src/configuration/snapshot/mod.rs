@@ -13,4 +13,5 @@ pub use credential_observation::{CredentialRuntimeObservation, CredentialRuntime
 pub use error::SnapshotCompileError;
 pub use prepared::PreparedPublishedSnapshot;
 pub use published::PublishedSnapshot;
+pub(crate) use store::PublicationSource;
 pub use store::SnapshotStore;

@@ -6,7 +6,9 @@ use any2api_domain::{
     ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
     SettingKey, SettingValue,
 };
-use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
+use any2api_storage::api::{
+    ConfigurationRepository, OAuthAccountDocument, OAuthAccountRefresh, SqliteStore,
+};
 use tempfile::{TempDir, tempdir};
 
 use crate::{
@@ -305,6 +307,68 @@ async fn publishers_sharing_a_snapshot_store_are_serialized() {
     assert_eq!(stored.proxies().profiles().len(), 2);
     assert_eq!(context.snapshots.load().revision(), stored.revision());
     assert_eq!(context.runtime.scheduler_epoch(), 1);
+}
+
+#[tokio::test]
+async fn operator_publish_rebases_only_across_automatic_oauth_refreshes() {
+    let context = TestContext::new().await;
+    let account_id = OAuthAccountId::new();
+    let before_activation = context.snapshots.load().revision();
+    let activated = context
+        .publisher
+        .activate_oauth_account(
+            account_id,
+            ProviderKind::Codex,
+            oauth_account_draft("Refreshable OAuth"),
+            OAuthProxySelection::Global,
+            None,
+            None,
+            Vec::new(),
+            oauth_document(ProviderKind::Codex, "initial-token", None),
+        )
+        .await
+        .expect("activate OAuth account");
+
+    let conflict = context
+        .publisher
+        .create_proxy(
+            before_activation,
+            ProxyProfileId::new(),
+            proxy_draft("Stale Operator"),
+        )
+        .await
+        .expect_err("OAuth activation is an operator publication");
+    assert!(matches!(
+        conflict,
+        ConfigPublishError::RevisionConflict { .. }
+    ));
+
+    let (refreshed, changed) = context
+        .publisher
+        .refresh_oauth_accounts(
+            vec![OAuthAccountRefresh::new(
+                account_id,
+                1,
+                None,
+                Some(1_900_000_000),
+                oauth_document(ProviderKind::Codex, "refreshed-token", None),
+            )],
+            (),
+        )
+        .await
+        .expect("refresh OAuth account batch");
+    assert!(changed);
+    assert!(refreshed.revision() > activated.revision());
+
+    let endpoint_id = ProviderEndpointId::new();
+    let published = context
+        .publisher
+        .create_provider_endpoint(activated.revision(), endpoint_id, codex_endpoint_draft())
+        .await
+        .expect("operator publish rebases across automatic refresh");
+
+    assert!(published.revision() > refreshed.revision());
+    assert!(published.provider_endpoints().get(endpoint_id).is_some());
 }
 
 #[tokio::test]

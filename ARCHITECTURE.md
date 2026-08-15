@@ -2393,6 +2393,13 @@ PublishedSnapshot
 规则：
 
 - 所有配置发布串行执行，禁止较低 revision 晚于较高 revision 覆盖运行时；
+- 配置发布必须区分管理员发起的配置修改与自动 OAuth Token 刷新。`SnapshotStore` 在内存中维护最近一次成功
+  管理员发布的 revision，启动时初始化为启动快照 revision；管理员请求等待串行发布锁期间，如果当前
+  revision 已变化，但其提交携带的 expected revision 不早于该管理员发布水位，则说明错过的发布全部来自
+  自动 Token 刷新，ConfigPublisher 必须在最新快照上重新执行校验并使用当前 revision 完成一次事务。若期间
+  发生过其他管理员发布、expected revision 超前，或进程已经重启，则继续返回 `RevisionConflict`。该规则不
+  跳过 Endpoint/Credential/OAuthAccount 等聚合自己的 config/token version CAS，也不循环重试事务；同一
+  mutation 的聚合级前置版本不再匹配时仍返回对应的类型化版本冲突；
 - `ConfigurationTransactionRepository::transact_configuration` 是跨 crate 的候选事务边界，生产代码唯一允许调用它的模块是 `runtime/configuration/publisher`。SQLite `Transaction` 的创建、写入、Commit、Rollback 和 Drop 始终留在 Storage 内，`PreparedConfiguration`/`ConfigurationCommit` 这类活事务句柄不得进入公开 API。Runtime 只能传入一个同步 `FnOnce(StoredConfiguration)` 候选编译器：Storage 在仍持有事务时调用它，拒绝则先 Rollback，接受则先 Commit，再把无事务能力的已编译结果返回 Runtime。同步签名禁止在候选验收期间插入网络或其他异步 `await`；测试只能通过显式夹具使用该边界。`xtask architecture-check` 固定检查唯一生产调用点，防止配置写入绕过 ConfigPublisher；
 - Storage 必须在 `BEGIN IMMEDIATE` 的同一事务视图中先完整加载当前配置一次，验证全部持久化 Secret 摘要、领域值和现有交叉引用；写入后不得再无条件完整加载所有表，而应回读本次 mutation 的完整影响面，包括它直接修改的聚合、外键级联、物化 Model Route、模型 allowlist 裁剪以及 revision。未被该写入触及的聚合只能复用本事务起点已经验证的不可变值；Proxy 或 Endpoint 等被其他聚合引用的配置发生变化时，必须用新值重建并重新校验相关领域配置，即使不需要再次读取其 Secret 行。新增 mutation 或 Schema 级联时必须同时声明并测试其回读影响面，禁止用遗漏回读换取性能；
 - Storage 在影响面回读后必须核对 revision 以及本次写入涉及的 Gateway Key、Proxy、OAuthAccount、Provider Endpoint/Credential、Model Route 或 Setting 聚合。失配表示持久化写入与领域候选不一致，必须返回标明组件的 `ConfigurationWriteMismatch` 并让事务回滚，禁止用 `assert!`/`expect` 触发进程 panic；错误不得格式化 expected/actual 配置或其中的明文 Secret。Storage 组装出的仍是完整 `StoredConfiguration`，Runtime 必须对整份候选执行能力校验和 `PublishedSnapshot` 预编译，不能把影响面回读误用为局部快照发布；
@@ -2421,6 +2428,8 @@ PublishedSnapshot
 
 配置 mutation 的事务内影响面回读及其性能取舍见 `docs/adr/0102-mutation-footprint-configuration-readback.md`；
 候选同步验收与 Storage 独占事务能力见 `docs/adr/0103-storage-owned-configuration-transaction.md`。
+自动 OAuth Token 发布与管理员配置并发时的透明等待/rebase 规则见
+`docs/adr/0155-background-oauth-refresh-configuration-rebase.md`。
 
 ### 16.2 版本化默认设置注册表
 
