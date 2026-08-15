@@ -2,8 +2,9 @@ mod mutation;
 
 use any2api_domain::{
     CredentialId, GatewayApiKeyDraft, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId,
-    OAuthProxySelection, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyDraft, ProxyProfileId, SettingKey, SettingOverrideChange, SettingValue,
+    OAuthProxySelection, ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyDraft, ProxyProfileId, SettingKey,
+    SettingOverrideChange, SettingValue,
 };
 use any2api_storage::api::{OAuthAccountDocument, SecretBytes};
 
@@ -64,7 +65,7 @@ pub(crate) enum ConfigCommand {
     SetProviderCredentialModels {
         id: CredentialId,
         expected_config_version: u64,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     },
     DeleteProviderCredential {
         id: CredentialId,

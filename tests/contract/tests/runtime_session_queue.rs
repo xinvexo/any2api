@@ -5,8 +5,9 @@ use std::sync::{
 
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, GatewayApiKeyId, ProtocolDialect,
-    ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
+    ProtocolOperation, ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey,
+    SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -203,7 +204,10 @@ impl Harness {
                 credential.revision(),
                 credential_id,
                 1,
-                vec!["session-queued-model".to_owned()],
+                vec![
+                    ProviderCredentialModel::new("session-queued-model", None)
+                        .expect("credential model"),
+                ],
             )
             .await
             .expect("credential models");

@@ -28,7 +28,7 @@ test("keeps a saved model visible when the refreshed catalog no longer returns i
       models: ["gpt-new"],
     },
     {
-      models: ["gpt-old"],
+      models: [{ upstreamModel: "gpt-old", publicModel: null }],
     },
   );
 
@@ -49,7 +49,9 @@ test("adds and saves an exact model name when the upstream catalog is empty", ()
   expect(screen.getByText("手动")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  expect(onSave).toHaveBeenCalledWith(["gpt-5.6-sol"]);
+  expect(onSave).toHaveBeenCalledWith([
+    { upstreamModel: "gpt-5.6-sol", publicModel: null },
+  ]);
 });
 
 test("keeps manual model editing available while discovery is pending", () => {
@@ -62,7 +64,61 @@ test("keeps manual model editing available while discovery is pending", () => {
   fireEvent.keyDown(screen.getByLabelText("手动添加模型"), { key: "Enter" });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(onSave).toHaveBeenCalledWith(["claude-manual"]);
+  expect(onSave).toHaveBeenCalledWith([
+    { upstreamModel: "claude-manual", publicModel: null },
+  ]);
+});
+
+test("edits a public alias on a selected model and saves it as the entry alias", () => {
+  const { onSave } = renderModels(
+    { models: ["gpt-5.6-sol-ganen"] },
+    {
+      models: [{ upstreamModel: "gpt-5.6-sol-ganen", publicModel: "gpt-5.6-sol" }],
+    },
+  );
+
+  const aliasInput = screen.getByLabelText("gpt-5.6-sol-ganen 的公开名称");
+  expect(aliasInput).toHaveValue("gpt-5.6-sol");
+
+  fireEvent.change(aliasInput, { target: { value: "gpt-5.6-sol-renamed" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(onSave).toHaveBeenCalledWith([
+    { upstreamModel: "gpt-5.6-sol-ganen", publicModel: "gpt-5.6-sol-renamed" },
+  ]);
+});
+
+test("blocks saving when two selections resolve to the same public name", () => {
+  const { onSave } = renderModels({ models: [] });
+
+  for (const model of ["upstream-a", "upstream-b"]) {
+    fireEvent.change(screen.getByLabelText("手动添加模型"), {
+      target: { value: model },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  }
+  fireEvent.change(screen.getByLabelText("upstream-b 的公开名称"), {
+    target: { value: "upstream-a" },
+  });
+
+  expect(
+    screen.getByText(
+      "公开名称「upstream-a」同时来自「upstream-a」和「upstream-b」，请修改其中一个",
+    ),
+  ).toBeInTheDocument();
+  const save = screen.getByRole("button", { name: "保存" });
+  expect(save).toBeDisabled();
+  fireEvent.click(save);
+  expect(onSave).not.toHaveBeenCalled();
+
+  fireEvent.change(screen.getByLabelText("upstream-b 的公开名称"), {
+    target: { value: "public-b" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  expect(onSave).toHaveBeenCalledWith([
+    { upstreamModel: "upstream-a", publicModel: null },
+    { upstreamModel: "upstream-b", publicModel: "public-b" },
+  ]);
 });
 
 function renderModels(

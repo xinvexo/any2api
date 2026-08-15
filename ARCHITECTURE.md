@@ -45,7 +45,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. 首版 TransportMode 只有 JSON 和 SSE，上游不使用 WebSocket。`POST /v1/responses` 同路径接受 OpenAI Responses WebSocket 入口（`responses_websockets=2026-02-06` 协议）：连接内每条 `response.create` 还原为一个独立公开请求走既有执行链，增量请求与 warmup 由连接内存状态承接，上游请求保持全量、凭据无关的 HTTP JSON/SSE。WebSocket 连接数达到硬上限时对新 Upgrade 返回 426 让客户端按协议降级 HTTP。完整边界见 `docs/adr/0151-openai-responses-websocket-ingress.md`。
-17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
+17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化；公开模型名默认等于上游模型名，凭据模型条目可配置可选公开别名（ADR-0153），同一 Endpoint 内公开名与上游名映射必须双向一致。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
@@ -745,8 +745,11 @@ provider_endpoints
 provider_credential_models
 ├─ credential_id
 ├─ upstream_model
+├─ public_model            # nullable 公开别名；NULL = 与上游名一致
 └─ created_at
 ```
+
+`public_model` 与 `upstream_model` 同规校验且不得等于 `upstream_model`（等值别名在域层归一为空）；唯一表达式索引 `(credential_id, COALESCE(public_model, upstream_model))` 保证同一凭据别名后的公开名唯一。完整决策见 `docs/adr/0153-provider-credential-public-model-alias.md`。
 
 一个 Provider Endpoint 表示一个上游 URL，可以拥有多个 Credential。
 
@@ -826,8 +829,8 @@ Endpoint/Proxy 冷却或熔断状态。`ProviderCredential.enabled` 与 `Provide
 Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原始响应正文、URL、地址或 Secret。
 用户通过 `PUT /api/admin/provider-credentials/{id}/models` 提交最终确认集合；写入与内部模型映射、
 全局配置 revision 和 PublishedSnapshot 切换属于同一个串行配置发布。
-该端点接收的 `models` 是管理员最终确认集合，可同时包含发现目录中的模型和手工输入模型；
-后端仅执行 `UpstreamModelName` 精确名称校验、排序和去重约束，不要求名称必须出现在本次
+该端点接收的 `models` 是管理员最终确认集合，条目为 `{upstream_model, public_model?}`，可同时包含发现目录中的模型和手工输入模型；
+后端仅执行 `UpstreamModelName`/`PublicModelName` 精确名称校验、排序和去重约束（上游名与别名后的有效公开名分别去重），不要求名称必须出现在本次
 模型目录结果中。保存手工名称只表示管理员声明该 Key 可调用它，不伪造模型探测成功。
 
 Web 中尚未持久化的 Credential 模型探测状态必须绑定到本次实际依赖的资源版本：当前
@@ -893,7 +896,7 @@ route_targets
 └─ created_at
 ```
 
-`public_model` 是客户端看到的模型名，`upstream_model` 是实际发送给上游的模型名。首版两者固定相等，Route 与 Target 从 `provider_credential_models` 自动物化，不再提供普通管理面的独立 Route/Target/tier 编辑流程。
+`public_model` 是客户端看到的模型名，`upstream_model` 是实际发送给上游的模型名。两者默认相等；凭据模型条目配置公开别名时按 `(ingress_protocol, 有效公开名)` 物化 Route，Target 携带该 Endpoint 的上游真实名（ADR-0153）。Route 与 Target 从 `provider_credential_models` 自动物化，不再提供普通管理面的独立 Route/Target/tier 编辑流程。
 
 模型集合在配置发布时完成校验和物化，数据面只读取不可变 Route/Target 快照，不在每个请求中重新聚合 Credential 配置。
 
@@ -907,7 +910,8 @@ route_targets
 - 自动物化 Route 继承全局 RPM 用尽策略；首版 UI 不暴露每模型 fallback tier；
 - 接受协议与有效上游协议不同且没有已注册 ProtocolBridge 时拒绝发布；
 - Route Target 的稳定 ID 用于会话绑定，禁止通过数组位置表达身份。
-- `provider_credential_models` 是控制面真相来源；`model_routes` 与 `route_targets` 是同一事务内差异同步的内部物化表，稳定 ID 由协议、模型和 Endpoint 确定；未变化的 Route/Target 行不得删除重建；
+- `provider_credential_models` 是控制面真相来源；`model_routes` 与 `route_targets` 是同一事务内差异同步的内部物化表。Route 的稳定 ID 由 `(ingress_protocol, public_model)` 确定，Target 的稳定 ID 由 `(Route, provider_endpoint_id, 有效上游方言, upstream_model)` 确定；未变化的 Route/Target 行不得删除重建；
+- 同一 Endpoint 内 `(公开名 → 上游名)` 与 `(上游名 → 公开名)` 必须双向唯一；跨凭据冲突（同一公开名映射不同上游名，或同一上游名发布为不同公开名）在物化期拒绝发布，保证同一 Endpoint 对同一公开模型的出站请求体与凭据选择无关；
 - Target 的 `provider_endpoint_id` 与 `upstream_model` 是稳定身份字段；模型或 Endpoint 变化时，下一次物化删除被替换 Target 并按确定性规则生成新 ID；
 - 差异同步先插入或更新新状态，再只删除已经不在候选配置中的 Target/Route。`request_attempts.route_target_id` 因此保留对未变化 Target 的历史关联；真正失效的 Target 删除后仍通过 `ON DELETE SET NULL` 与历史遥测解耦；
 - API Key 轮换仍原子清空该 Credential 的旧模型集合，因为新 Key 的模型权限未知；这会触发同一差异同步，但其他 Credential 仍提供的 Route/Target 必须保留。管理员确认删除 Provider Endpoint 后，Endpoint、其全部 ProviderCredential/API Key、`provider_credential_models` 选择、失效的 Route/Target 以及不再可用的 `models.allowed` 项必须在同一配置事务中级联清理；仍由其他 Credential 提供的 Route/Target 保留，历史遥测通过既有 `ON DELETE SET NULL` 解耦。
@@ -1375,7 +1379,7 @@ OpenAI Responses WebSocket 入口（ADR-0151），连接内每条 `response.crea
 - `images/generations` 接受 OpenAI JSON；`images/edits` 同时接受 JSON 的 `images`/`mask` 引用和 `multipart/form-data` 的 `image`/`image[]`、可选 `mask` 及其他字段。ProtocolAdapter 只提取并校验路由必需的 `model`、`stream`，保留未知 JSON 字段、multipart 字段顺序、文件字节和安全 Part Header；替换上游模型时重新编码结构化 multipart，禁止用字符串搜索修改二进制 Body。multipart `model` 必须恰好出现一次并是 UTF-8；结构化解析时使用 Unicode whitespace `trim` 一次，空值拒绝，得到的精确规范名称同时用于 `DecodedRequest.model`、允许列表/Route 查找和请求日志，禁止校验 trim 值却使用原始带空白值。重复字段即使规范值相同也拒绝。
 - OpenAI API Key 的 Codex Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 - Images → Chat Completions Bridge 只声明 `images_generations`，把标准 `prompt` 投影为单条 user message，并把经过登记的图片生成选项作为 Chat 图片上游扩展字段原值携带；`images_edits` 不进入该 Bridge。首版只接受非流式请求和 URL 结果：要求 partial image、`b64_json` 或 `stream=true` 的请求在 RPM 预留和上游 I/O 前失败。Chat 成功响应必须为每个 choice 提供唯一的 HTTP(S) Markdown 图片或裸 URL，Bridge 将其转换为标准 Images `data[].url`，并把 Chat prompt/completion usage 投影为 Images input/output usage。Bridge 不下载 URL、不伪造 base64，也不把文本内容冒充图片。
-- Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名仍固定等于上游模型名，不增加图片模型别名编辑。
+- Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名默认等于上游模型名；凭据模型条目的公开别名规则（ADR-0153）对 Images 方言同样适用，不提供图片专用的别名编辑。
 - 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
 - Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
@@ -1544,10 +1548,13 @@ Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止
 规则：
 
 - 不强制 `codex/`、`claude/`、`grok/` 或 `kimi/` 前缀；
-- 保存 Credential 模型选择时，`public_model` 固定复制 `upstream_model`；
+- 保存 Credential 模型选择时，`public_model` 默认等于 `upstream_model`；条目可配置可选公开别名，
+  别名与上游名同规校验（`PublicModelName`），等值别名归一为空，不保存冗余表示；
 - Credential 模型可来自上游目录勾选或管理员手工输入；来源不进入持久化模型，
   两者使用同一 `provider_credential_models` 集合、同一校验和同一 Route 物化路径；
-- 首版不在普通管理面提供本地别名和手工 Target/tier；需要别名时应另行设计不暴露调度内部结构的交互；
+- 别名编辑内嵌在凭据模型选择中（每条目可选公开名称），不暴露 Route/Target/tier 内部结构，
+  也不提供手工 Target/tier 编辑；同一凭据内别名后的公开名必须唯一，同一 Endpoint 内
+  公开名与上游名映射必须双向一致，冲突在配置发布时拒绝（ADR-0153）；
 - `codex/`、`claude/`、`grok/`、`kimi/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。

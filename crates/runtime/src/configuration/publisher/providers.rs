@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId,
+    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderCredentialModel,
+    ProviderEndpointDraft, ProviderEndpointId,
 };
 
 use super::ConfigPublisher;
@@ -131,7 +131,7 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         id: CredentialId,
         expected_config_version: u64,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish(
             expected,

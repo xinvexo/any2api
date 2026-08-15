@@ -23,6 +23,14 @@ macro_rules! define_model_name {
 define_model_name!(PublicModelName);
 define_model_name!(UpstreamModelName);
 
+impl From<&UpstreamModelName> for PublicModelName {
+    /// Both names share one validation, so publishing an upstream name under
+    /// itself never re-validates.
+    fn from(value: &UpstreamModelName) -> Self {
+        Self(value.0.clone())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum ModelNameValidationError {
     #[error("model name must not be empty")]

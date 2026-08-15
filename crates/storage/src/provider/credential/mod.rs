@@ -7,6 +7,8 @@ mod secret_mutation;
 mod writes;
 
 #[cfg(test)]
+mod model_alias_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod route_reconciliation_tests;

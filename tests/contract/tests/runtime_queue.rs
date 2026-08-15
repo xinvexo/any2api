@@ -5,8 +5,8 @@ use std::sync::{
 
 use any2api_domain::{
     ConfigRevision, CredentialKind, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -110,7 +110,7 @@ async fn rate_limited_request_waits_until_the_rolling_window_expires() {
             credential.revision(),
             credential_id,
             1,
-            vec!["queued-model".to_owned()],
+            vec![ProviderCredentialModel::new("queued-model", None).expect("credential model")],
         )
         .await
         .expect("credential models");

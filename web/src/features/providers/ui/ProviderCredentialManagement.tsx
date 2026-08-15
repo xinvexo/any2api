@@ -3,7 +3,10 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
-import type { ProviderCredential } from "../api/provider-credential-contracts";
+import type {
+  CredentialModelSelection,
+  ProviderCredential,
+} from "../api/provider-credential-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderCredentialMutations } from "../model/use-provider-credential-mutations";
 import { useProviderCredentials } from "../model/use-provider-credentials";
@@ -227,7 +230,7 @@ export function ProviderCredentialManagement({
     }
   }
 
-  async function saveModels(models: string[]) {
+  async function saveModels(models: CredentialModelSelection[]) {
     if (!selected) {
       return;
     }

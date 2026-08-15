@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation, ProviderEndpointId,
-    PublicModelName, TransportMode,
+    ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation, ProviderCredentialModel,
+    ProviderEndpointId, PublicModelName, TransportMode,
 };
 use any2api_protocol::api::RequestExecutionProfile;
 
@@ -40,7 +40,7 @@ async fn route_candidates_are_cached_per_route_and_requirements() {
             credential.revision(),
             credential_id,
             1,
-            vec!["cached-model".to_owned()],
+            vec![ProviderCredentialModel::new("cached-model", None).expect("credential model")],
         )
         .await
         .expect("credential models");

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, PublicModelName, TransportMode,
+    ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation, ProviderCredentialModel,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, PublicModelName, TransportMode,
 };
 use any2api_protocol::{
     OpenAiResponsesAdapter,
@@ -53,7 +53,7 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
             second.revision(),
             first_id,
             1,
-            vec!["model-first".to_owned()],
+            vec![ProviderCredentialModel::new("model-first", None).expect("credential model")],
         )
         .await
         .expect("first models");
@@ -62,7 +62,7 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
             first_models.revision(),
             second_id,
             1,
-            vec!["model-second".to_owned()],
+            vec![ProviderCredentialModel::new("model-second", None).expect("credential model")],
         )
         .await
         .expect("second models");
@@ -124,7 +124,7 @@ async fn remote_compaction_excludes_responses_to_chat_bridge_targets() {
             credential.revision(),
             credential_id,
             1,
-            vec![model.as_str().to_owned()],
+            vec![ProviderCredentialModel::new(model.as_str(), None).expect("credential model")],
         )
         .await
         .expect("credential models");

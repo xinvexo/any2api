@@ -37,7 +37,7 @@
   - `POST /v1/messages/count_tokens`
 - 首版不实现 `/backend-api/codex/responses`、上游 WebSocket 传输和 Codex/Claude 双向跨协议路由；`/v1/responses` 的 OpenAI Responses WebSocket 入口属于当前范围（ADR-0151），上游仍走 HTTP JSON/SSE。
 - 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions、Images → Images 和 Messages → Messages；不注册其他组合。
-- 公开模型名不强制 Provider 前缀，首版固定等于上游模型名，不提供别名编辑。
+- 公开模型名不强制 Provider 前缀，默认等于上游模型名；凭据模型条目可配置可选公开别名（ADR-0153），同一 Endpoint 内公开名与上游名映射必须双向一致。
 
 ## 4. 两类 Key 必须严格隔离
 

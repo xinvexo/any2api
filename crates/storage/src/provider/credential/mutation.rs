@@ -1,7 +1,7 @@
 use any2api_domain::{
     CredentialId, ModelRouteConfiguration, ProviderCredential, ProviderCredentialConfiguration,
-    ProviderCredentialDraft, ProviderCredentialValidationError, ProviderEndpointConfiguration,
-    ProviderEndpointId, ProxyConfiguration,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderCredentialValidationError,
+    ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration,
 };
 
 use crate::{error::StorageError, secret::SecretBytes};
@@ -29,7 +29,7 @@ pub(crate) enum ProviderCredentialMutation {
     SetModels {
         id: CredentialId,
         expected_config_version: u64,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     },
     Delete {
         id: CredentialId,
@@ -155,7 +155,7 @@ fn set_models(
     proxies: &ProxyConfiguration,
     id: CredentialId,
     expected_config_version: u64,
-    models: Vec<String>,
+    models: Vec<ProviderCredentialModel>,
 ) -> Result<Option<PreparedProviderCredentialMutation>, StorageError> {
     let existing = current
         .get(id)

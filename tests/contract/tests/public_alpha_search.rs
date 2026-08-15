@@ -299,7 +299,7 @@ async fn configured_app(
             Some(json!({
                 "expected_revision": revision,
                 "expected_config_version": 1,
-                "models": ["gpt-search-model"]
+                "models": [{"upstream_model": "gpt-search-model"}]
             })),
             remote,
             &[],

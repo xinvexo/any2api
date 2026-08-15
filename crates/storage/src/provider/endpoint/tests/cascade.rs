@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ModelAccess, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, SettingKey, SettingOverrideChange, SettingValue,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, SettingKey, SettingOverrideChange, SettingValue,
 };
 use tempfile::tempdir;
 
@@ -54,7 +54,9 @@ async fn deleting_endpoint_cascades_credentials_routes_and_model_allowlist() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-cascade".to_owned()],
+            models: vec![
+                ProviderCredentialModel::new("gpt-cascade", None).expect("credential model"),
+            ],
         },
     )
     .await
@@ -238,7 +240,9 @@ async fn set_models(
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-shared".to_owned()],
+            models: vec![
+                ProviderCredentialModel::new("gpt-shared", None).expect("credential model"),
+            ],
         },
     )
     .await

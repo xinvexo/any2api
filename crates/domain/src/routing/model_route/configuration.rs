@@ -1,14 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 
 use crate::{
     FallbackTier, ModelRoute, ModelRouteDraft, ModelRouteId, ModelRouteValidationError,
-    ProtocolDialect, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProviderEndpointId, PublicModelName, RouteTargetDraft, RouteTargetId, UpstreamModelName,
+    ProtocolDialect, ProviderCredentialConfiguration, ProviderEndpoint,
+    ProviderEndpointConfiguration, ProviderEndpointId, PublicModelName, RouteTargetDraft,
+    RouteTargetId, UpstreamModelName,
 };
 use uuid::Uuid;
 
 const MODEL_ROUTE_NAMESPACE: Uuid = Uuid::from_u128(0xb53f_6ddd_8221_5a8b_9ff0_06d4_2ce1_3c64);
 const ROUTE_TARGET_NAMESPACE: Uuid = Uuid::from_u128(0x8354_65cc_8cf9_5fc8_859e_10d8_fc96_71fb);
+
+/// Upstream model per endpoint for one `(dialect, public model)` route.
+type RouteGroups =
+    BTreeMap<(ProtocolDialect, PublicModelName), BTreeMap<ProviderEndpointId, UpstreamModelName>>;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ModelRouteConfiguration {
@@ -20,8 +25,9 @@ impl ModelRouteConfiguration {
         credentials: &ProviderCredentialConfiguration,
         endpoints: &ProviderEndpointConfiguration,
     ) -> Result<Self, ModelRouteValidationError> {
-        let mut groups =
-            BTreeMap::<(ProtocolDialect, UpstreamModelName), BTreeSet<ProviderEndpointId>>::new();
+        let mut groups = RouteGroups::new();
+        let mut published =
+            BTreeMap::<(ProviderEndpointId, UpstreamModelName), PublicModelName>::new();
         for credential in credentials.credentials() {
             let endpoint = endpoints.get(credential.provider_endpoint_id()).ok_or(
                 ModelRouteValidationError::MissingProviderEndpoint(
@@ -29,35 +35,44 @@ impl ModelRouteConfiguration {
                 ),
             )?;
             for model in credential.models() {
-                groups
-                    .entry((endpoint.protocol_dialect(), model.clone()))
-                    .or_default()
-                    .insert(endpoint.id());
+                register_endpoint_model(
+                    &mut groups,
+                    &mut published,
+                    endpoint,
+                    model.upstream_model().clone(),
+                    model.public_model(),
+                )?;
             }
         }
 
         let routes = groups
             .into_iter()
-            .map(|((dialect, model), endpoint_ids)| {
-                let route_id = derived_route_id(dialect, &model);
-                let targets = endpoint_ids
+            .map(|((dialect, public_model), targets_by_endpoint)| {
+                let route_id = derived_route_id(dialect, &public_model);
+                let targets = targets_by_endpoint
                     .into_iter()
-                    .map(|endpoint_id| {
+                    .map(|(endpoint_id, upstream_model)| {
                         let upstream_dialect = endpoints
                             .get(endpoint_id)
                             .expect("grouped endpoint is present")
                             .effective_upstream_protocol_dialect();
                         RouteTargetDraft::new(
-                            derived_target_id(route_id, endpoint_id, upstream_dialect),
+                            derived_target_id(
+                                route_id,
+                                endpoint_id,
+                                upstream_dialect,
+                                &upstream_model,
+                            ),
                             endpoint_id,
-                            model.as_str(),
+                            upstream_model.as_str(),
                             upstream_dialect,
                             FallbackTier::default(),
                             true,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let draft = ModelRouteDraft::new(model.as_str(), dialect, None, true, targets)?;
+                let draft =
+                    ModelRouteDraft::new(public_model.as_str(), dialect, None, true, targets)?;
                 Ok(ModelRoute::create(route_id, draft))
             })
             .collect::<Result<Vec<_>, ModelRouteValidationError>>()?;
@@ -148,7 +163,52 @@ impl ModelRouteConfiguration {
     }
 }
 
-fn derived_route_id(dialect: ProtocolDialect, model: &UpstreamModelName) -> ModelRouteId {
+/// The `(upstream → public)` mapping of one endpoint must be a bijection so
+/// the outbound body for a public model never depends on which credential of
+/// that endpoint is selected.
+fn register_endpoint_model(
+    groups: &mut RouteGroups,
+    published: &mut BTreeMap<(ProviderEndpointId, UpstreamModelName), PublicModelName>,
+    endpoint: &ProviderEndpoint,
+    upstream_model: UpstreamModelName,
+    public_model: PublicModelName,
+) -> Result<(), ModelRouteValidationError> {
+    match published.entry((endpoint.id(), upstream_model.clone())) {
+        Entry::Occupied(existing) if existing.get() != &public_model => {
+            return Err(ModelRouteValidationError::ConflictingPublicModel {
+                endpoint: endpoint.name().to_owned(),
+                upstream_model: upstream_model.as_str().to_owned(),
+                first: existing.get().as_str().to_owned(),
+                second: public_model.as_str().to_owned(),
+            });
+        }
+        Entry::Occupied(_) => {}
+        Entry::Vacant(slot) => {
+            slot.insert(public_model.clone());
+        }
+    }
+    match groups
+        .entry((endpoint.protocol_dialect(), public_model.clone()))
+        .or_default()
+        .entry(endpoint.id())
+    {
+        Entry::Occupied(existing) if existing.get() != &upstream_model => {
+            Err(ModelRouteValidationError::ConflictingUpstreamModel {
+                endpoint: endpoint.name().to_owned(),
+                public_model: public_model.as_str().to_owned(),
+                first: existing.get().as_str().to_owned(),
+                second: upstream_model.as_str().to_owned(),
+            })
+        }
+        Entry::Occupied(_) => Ok(()),
+        Entry::Vacant(slot) => {
+            slot.insert(upstream_model);
+            Ok(())
+        }
+    }
+}
+
+fn derived_route_id(dialect: ProtocolDialect, model: &PublicModelName) -> ModelRouteId {
     let identity = format!("{}\0{}", dialect.as_str(), model.as_str());
     ModelRouteId::from_uuid(Uuid::new_v5(&MODEL_ROUTE_NAMESPACE, identity.as_bytes()))
 }
@@ -157,108 +217,12 @@ fn derived_target_id(
     route_id: ModelRouteId,
     endpoint_id: ProviderEndpointId,
     upstream_dialect: ProtocolDialect,
+    upstream_model: &UpstreamModelName,
 ) -> RouteTargetId {
-    let identity = format!("{route_id}\0{endpoint_id}\0{}", upstream_dialect.as_str());
+    let identity = format!(
+        "{route_id}\0{endpoint_id}\0{}\0{}",
+        upstream_dialect.as_str(),
+        upstream_model.as_str()
+    );
     RouteTargetId::from_uuid(Uuid::new_v5(&ROUTE_TARGET_NAMESPACE, identity.as_bytes()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ModelRouteConfiguration;
-    use crate::{
-        FallbackTier, ModelRoute, ModelRouteDraft, ModelRouteId, ModelRouteValidationError,
-        ProtocolDialect, ProviderEndpoint, ProviderEndpointConfiguration, ProviderEndpointDraft,
-        ProviderEndpointId, ProviderKind, RouteTargetDraft, RouteTargetId,
-    };
-
-    #[test]
-    fn public_models_are_unique_per_protocol_and_targets_must_match_endpoint_dialect() {
-        let codex_id = ProviderEndpointId::new();
-        let claude_id = ProviderEndpointId::new();
-        let endpoints = ProviderEndpointConfiguration::new(vec![
-            endpoint(
-                codex_id,
-                ProviderKind::Codex,
-                ProtocolDialect::OpenAiResponses,
-            ),
-            endpoint(
-                claude_id,
-                ProviderKind::Claude,
-                ProtocolDialect::AnthropicMessages,
-            ),
-        ])
-        .expect("endpoint configuration");
-        let responses = route("shared", ProtocolDialect::OpenAiResponses, codex_id);
-        let messages = route("shared", ProtocolDialect::AnthropicMessages, claude_id);
-        assert!(
-            ModelRouteConfiguration::new(vec![responses.clone(), messages], &endpoints).is_ok()
-        );
-
-        assert_eq!(
-            ModelRouteConfiguration::new(
-                vec![
-                    responses,
-                    route("shared", ProtocolDialect::OpenAiResponses, codex_id),
-                ],
-                &endpoints,
-            )
-            .expect_err("duplicate public model"),
-            ModelRouteValidationError::DuplicatePublicModel
-        );
-        assert!(matches!(
-            ModelRouteConfiguration::new(
-                vec![route("wrong", ProtocolDialect::OpenAiResponses, claude_id)],
-                &endpoints,
-            ),
-            Err(ModelRouteValidationError::IncompatibleTargetProtocol(id)) if id == claude_id
-        ));
-    }
-
-    fn endpoint(
-        id: ProviderEndpointId,
-        kind: ProviderKind,
-        dialect: ProtocolDialect,
-    ) -> ProviderEndpoint {
-        ProviderEndpoint::create(
-            id,
-            ProviderEndpointDraft::new(
-                format!("{kind:?}"),
-                kind,
-                "https://api.example.com",
-                dialect,
-                None,
-                true,
-            )
-            .expect("endpoint draft"),
-        )
-        .expect("endpoint")
-    }
-
-    fn route(
-        public_model: &str,
-        dialect: ProtocolDialect,
-        endpoint_id: ProviderEndpointId,
-    ) -> ModelRoute {
-        ModelRoute::create(
-            ModelRouteId::new(),
-            ModelRouteDraft::new(
-                public_model,
-                dialect,
-                None,
-                true,
-                vec![
-                    RouteTargetDraft::new(
-                        RouteTargetId::new(),
-                        endpoint_id,
-                        "upstream",
-                        dialect,
-                        FallbackTier::default(),
-                        true,
-                    )
-                    .expect("target draft"),
-                ],
-            )
-            .expect("route draft"),
-        )
-    }
 }

@@ -52,10 +52,12 @@ async fn replace_models(
         .await?;
     for model in credential.models() {
         sqlx::query(
-            "INSERT INTO provider_credential_models (credential_id, upstream_model) VALUES (?, ?)",
+            "INSERT INTO provider_credential_models \
+             (credential_id, upstream_model, public_model) VALUES (?, ?, ?)",
         )
         .bind(credential.id().to_string())
-        .bind(model.as_str())
+        .bind(model.upstream_model().as_str())
+        .bind(model.public_alias().map(|alias| alias.as_str()))
         .execute(&mut *connection)
         .await?;
     }

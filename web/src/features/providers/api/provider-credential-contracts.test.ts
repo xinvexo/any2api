@@ -12,7 +12,10 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
     fingerprint: "v2:0123456789abcdef",
     secretTail: "test",
     requestsPerMinute: 4,
-    models: ["gpt-5.1-codex"],
+    models: [
+      { upstreamModel: "gpt-5.1-codex", publicModel: null },
+      { upstreamModel: "gpt-5.6-sol-ganen", publicModel: "gpt-5.6-sol" },
+    ],
     runtime: {
       resolvedProxy: {
         id: "00000000-0000-0000-0000-000000000000",
@@ -34,6 +37,24 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
   expect(() =>
     parseProviderCredentialConfiguration(
       configuration({ api_key: "must-not-enter-the-cache" }),
+    ),
+  ).toThrow("invalid provider credential response");
+
+  expect(() =>
+    parseProviderCredentialConfiguration(
+      configuration({
+        models: [{ upstream_model: "gpt-a", public_model: "gpt-a" }],
+      }),
+    ),
+  ).toThrow("invalid provider credential response");
+  expect(() =>
+    parseProviderCredentialConfiguration(
+      configuration({
+        models: [
+          { upstream_model: "gpt-a", public_model: null },
+          { upstream_model: "gpt-b", public_model: "gpt-a" },
+        ],
+      }),
     ),
   ).toThrow("invalid provider credential response");
 });
@@ -97,7 +118,10 @@ function configuration(overrides: Record<string, unknown> = {}) {
         secret_version: 1,
         credential_generation: 1,
         config_version: 1,
-        models: ["gpt-5.1-codex"],
+        models: [
+          { upstream_model: "gpt-5.1-codex", public_model: null },
+          { upstream_model: "gpt-5.6-sol-ganen", public_model: "gpt-5.6-sol" },
+        ],
         runtime: {
           resolved_proxy: {
             id: "00000000-0000-0000-0000-000000000000",

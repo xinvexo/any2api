@@ -203,7 +203,10 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         Some(json!({
             "expected_revision": 4,
             "expected_config_version": 1,
-            "models": ["claude-allowed", "claude-upstream"]
+            "models": [
+                {"upstream_model": "claude-allowed"},
+                {"upstream_model": "claude-upstream"}
+            ]
         })),
         remote,
         &[],

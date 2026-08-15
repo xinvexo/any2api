@@ -3,8 +3,8 @@ use std::sync::Arc;
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ModelAccess, OAuthAccountDraft, OAuthAccountId,
     OAuthProxySelection, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, SettingKey,
-    SettingValue,
+    ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::tempdir;
@@ -83,7 +83,10 @@ async fn inspection_uses_compiled_candidates_and_policy_without_runtime_health()
             disabled.revision(),
             enabled_id,
             1,
-            vec!["available-model".to_owned(), "blocked-model".to_owned()],
+            vec![
+                ProviderCredentialModel::new("available-model", None).expect("credential model"),
+                ProviderCredentialModel::new("blocked-model", None).expect("credential model"),
+            ],
         )
         .await
         .expect("enabled models");
@@ -92,7 +95,7 @@ async fn inspection_uses_compiled_candidates_and_policy_without_runtime_health()
             enabled_models.revision(),
             disabled_id,
             1,
-            vec!["disabled-model".to_owned()],
+            vec![ProviderCredentialModel::new("disabled-model", None).expect("credential model")],
         )
         .await
         .expect("disabled models");

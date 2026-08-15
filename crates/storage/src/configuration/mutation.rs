@@ -1,7 +1,7 @@
 use any2api_domain::{
     CredentialId, GatewayApiKeyDraft, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId,
-    OAuthProxySelection, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyDraft, ProxyProfileId, SettingOverrideChange,
+    OAuthProxySelection, ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyDraft, ProxyProfileId, SettingOverrideChange,
 };
 
 use crate::{
@@ -64,7 +64,7 @@ pub enum ConfigurationMutation {
     SetProviderCredentialModels {
         id: CredentialId,
         expected_config_version: u64,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     },
     DeleteProviderCredential {
         id: CredentialId,

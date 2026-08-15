@@ -50,9 +50,15 @@ struct ProviderCredentialResponse {
     secret_version: u64,
     credential_generation: u64,
     config_version: u64,
-    models: Vec<String>,
+    models: Vec<ProviderCredentialModelResponse>,
     runtime: CredentialRuntimeResponse,
     usage: RequestUsageResponse,
+}
+
+#[derive(Serialize)]
+struct ProviderCredentialModelResponse {
+    upstream_model: String,
+    public_model: Option<String>,
 }
 
 impl ProviderCredentialResponse {
@@ -82,7 +88,10 @@ impl ProviderCredentialResponse {
             models: credential
                 .models()
                 .iter()
-                .map(|model| model.as_str().to_owned())
+                .map(|model| ProviderCredentialModelResponse {
+                    upstream_model: model.upstream_model().as_str().to_owned(),
+                    public_model: model.public_alias().map(|alias| alias.as_str().to_owned()),
+                })
                 .collect(),
             runtime: runtime.into(),
             usage: upstream_usage::for_id(

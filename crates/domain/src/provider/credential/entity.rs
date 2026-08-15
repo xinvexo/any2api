@@ -5,6 +5,8 @@ use crate::{
     ProviderEndpointId, ProxyProfileId, RequestsPerMinute, UpstreamModelName,
 };
 
+use super::model::ProviderCredentialModel;
+
 const MAX_CREDENTIAL_LABEL_CHARS: usize = 100;
 const MAX_CREDENTIAL_VERSION: u64 = u32::MAX as u64;
 
@@ -73,7 +75,7 @@ pub struct ProviderCredential {
     secret_version: u64,
     credential_generation: u64,
     config_version: u64,
-    models: Vec<UpstreamModelName>,
+    models: Vec<ProviderCredentialModel>,
 }
 
 impl ProviderCredential {
@@ -104,7 +106,7 @@ impl ProviderCredential {
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     ) -> Result<Self, ProviderCredentialValidationError> {
         if !valid_version(secret_version)
             || !valid_version(credential_generation)
@@ -151,7 +153,7 @@ impl ProviderCredential {
 
     pub fn with_models(
         &self,
-        models: Vec<String>,
+        models: Vec<ProviderCredentialModel>,
     ) -> Result<Self, ProviderCredentialValidationError> {
         let models = validate_models(models)?;
         if self.models == models {
@@ -246,13 +248,15 @@ impl ProviderCredential {
     }
 
     #[must_use]
-    pub fn models(&self) -> &[UpstreamModelName] {
+    pub fn models(&self) -> &[ProviderCredentialModel] {
         &self.models
     }
 
     #[must_use]
     pub fn supports_model(&self, model: &UpstreamModelName) -> bool {
-        self.models.binary_search(model).is_ok()
+        self.models
+            .binary_search_by(|entry| entry.upstream_model().cmp(model))
+            .is_ok()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -264,7 +268,7 @@ impl ProviderCredential {
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
-        models: Vec<UpstreamModelName>,
+        models: Vec<ProviderCredentialModel>,
     ) -> Self {
         Self {
             id,
@@ -307,8 +311,12 @@ pub enum ProviderCredentialValidationError {
     DuplicateLabel,
     #[error("credential model name is invalid: {0}")]
     InvalidModel(ModelNameValidationError),
+    #[error("credential public model name is invalid: {0}")]
+    InvalidPublicModel(ModelNameValidationError),
     #[error("credential model is duplicated")]
     DuplicateModel,
+    #[error("credential public model name is duplicated")]
+    DuplicatePublicModel,
     #[error("credential references a missing provider endpoint")]
     MissingProviderEndpoint,
     #[error("credential references a missing proxy profile")]
@@ -329,17 +337,22 @@ fn validate_label(label: String) -> Result<String, ProviderCredentialValidationE
 }
 
 fn validate_models(
-    models: Vec<String>,
-) -> Result<Vec<UpstreamModelName>, ProviderCredentialValidationError> {
-    let mut models = models
-        .into_iter()
-        .map(|model| {
-            UpstreamModelName::new(model).map_err(ProviderCredentialValidationError::InvalidModel)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    mut models: Vec<ProviderCredentialModel>,
+) -> Result<Vec<ProviderCredentialModel>, ProviderCredentialValidationError> {
     models.sort();
-    if models.windows(2).any(|pair| pair[0] == pair[1]) {
+    if models
+        .windows(2)
+        .any(|pair| pair[0].upstream_model() == pair[1].upstream_model())
+    {
         return Err(ProviderCredentialValidationError::DuplicateModel);
+    }
+    let mut public_names = models
+        .iter()
+        .map(ProviderCredentialModel::public_model)
+        .collect::<Vec<_>>();
+    public_names.sort();
+    if public_names.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ProviderCredentialValidationError::DuplicatePublicModel);
     }
     Ok(models)
 }

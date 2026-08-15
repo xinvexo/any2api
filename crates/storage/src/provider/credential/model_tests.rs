@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ModelAccess, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, PublicModelName, SettingKey, SettingValue,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, PublicModelName, SettingKey, SettingValue,
 };
 use tempfile::tempdir;
 
@@ -45,7 +45,7 @@ async fn selected_models_persist_sorted_and_rebuild_routes() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
+            models: models(&["gpt-z", "gpt-a"]),
         },
     )
     .await
@@ -59,7 +59,7 @@ async fn selected_models_persist_sorted_and_rebuild_routes() {
         credential
             .models()
             .iter()
-            .map(|model| model.as_str())
+            .map(|model| model.upstream_model().as_str())
             .collect::<Vec<_>>(),
         ["gpt-a", "gpt-z"]
     );
@@ -71,7 +71,7 @@ async fn selected_models_persist_sorted_and_rebuild_routes() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 2,
-            models: vec!["gpt-a".to_owned(), "gpt-z".to_owned()],
+            models: models(&["gpt-a", "gpt-z"]),
         },
     )
     .await
@@ -129,7 +129,7 @@ async fn rotating_secret_clears_selected_models_and_materialized_routes() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-5.1-codex".to_owned()],
+            models: models(&["gpt-5.1-codex"]),
         },
     )
     .await
@@ -200,7 +200,7 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
+            models: models(&["gpt-z", "gpt-a"]),
         },
     )
     .await
@@ -231,7 +231,7 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: other_id,
             expected_config_version: 1,
-            models: vec!["gpt-b".to_owned()],
+            models: models(&["gpt-b"]),
         },
     )
     .await
@@ -266,7 +266,7 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 2,
-            models: vec!["gpt-z".to_owned()],
+            models: models(&["gpt-z"]),
         },
     )
     .await
@@ -316,6 +316,13 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
             ModelAccess::Allowlist(Vec::new())
         ))
     );
+}
+
+fn models(names: &[&str]) -> Vec<ProviderCredentialModel> {
+    names
+        .iter()
+        .map(|name| ProviderCredentialModel::new(*name, None).expect("credential model"))
+        .collect()
 }
 
 fn credential_draft() -> ProviderCredentialDraft {

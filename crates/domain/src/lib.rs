@@ -39,8 +39,9 @@ pub use oauth_account::{
 };
 pub use provider::{
     ProviderBaseUrl, ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,
-    ProviderCredentialValidationError, ProviderEndpoint, ProviderEndpointConfiguration,
-    ProviderEndpointDraft, ProviderEndpointValidationError, ProviderUrlValidationError,
+    ProviderCredentialModel, ProviderCredentialValidationError, ProviderEndpoint,
+    ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointValidationError,
+    ProviderUrlValidationError,
 };
 pub use proxy::{
     MAX_PROXY_USERNAME_BYTES, ProxyAddress, ProxyAuthentication,

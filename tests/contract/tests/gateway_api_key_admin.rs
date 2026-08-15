@@ -276,7 +276,10 @@ async fn models_list_reflects_credential_model_selection() {
         Some(json!({
             "expected_revision": 4,
             "expected_config_version": 1,
-            "models": ["gpt-a", "gpt-b"]
+            "models": [
+                {"upstream_model": "gpt-a"},
+                {"upstream_model": "gpt-b-upstream", "public_model": "gpt-b"}
+            ]
         })),
         loopback,
         &[],

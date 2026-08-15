@@ -105,6 +105,11 @@ fn compile_provider_credentials(
             RoutingCredentialCompileError::MissingCredentialProxy(credential.id()),
         )?;
         let auth = credential_auth.take_for(credential)?;
+        let upstream_models = credential
+            .models()
+            .iter()
+            .map(|model| model.upstream_model().clone())
+            .collect::<Vec<_>>();
         specs.push(RoutingCredentialSpec {
             projection: RoutingCredentialProjection {
                 id: credential.id().into(),
@@ -119,8 +124,8 @@ fn compile_provider_credentials(
                 enabled: credential.enabled(),
                 expires_at: None,
                 endpoint_enabled: endpoint.enabled(),
-                models: credential.models().to_vec(),
-                available_models: credential.models().to_vec(),
+                models: upstream_models.clone(),
+                available_models: upstream_models,
             },
             requests_per_minute: credential.requests_per_minute(),
             generation: CredentialGenerationDefinition::new(

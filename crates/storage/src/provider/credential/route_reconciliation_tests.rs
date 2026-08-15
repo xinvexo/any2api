@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId,
-    RouteTargetId,
+    ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, RequestId, RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -103,7 +103,10 @@ async fn set_models(
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version,
-            models: models.iter().map(|model| (*model).to_owned()).collect(),
+            models: models
+                .iter()
+                .map(|model| ProviderCredentialModel::new(*model, None).expect("credential model"))
+                .collect(),
         },
     )
     .await

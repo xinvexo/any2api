@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, CredentialKind, ProviderCredentialDraft, ProxyProfileId, RequestsPerMinute,
+    ConfigRevision, CredentialKind, ProviderCredentialDraft, ProviderCredentialModel,
+    ProxyProfileId, RequestsPerMinute,
 };
 use any2api_runtime::api::ProviderApiKeySecret;
 use serde::Deserialize;
@@ -11,18 +12,34 @@ use crate::admin::{error::AdminApiError, revision::parse_revision};
 pub(crate) struct ProviderCredentialModelsRequest {
     expected_revision: u64,
     expected_config_version: u64,
-    models: Vec<String>,
+    models: Vec<ProviderCredentialModelEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProviderCredentialModelEntry {
+    upstream_model: String,
+    #[serde(default)]
+    public_model: Option<String>,
 }
 
 impl ProviderCredentialModelsRequest {
-    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, u64, Vec<String>), AdminApiError> {
+    pub(crate) fn into_domain(
+        self,
+    ) -> Result<(ConfigRevision, u64, Vec<ProviderCredentialModel>), AdminApiError> {
+        let models = self
+            .models
+            .into_iter()
+            .map(|entry| ProviderCredentialModel::new(entry.upstream_model, entry.public_model))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| AdminApiError::invalid_provider_credential(error.to_string()))?;
         Ok((
             parse_revision(self.expected_revision)?,
             parse_version(
                 self.expected_config_version,
                 "expected_config_version is invalid",
             )?,
-            self.models,
+            models,
         ))
     }
 }

@@ -1,6 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
+    ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, PublicModelName,
 };
 use tempfile::tempdir;
 
@@ -217,7 +218,10 @@ async fn protocol_change_with_credentials_rebuilds_routes_and_bumps_generation()
         ConfigurationMutation::SetProviderCredentialModels {
             id: credential_id,
             expected_config_version: 1,
-            models: vec!["gpt-protocol-change".to_owned()],
+            models: vec![
+                ProviderCredentialModel::new("gpt-protocol-change", None)
+                    .expect("credential model"),
+            ],
         },
     )
     .await

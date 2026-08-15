@@ -2,8 +2,9 @@ use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
-    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpointConfiguration,
-    ProviderEndpointId, ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
+    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderCredentialModel,
+    ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration, ProxyProfileId,
+    RequestsPerMinute,
 };
 use sqlx::{FromRow, SqliteConnection};
 use subtle::ConstantTimeEq;
@@ -37,6 +38,7 @@ struct ProviderCredentialRow {
 struct ProviderCredentialModelRow {
     credential_id: String,
     upstream_model: String,
+    public_model: Option<String>,
 }
 
 pub(crate) async fn load_provider_credentials_from(
@@ -60,12 +62,12 @@ pub(crate) async fn load_provider_credentials_from(
     .fetch_all(&mut *connection)
     .await?;
     let model_rows = sqlx::query_as::<_, ProviderCredentialModelRow>(
-        "SELECT credential_id, upstream_model FROM provider_credential_models \
+        "SELECT credential_id, upstream_model, public_model FROM provider_credential_models \
          ORDER BY credential_id, upstream_model",
     )
     .fetch_all(&mut *connection)
     .await?;
-    let mut models = group_models(model_rows);
+    let mut models = group_models(model_rows)?;
     let mut credentials = Vec::with_capacity(rows.len());
     let mut secrets = Vec::with_capacity(rows.len());
     for row in rows {
@@ -84,7 +86,7 @@ pub(crate) async fn load_provider_credentials_from(
 
 fn parse_row(
     row: ProviderCredentialRow,
-    models: Vec<String>,
+    models: Vec<ProviderCredentialModel>,
     endpoints: &ProviderEndpointConfiguration,
 ) -> Result<(ProviderCredential, StoredProviderCredentialSecret), StorageError> {
     let ProviderCredentialRow {
@@ -162,15 +164,16 @@ fn parse_row(
     Ok((credential, material))
 }
 
-fn group_models(rows: Vec<ProviderCredentialModelRow>) -> HashMap<String, Vec<String>> {
-    let mut models = HashMap::<String, Vec<String>>::new();
+fn group_models(
+    rows: Vec<ProviderCredentialModelRow>,
+) -> Result<HashMap<String, Vec<ProviderCredentialModel>>, StorageError> {
+    let mut models = HashMap::<String, Vec<ProviderCredentialModel>>::new();
     for row in rows {
-        models
-            .entry(row.credential_id)
-            .or_default()
-            .push(row.upstream_model);
+        let model = ProviderCredentialModel::new(row.upstream_model, row.public_model)
+            .map_err(|_| StorageError::CorruptConfiguration)?;
+        models.entry(row.credential_id).or_default().push(model);
     }
-    models
+    Ok(models)
 }
 
 fn verify_secret(

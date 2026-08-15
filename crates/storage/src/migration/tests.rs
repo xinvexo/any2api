@@ -9,6 +9,7 @@ use tempfile::tempdir;
 
 use super::{MIGRATOR, run};
 
+mod credential_public_model_alias;
 mod duplicate_attempt_index;
 mod gateway_api_key_prefix;
 mod gateway_auth_rejected_logs;
@@ -104,6 +105,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (30, "add request log cache creation tokens".to_owned()),
             (31, "add oauth account proxy selection".to_owned()),
             (32, "add alpha search operation".to_owned()),
+            (33, "add credential public model alias".to_owned()),
         ]
     );
 

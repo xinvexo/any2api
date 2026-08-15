@@ -221,6 +221,26 @@ pub enum ModelRouteValidationError {
     MissingProviderEndpoint(crate::ProviderEndpointId),
     #[error("route target protocol is incompatible with its provider endpoint")]
     IncompatibleTargetProtocol(crate::ProviderEndpointId),
+    #[error(
+        "provider endpoint {endpoint:?} maps public model {public_model:?} to conflicting \
+         upstream models {first:?} and {second:?}"
+    )]
+    ConflictingUpstreamModel {
+        endpoint: String,
+        public_model: String,
+        first: String,
+        second: String,
+    },
+    #[error(
+        "provider endpoint {endpoint:?} publishes upstream model {upstream_model:?} as both \
+         {first:?} and {second:?}"
+    )]
+    ConflictingPublicModel {
+        endpoint: String,
+        upstream_model: String,
+        first: String,
+        second: String,
+    },
 }
 
 fn validate_targets(

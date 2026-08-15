@@ -10,6 +10,12 @@ import {
 type CredentialKind = "api_key";
 export const MAX_UPSTREAM_MODEL_NAME_CHARS = 255;
 
+export interface CredentialModelSelection {
+  upstreamModel: string;
+  /** 公开别名；null 表示公开名称与上游名一致。 */
+  publicModel: string | null;
+}
+
 export interface ProviderCredential {
   id: string;
   providerEndpointId: string;
@@ -23,7 +29,7 @@ export interface ProviderCredential {
   secretVersion: number;
   credentialGeneration: number;
   configVersion: number;
-  models: string[];
+  models: CredentialModelSelection[];
   runtime: CredentialRuntime;
   usage: RequestUsage;
 }
@@ -83,7 +89,7 @@ export interface ProviderCredentialTestResult {
 export interface ProviderCredentialModelsInput {
   expectedRevision: number;
   expectedConfigVersion: number;
-  models: string[];
+  models: CredentialModelSelection[];
 }
 
 export function parseProviderCredentialConfiguration(
@@ -181,7 +187,7 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     secretVersion: readPositiveInteger(value.secret_version),
     credentialGeneration: readPositiveInteger(value.credential_generation),
     configVersion: readPositiveInteger(value.config_version),
-    models: readModelNames(value.models),
+    models: readModelSelections(value.models),
     runtime: parseCredentialRuntime(value.runtime, "invalid provider credential response"),
     usage: parseRequestUsage(value.usage),
   };
@@ -241,19 +247,47 @@ function readModelNames(value: unknown): string[] {
   if (!Array.isArray(value)) {
     throw new Error("invalid provider credential response");
   }
-  const models = value.map((item) => readString(item));
-  if (
-    models.some(
-      (model) =>
-        model.trim() !== model || [...model].length > MAX_UPSTREAM_MODEL_NAME_CHARS,
-    )
-  ) {
-    throw new Error("invalid provider credential response");
-  }
+  const models = value.map((item) => readModelName(item));
   if (new Set(models).size !== models.length) {
     throw new Error("invalid provider credential response");
   }
   return models;
+}
+
+function readModelSelections(value: unknown): CredentialModelSelection[] {
+  if (!Array.isArray(value)) {
+    throw new Error("invalid provider credential response");
+  }
+  const models = value.map((item) => {
+    if (!isRecord(item)) {
+      throw new Error("invalid provider credential response");
+    }
+    const upstreamModel = readModelName(item.upstream_model);
+    const publicModel = item.public_model === null || item.public_model === undefined
+      ? null
+      : readModelName(item.public_model);
+    if (publicModel === upstreamModel) {
+      throw new Error("invalid provider credential response");
+    }
+    return { upstreamModel, publicModel };
+  });
+  const upstreamNames = models.map((model) => model.upstreamModel);
+  const publicNames = models.map((model) => model.publicModel ?? model.upstreamModel);
+  if (
+    new Set(upstreamNames).size !== models.length ||
+    new Set(publicNames).size !== models.length
+  ) {
+    throw new Error("invalid provider credential response");
+  }
+  return models;
+}
+
+function readModelName(value: unknown): string {
+  const model = readString(value);
+  if (model.trim() !== model || [...model].length > MAX_UPSTREAM_MODEL_NAME_CHARS) {
+    throw new Error("invalid provider credential response");
+  }
+  return model;
 }
 
 function readBoolean(value: unknown): boolean {

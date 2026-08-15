@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ModelAccess, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, PublicModelName, RateLimitMode, RequestsPerMinute, SettingKey, SettingValue,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, PublicModelName, RateLimitMode, RequestsPerMinute, SettingKey,
+    SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
@@ -207,7 +208,10 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
             credential.revision(),
             credential_id,
             1,
-            vec!["gpt-a".to_owned(), "gpt-z".to_owned()],
+            vec![
+                ProviderCredentialModel::new("gpt-a", None).expect("credential model"),
+                ProviderCredentialModel::new("gpt-z", None).expect("credential model"),
+            ],
         )
         .await
         .expect("models");

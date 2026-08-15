@@ -416,7 +416,7 @@ async fn select_models(
             Some(json!({
                 "expected_revision": revision + offset as u64,
                 "expected_config_version": config_version,
-                "models": [model]
+                "models": [{"upstream_model": model}]
             })),
             remote,
         )

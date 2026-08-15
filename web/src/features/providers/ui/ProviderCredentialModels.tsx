@@ -2,6 +2,7 @@ import { Check, Plus, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import type {
+  CredentialModelSelection,
   ProviderCredential,
   ProviderCredentialTestResult,
 } from "../api/provider-credential-contracts";
@@ -29,7 +30,7 @@ export function ProviderCredentialModels({
   saving: boolean;
   error: unknown;
   onDiscover: (manual?: boolean) => void;
-  onSave: (models: string[]) => Promise<void>;
+  onSave: (models: CredentialModelSelection[]) => Promise<void>;
   onClose: () => void;
 }) {
   const discovered = result?.models ?? EMPTY_MODELS;
@@ -97,7 +98,7 @@ export function ProviderCredentialModels({
         label="手动添加模型"
         htmlFor={customModelId}
         error={selection.customError}
-        hint="填写上游实际模型名；公开名称保持一致，不会创建别名。"
+        hint="填写上游实际模型名；勾选后可在列表中为其设置可选的公开名称（别名）。"
       >
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <input
@@ -150,35 +151,50 @@ export function ProviderCredentialModels({
         ) : (
           <div className="divide-y divide-subtle">
             {selection.visibleModels.map((model) => {
-              const saved = credential.models.includes(model);
+              const saved = selection.savedUpstreamModels.has(model);
               const returned = discovered.includes(model);
-              const manuallyAdded = selection.selected.has(model) && !saved && !returned;
+              const checked = selection.selected.has(model);
+              const manuallyAdded = checked && !saved && !returned;
               return (
-                <label
+                <div
                   key={model}
-                  className="flex cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-surface-hover"
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-surface-hover"
                 >
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-accent"
-                    aria-label={model}
-                    checked={selection.selected.has(model)}
-                    disabled={saving}
-                    onChange={() => selection.toggle(model)}
-                  />
-                  <span className="min-w-0 break-all font-mono text-[12px]">{model}</span>
-                  {saved && !returned ? (
-                    <span className="ml-auto shrink-0 text-[11px] text-warning">已保存</span>
-                  ) : manuallyAdded ? (
-                    <span className="ml-auto shrink-0 text-[11px] text-secondary">手动</span>
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-0.5">
+                    <input
+                      type="checkbox"
+                      className="size-4 shrink-0 accent-accent"
+                      aria-label={model}
+                      checked={checked}
+                      disabled={saving}
+                      onChange={() => selection.toggle(model)}
+                    />
+                    <span className="min-w-0 break-all font-mono text-[12px]">{model}</span>
+                    {saved && !returned ? (
+                      <span className="ml-auto shrink-0 text-[11px] text-warning">已保存</span>
+                    ) : manuallyAdded ? (
+                      <span className="ml-auto shrink-0 text-[11px] text-secondary">手动</span>
+                    ) : null}
+                  </label>
+                  {checked ? (
+                    <input
+                      className={controlClass(false, "h-7 w-36 shrink-0 font-mono")}
+                      value={selection.aliasFor(model)}
+                      placeholder="公开名称"
+                      aria-label={`${model} 的公开名称`}
+                      autoComplete="off"
+                      disabled={saving}
+                      onChange={(event) => selection.setAlias(model, event.target.value)}
+                    />
                   ) : null}
-                </label>
+                </div>
               );
             })}
           </div>
         )}
       </div>
 
+      {selection.selectionError ? <FormError>{selection.selectionError}</FormError> : null}
       {error ? <FormError>{getProviderErrorMessage(error)}</FormError> : null}
 
       <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
@@ -188,8 +204,8 @@ export function ProviderCredentialModels({
         <Button
           type="button"
           variant="primary"
-          disabled={saving}
-          onClick={() => void onSave(selection.selectedModels)}
+          disabled={saving || selection.selectionError !== undefined}
+          onClick={() => void onSave(selection.selectedEntries)}
         >
           保存
         </Button>

@@ -31,3 +31,4 @@
 "0030_add_request_log_cache_creation_tokens.sql" = "dca9c2118444a41756c4f264b706861910594da81d1c2fe2472d970547bbe431"
 "0031_add_oauth_account_proxy_selection.sql" = "a80b995ca1247c97affee91aa91ff50b4c335920a6b8f13f798bde5fff567758"
 "0032_add_alpha_search_operation.sql" = "4fe91204555085684fd8e75cc341e5b4e2a64c073ebb8670372c3272933b28b1"
+"0033_add_credential_public_model_alias.sql" = "86b7e1ee8a7a9c4baa898ac97398284a1e84a7644a83ca81b9f98ca0d90a63fd"

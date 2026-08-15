@@ -87,7 +87,10 @@ export function setProviderCredentialModels(
     body: {
       expected_revision: input.expectedRevision,
       expected_config_version: input.expectedConfigVersion,
-      models: input.models,
+      models: input.models.map((model) => ({
+        upstream_model: model.upstreamModel,
+        public_model: model.publicModel,
+      })),
     },
   }).then(parseProviderCredentialConfiguration);
 }
