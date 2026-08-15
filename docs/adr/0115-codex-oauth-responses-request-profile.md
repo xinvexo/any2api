@@ -24,7 +24,7 @@ Attempt 的 `serde_json::Value` 深拷贝，也不能就地修改共享请求，
 ## 决策
 
 1. `ProviderDriver` 增加接收 attempt-owned `Bytes` 的出站请求体准备钩子。Runtime 在 ProtocolExchange
-   已按实际模型生成 wire Body、但尚未执行 zstd 和 Transport I/O 时调用该钩子；默认实现原样返回同一
+   已按实际模型生成 wire Body、但尚未进入 Transport I/O 时调用该钩子；默认实现原样返回同一
    `Bytes`。中央 Runtime 不按 Provider 增加 `match`。
 2. Codex Driver 只在当前 Attempt 已选中 `OAuthAccount` 且实际上游操作精确为普通
    `ProtocolOperation::Responses` 时启用该 Profile。Codex API Key、Responses Compact、Chat

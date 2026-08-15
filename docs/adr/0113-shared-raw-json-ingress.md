@@ -13,8 +13,9 @@ ADR-0101 已经取消 Attempt 与 OAuth replan 对 `DecodedRequest` 的深拷贝
 数组与 Map 分配相对线协议字节的放大越明显；这种成本按活跃请求数线性增长，和高并发代理希望维持的
 小型每请求状态相冲突。
 
-当前首版公开模型名固定等于上游模型名，多数 Responses、Chat Completions、Messages 与 Images JSON
-请求又是同协议直通。为这些请求完整物化树，只为读取少量顶层路由字段并重新写回相同正文，没有必要。
+多数 Responses、Chat Completions、Messages 与 Images JSON 请求仍是同协议直通；公开模型名与上游
+模型名的可选映射在路由物化时完成，不要求入口 JSON 树参与别名解析。为这些请求完整物化树，只为
+读取少量顶层路由字段并重新写回相同正文，没有必要。
 显式 Responses → Chat Completions Bridge 确实需要结构化遍历，应只让选择该桥的请求承担该成本。
 
 ## 决策
@@ -27,8 +28,9 @@ ADR-0101 已经取消 Attempt 与 OAuth replan 对 `DecodedRequest` 的深拷贝
 3. 同协议编码时，如果最终上游模型等于入口模型、当前操作不需要删除 `stream` 且顶层字段名唯一，直接
    克隆共享 `Bytes` 句柄作为 Transport Body；该操作不复制正文。确实需要替换模型、删除字段或消除重复
    顶层字段时，只按顶层索引把未修改的原始字段片段写入一个新的有界 wire Body，禁止先物化完整树。
-   ADR-0115 登记的 Codex OAuth Responses 出站 Profile 在当前 Attempt 已选中后可以对 attempt-owned Body
-   再做一次借用式顶层改写；它不得修改或替换共享入口 payload。
+   已登记的 Provider Profile（当前包括 ADR-0115 的 Codex OAuth Responses 兼容变换和 ADR-0154 的
+   memory `prompt_cache_key` 派生）在当前 Attempt 已选中后可以对 attempt-owned Body 再做借用式顶层改写；
+   它们不得修改或替换共享入口 payload。
 4. Responses 可移植 item ID 归一化继续发生在路由前。实现使用 `RawValue` 增量扫描顶层 `input` 数组和每个
    item 的顶层 `type`/`id`；只有发现已知类型的非法字符串 ID 时才重建正文并删除该字段。未知 item、嵌套
    ID、非字符串 ID 和非数组 input 保持原样，禁止为归一化解析完整历史树。
@@ -43,7 +45,7 @@ ADR-0101 已经取消 Attempt 与 OAuth replan 对 `DecodedRequest` 的深拷贝
 - 非对象、非法 JSON、缺失/空模型、非法 stream 和已有 affinity 字段类型继续在入口以相同协议错误拒绝。
 - 同协议直通保留全部未知字段和原始嵌套值；通用协议层只允许模型替换、非流式 `stream` 删除与 Responses
   item ID 归一化。选中上游后只有独立 ADR 登记的 Provider Endpoint Profile 可以改写 attempt-owned
-  Body；当前唯一例外是 ADR-0115 的 Codex OAuth Responses Profile。
+  Body；当前例外由 ADR-0115 与 ADR-0154 明确定义。
 - 原始 Body 只由共享引用持有；Attempt、replan 与直接 ProtocolExchange 不得修改它。Provider Endpoint
   Profile 需要改写时生成新的 attempt-owned Body，后续 Attempt 仍从原始共享 payload 开始。
 - Bridge 物化只发生在已经选定的显式跨协议路径，不能反向让所有直通候选预付结构化内存。

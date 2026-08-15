@@ -6,9 +6,9 @@
 
 ## 背景
 
-ADR-0127 为了统一普通 Reqwest 与 pinned Hyper 的响应解码，要求 Transport 在每个请求上强制覆盖 `Accept-Encoding: gzip, br, zstd`。这解决了压缩响应进入 JSON/SSE decoder 的问题，但也给所有 data、OAuth 和诊断 surface 增加了客户端未必发送的固定线路特征。实际同方言请求已经保留鉴权剥离后的客户端 Header，强制生成一套新协商值既不是透明代理，也不是 Provider 必需契约。
-
-响应解码能力和请求协商所有权是两个不同问题。any2api 必须继续解码自己能够理解的压缩响应，因为 SSE、错误分类、模型恢复和遥测都需要读取内容；这不要求网关替客户端主动声明固定压缩偏好。
+响应解码能力和请求协商所有权是两个不同问题。any2api 必须继续解码自己能够理解的压缩响应，因为
+SSE、错误分类、模型恢复和遥测都需要读取内容；这不要求网关替客户端主动声明固定压缩偏好。当前
+Transport profile 不生成固定协商值，只有同方言且本地能够解码的客户端偏好才进入上游请求。
 
 ## 决策
 
@@ -19,7 +19,8 @@ ADR-0127 为了统一普通 Reqwest 与 pinned Hyper 的响应解码，要求 Tr
 5. 响应 Content-Encoding 继续由 ADR-0127 的统一边界拥有。普通与 pinned Client 无论请求是否声明 `Accept-Encoding`，都解码受支持的响应编码并同步删除失效表示元数据；未知、损坏和过深编码链仍 Fail-Closed。
 6. `Accept-Encoding` 仍在 Provider 通用 Header 投影禁用列表内，避免 Provider 白名单、凭据 Header 或桥接逻辑重复拥有它。唯一复制点位于 Runtime 完成协议、Provider 和凭据 Header 合并之后，唯一校验点位于 Transport 发送之前。
 
-本决策局部取代 ADR-0127 的“Transport 固定覆盖请求 Accept-Encoding”条款，不改变其响应解码、错误归因和透明正文规则。
+响应解码、错误归因和透明正文规则由 ADR-0127 定义；本 ADR 只定义请求侧 `Accept-Encoding` 的
+透传条件和唯一拥有者。
 
 ## 后果
 

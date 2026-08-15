@@ -32,8 +32,9 @@ IP 信誉或边缘访问策略产生；无论 OAuthAccount 跟随 OAuth 默认�
 6. 管理 API 分别返回 `oauth_account_restricted`、`oauth_provider_egress_restricted` 和
    `oauth_quota_upstream_failed`。Web 文案必须分别描述账号限制、当前账号的 OAuth 出口拒绝和未知上游失败，
    不得使用“限制或封禁”覆盖多个原因。
-7. “删除失效账号”仍只接受 `oauth_account_authentication_failed`。账号限制、出口拒绝、未分类 `403`、
-   刷新无法确认和其他额度错误都不是删除候选。
+7. “删除失效账号”只接受 `oauth_refresh_token_missing`、`oauth_refresh_permanently_rejected` 或
+   `oauth_refreshed_access_token_rejected`，并要求诊断明确带有 `reauthorization_required=true`。账号限制、出口拒绝、
+   未分类 `403`、刷新无法确认和其他额度错误都不是删除候选。
 
 ## 后果
 

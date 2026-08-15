@@ -1,6 +1,6 @@
 //! Local capacity estimation for OAuth quota windows.
 //!
-//! Premise (ADR-0144): an OAuth account managed by any2api is consumed
+//! Premise (ADR-0146): an OAuth account managed by any2api is consumed
 //! exclusively through any2api, so the local RequestLog stream is the
 //! complete consumption record. Between two official snapshots,
 //! `capacity = local_cost × 100 / Δused%` measures the account's absolute

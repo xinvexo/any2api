@@ -3,17 +3,17 @@
 - 状态：Accepted
 - 日期：2026-07-30
 - 决策人：项目维护者
-- 修订：ADR-0036、ADR-0045、ADR-0046、ADR-0060、ADR-0106、ADR-0111
+- 相关决策：ADR-0036、ADR-0045、ADR-0046、ADR-0106、ADR-0111、ADR-0137
 
 ## 背景
 
 额度管理请求遇到 401 时会刷新 Token 后重试。原实现把刷新端点所有非 2xx 响应体丢弃，因此 OAuth 标准的 `invalid_grant` 与网络或 5xx 故障都被折叠成“认证无法确认”，管理面的“删除失效账号”无法删除已经明确失效的账号。
 
-额度结果原本只用于展示。即使 Codex 返回 `allowed=false`、`limit_reached=true`，或 Grok 真实数据面明确耗尽并提供可验证的 Token actual/limit，同一账号在短期冷却后仍会重新进入路由候选，持续产生已知无效请求。ADR-0106 已废止为了主动取得 Header 而发送生成请求的管理额度探测。
+额度健康只接受 Provider 明确的账号级证据。Codex 的 `allowed=false`、`limit_reached=true`，以及 Grok 数据面明确耗尽并提供可验证 Token actual/limit 时，账号在短期冷却内不得重新进入路由候选；管理额度查询仍只执行已审计的只读端点。
 
 ## 决策
 
-1. Provider Driver 对刷新端点的有界结构化错误 envelope 分类。前一 access token 已经被 401 拒绝后，下列情形返回 `oauth_account_authentication_failed`：刷新成功后再次 401；账号没有 refresh token；刷新端点返回明确永久失效码。通用分类至少识别标准 `invalid_grant`；Codex 额外识别官方的 `refresh_token_expired`、`refresh_token_reused` 与 `refresh_token_invalidated`。禁止递归扫描任意 JSON 值或依赖自然语言消息。
+1. Provider Driver 对刷新端点的有界结构化错误 envelope 分类。前一 access token 已经被 401 拒绝后，账号没有 refresh token、刷新端点返回明确永久失效码，或新 access token 在同次认证操作中再次收到 401 时，分别返回 `oauth_refresh_token_missing`、`oauth_refresh_permanently_rejected` 或 `oauth_refreshed_access_token_rejected`，并设置 `reauthorization_required=true`。通用分类至少识别标准 `invalid_grant`；Codex 额外识别官方的 `refresh_token_expired`、`refresh_token_reused` 与 `refresh_token_invalidated`。禁止递归扫描任意 JSON 值或依赖自然语言消息。
 2. 刷新网络错误、超时、5xx、响应超限、畸形或未知错误码仍返回 `oauth_account_authentication_unverified`。这些账号不得进入批量删除候选。
 3. Runtime 按账号与 `token_version` 在进程内记住结构化永久拒绝；同一 Token 版本后续由定时 Worker、额度 401 或数据面 401 触发时直接复用永久结论，不再向刷新端点重放 refresh token。Token 版本变化或账号删除后记录失效，进程重启不恢复。
 4. “删除失效账号”继续由前端复用逐账号实时诊断、重新读取安全元数据、核对 `token_version` 并串行调用现有 DELETE；不新增批量删除端点，不下发 OAuth JSON。

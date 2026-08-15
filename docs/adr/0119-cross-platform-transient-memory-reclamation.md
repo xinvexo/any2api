@@ -24,9 +24,9 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
 ## 决策
 
 1. 保留平台系统分配器，不提供 allocator、arena、THP、进程 RSS 或按服务器规格调整的运行参数。
-2. 新增独立 `payload-buffer` 基础 crate。公共请求多块聚合、zstd 解压与重压缩、Codex OAuth Endpoint
-   Profile 正文规范化、Images multipart 重编码、buffered 上游成功响应和 HTTP 请求/响应 Body 前缀捕获
-   统一使用它：小于 `256 KiB` 时使用普通 `Vec`；达到该阈值后把现有内容移动到匿名私有映射，后续扩容
+2. 新增独立 `payload-buffer` 基础 crate。公共请求多块聚合、zstd 解压、Images multipart 重编码、
+   Provider/Protocol identity JSON 编码、buffered 上游成功响应和 HTTP 请求/响应 Body 前缀捕获统一
+   使用它：小于 `256 KiB` 时使用普通 `Vec`；达到该阈值后把现有内容移动到匿名私有映射，后续扩容
    继续替换映射。它同时提供普通增量追加和 `std::io::Write` 边界，使解码器、压缩器与序列化器可以直接
    写入最终存储。最终 `Bytes` 直接拥有 Vec 或映射，最后一个所有者 Drop 时大映射立即由操作系统解除，
    不依赖通用堆清理 arena；已经由网络栈提供的单块共享 `Bytes` 仍保持零拷贝路径。
@@ -64,7 +64,7 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
 
 ## 后果
 
-- 大请求、zstd 变换、Provider/multipart 正文改写、buffered 响应和原始 HTTP 捕获不再把主要短命工作集
+- 大请求、入口 zstd 解压、Provider/multipart 正文改写、buffered 响应和原始 HTTP 捕获不再把主要短命工作集
   留给通用堆；日志仍会增加必要的实时工作集和 SQLite 磁盘占用，但不再被误认为永久存活的全量内存日志。
 - 直通 JSON 响应不会再为输出文本、图片 base64 或未知大字段建立第二棵堆对象树；语法错误、usage 统计、
   Continuation 身份和公开模型名改写语义保持不变。跨协议转换仍承担必要的结构化分配。
@@ -86,7 +86,7 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
   空闲检查时只触发一次。
 - Storage 测试固定读池 idle timeout 与写池单连接不变量。
 - Protocol 测试证明 direct decode 校验完整 JSON、只保留 wire body、从 raw body 提取 usage/Continuation ID，
-  而 Bridge decode 仍提供完整结构并通过既有转换契约；zstd、Codex OAuth Profile 与 multipart 的大输出
+  而 Bridge decode 仍提供完整结构并通过既有转换契约；入口 zstd、identity JSON 与 multipart 的大输出
   测试证明序列化结果正确且最终所有权进入映射。
 - Linux AMD64 GNU、macOS ARM64 与 Windows x86_64 构建完整链接；Linux/macOS 隔离压测使用相同 16 并发、
   每侧约 2 MiB 的请求/响应，并分别验证系统日志关闭和开启后的峰值与空闲 RSS。

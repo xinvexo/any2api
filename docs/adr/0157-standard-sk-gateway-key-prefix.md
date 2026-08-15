@@ -1,9 +1,9 @@
-# ADR-0135：GatewayApiKey 使用标准 `sk-` 前缀
+# ADR-0157：GatewayApiKey 使用标准 `sk-` 前缀
 
 - 状态：Accepted
 - 日期：2026-08-11
 - 决策人：maintainer
-- 修订：ADR-0006、GatewayApiKey 第 9.7 节
+- 相关决策：ADR-0006、ARCHITECTURE.md 第 9.8 节
 
 ## 背景
 
@@ -22,9 +22,9 @@ any2api 的本地 `GatewayApiKey` 原来使用 `a2k_v1_` 前缀。部分 OpenAI/
 2. 当前运行时只接受 `sk-` 形状。旧 `a2k_v1_` token 不在认证入口提供双轨兼容，
    避免当前 Secret 格式继续分叉。
 3. 新增 Migration 0020 重建 `gateway_api_keys` 的 CHECK 约束。若数据库中存在旧
-   `a2k_v1_` 记录，Migration 在任何 DDL 或数据修改前 fail-closed；管理员必须显式
-   删除旧记录或重新初始化数据库后再生成 `sk-` Key。迁移不自动改写、合并或保留旧
-   token，也不改变 Gateway Key 与上游凭据的隔离关系。
+   `a2k_v1_` 记录，Migration 在任何 DDL 或数据修改前 fail-closed；管理员必须先
+   显式删除旧记录或重新初始化数据库后再生成 `sk-` Key。迁移不自动改写、合并或
+   保留旧 token，也不改变 Gateway Key 与上游凭据的隔离关系。
 4. `PublishedSnapshot` 入口先执行当前 `sk-` 格式校验；旧前缀不会作为客户端 token
    被重新接受。
 5. Web 契约解析器、Rust domain/storage/runtime 契约测试和内嵌资源必须同步使用

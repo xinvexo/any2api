@@ -23,8 +23,8 @@ Images 必须继续经过统一鉴权、模型路由、RPM、代理、健康、�
 8. Images 的等待响应头、buffered body 空闲、流式首事件、提交后流空闲和提交前绝对预算取当前设置与 `180s` 的较大值。常量集中在单一 execution limits 模块；Provider、Server 和 Transport 不各自复制数字。
 9. 普通 JSON 成功响应解析 usage，并像其他 OpenAI Adapter 一样只恢复顶层已知 `model` 为公开模型名；无需改写时保留上游 wire bytes。SSE 事件保留原始事件名与 base64 字段，只改写已知模型字段，并从 `image_generation.completed` 和 `image_edit.completed` 提取 `input_tokens`、`output_tokens`，不把图片事件标记为文本 content delta。最终上游非 2xx 响应仍透明返回状态、允许 Header 和有界正文。
 10. 首版不实现 `/v1/images/variations`、Files API、Responses 图片工具桥接或管理 Web 图片工作台。
-11. 进程内唯一的 `PublicRequestService` 持有固定 `256 MiB` 公开请求内存预算。HTTP 聚合前按端点最大 Body 的 `4x` 权重预留，聚合后按实际 Body 缩减；协议解码后、Route/RPM/上游 I/O 前，再调整为 `max(4 × 实际 Body, 实际 Body + 3 × 响应硬上限)`。准入失败返回带短 Retry-After 的本地 `429`，不预留 RPM、不选择 Credential。Permit 随 buffered `Bytes` owner 或流式 Body 持有，直到完成、错误、断连、取消或 Drop；zstd 解压等不可取消的 blocking 工作由任务本身持有 Permit，客户端取消不得提前归还容量。该预算不参与 Credential 排序，也不增加可配置并发限制。
-12. multipart 首版仍完整缓冲以支持结构化校验、模型替换和安全重试，但解析时复用单分片 `Bytes`，重编码前精确预估输出容量，避免可消除的整包中间复制。若未来要支持超过当前硬上限的媒体，迁移边界是 Transport 与协议 payload 共同支持可重放的临时文件/流式 multipart，而不是再次放大内存上限。
+11. 公开请求不设置进程级总内存预算、加权内存 Semaphore、Permit 或基于预计工作集的本地 `429`。Body、buffered 响应和 SSE 只执行各自的单对象硬上限；实际工作集按真实对象所有权释放，不参与 Credential 选择或 RPM 准入。
+12. multipart 首版仍完整缓冲以支持结构化校验、模型替换和安全重试，但解析时复用单分片 `Bytes`，重编码时按实际写入增长，避免可消除的整包中间复制。若未来要支持超过当前硬上限的媒体，迁移边界是 Transport 与协议 payload 共同支持可重放的临时文件/流式 multipart，而不是增加全局内存门槛。
 
 ## 备选方案
 
@@ -37,7 +37,7 @@ Images 必须继续经过统一鉴权、模型路由、RPM、代理、健康、�
 ## 后果
 
 - 标准 OpenAI 客户端可通过 any2api 生成和编辑图片，并继续得到统一的凭据调度、代理与可观测性。
-- 编辑请求仍被完整缓冲以支持重试与模型替换，但 `64 MiB` 单请求上限、`4x` 解析权重和固定 `256 MiB` 共享预算保证合法并发请求不能无界叠加媒体缓冲；最大编辑上传会独占该预算。
+- 编辑请求仍被完整缓冲以支持重试与模型替换，但 `64 MiB` 单请求上限和真实对象生命周期限制单个请求的媒体缓冲；不设置与请求数量无关的全局内存门槛。
 - ProtocolAdapter 的 ingress decode 是异步边界，所有 Adapter、fake 和契约测试遵守同一接口。
 - 文本链路的默认缓冲与超时保持不变。
 
@@ -46,12 +46,10 @@ Images 必须继续经过统一鉴权、模型路由、RPM、代理、健康、�
 - Domain/Storage 测试覆盖方言、操作稳定值和规范首版 Schema 对 Images 值的接受。
 - Protocol 测试覆盖生成 JSON、编辑 JSON、multipart 多文件、模型替换、未知字段/Part 保留、畸形 boundary、缺失/重复 model、ASCII 与 Unicode 首尾空白规范化、纯 Unicode 空白拒绝、stream、普通 usage、两类完成事件 usage，以及 JSON/multipart 请求忽略会话标识。
 - Provider 契约覆盖 Codex API Key 能力和两个固定路径，并确认 Codex OAuth、Claude、Grok 不产生 Images 候选。
-- HTTP 契约使用本地上游覆盖生成/编辑 JSON、multipart、SSE、Gateway Key 剥离、Unicode 空白 model 使用规范名称路由、重复 model 在上游 I/O 前拒绝、模型改写、忽略会话标识并继续 Credential 轮询、错误透明返回、普通 `32 MiB` 与 Images `64 MiB` 请求边界、Images 大 JSON/SSE 响应和 `180s` 预算选择；并覆盖并发聚合共享固定预算、容量不足不进入执行、取消后释放。
+- HTTP 契约使用本地上游覆盖生成/编辑 JSON、multipart、SSE、Gateway Key 剥离、Unicode 空白 model 使用规范名称路由、重复 model 在上游 I/O 前拒绝、模型改写、忽略会话标识并继续 Credential 轮询、错误透明返回、普通 `32 MiB` 与 Images `64 MiB` 请求边界、Images 大 JSON/SSE 响应和 `180s` 预算选择；并覆盖实际对象在取消后释放。
 - 提交前运行相关 fmt、clippy、Rust 单元/契约测试、前端 typecheck/lint/build 与 embedded 资源校验。
 
-本决策与 ADR-0049 的全局模型允许列表、ADR-0061 的上游错误透明返回和 ADR-0062 的统一固定会话绑定共同生效。
+本决策与 ADR-0073 的公开模型允许列表、ADR-0061 的上游错误透明返回和 ADR-0062 的统一固定会话绑定共同生效。
 
 本 ADR 中“Images 不注册跨协议 Bridge”的范围已由 ADR-0117 扩展为 generation-only、buffered-only 的
 Images → Chat Completions 兼容桥；原生 Images 直通、edits、SSE 与媒体缓冲边界保持不变。
-
-其中第 11 条的进程级固定内存预算、`4x` 权重、执行阶段响应预留和 Permit 生命周期已由 ADR-0082 取代；单请求 Body、buffered 响应、SSE 帧硬上限和逐块聚合继续生效。

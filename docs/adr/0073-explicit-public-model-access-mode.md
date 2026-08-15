@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-0049 encoded both "allow every published model" and an empty exact allowlist as `[]`. The Web control therefore had to turn deselecting the final model back into "allow all", making it impossible for an administrator to publish no models. The two administrator intents must have distinct persisted values and must remain distinct after route pruning.
+The public model policy must distinguish "allow every published model" from an empty exact allowlist. The Web control must preserve both administrator intents after route pruning, including the explicit choice to publish no models.
 
 ## Decision
 

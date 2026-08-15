@@ -37,7 +37,7 @@
 ## 验证
 
 - Server/契约测试覆盖任意 Body 分块、普通 `32 MiB` 与 Images Edit `64 MiB` 操作上限、Images Generation 仍使用普通上限、一个已聚合到 `64 MiB` 且仍 Pending 的请求不阻塞并发小请求，以及取消后真实 Body 所有权释放；这些边界必须由显式 `collect_body` 路径独立成立。
-- zstd 测试覆盖有效输入、损坏输入、增量输出和解压后超过 `32 MiB` 返回 `413`；并发测试固定最多 2 个 closure 同时开始，取消等待者不会事后启动，已开始任务在 HTTP waiter 取消及 Forced shutdown 后仍由 TaskTracker 跟踪并持有许可直到返回；公开代理契约继续覆盖解压、模型改写与上游重新压缩。
+- zstd 测试覆盖有效输入、损坏输入、增量输出和解压后超过 `32 MiB` 返回 `413`；并发测试固定最多 2 个 closure 同时开始，取消等待者不会事后启动，已开始任务在 HTTP waiter 取消及 Forced shutdown 后仍由 TaskTracker 跟踪并持有许可直到返回；公开代理契约继续覆盖入口解压、模型改写与 identity 上游正文。
 - Runtime 与 HTTP 契约不再包含内存容量 429、Permit 扩缩或响应 Guard 测试；既有 buffered/SSE 实际硬上限、流式 EOF/错误/断连/Drop 和上游取消测试继续通过。
 
 本 ADR 取代 ADR-0054 第 11 条的全局内存预算，并取代 ADR-0076 的 Continuation 在途工作集 Permit；两份 ADR 的单对象硬上限与其余协议语义继续生效。

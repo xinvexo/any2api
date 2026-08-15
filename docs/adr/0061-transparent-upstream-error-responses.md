@@ -4,8 +4,6 @@
 - 日期：2026-07-28
 - 决策者：maintainer
 
-> 2026-08-10：ADR-0127 局部取代“保留压缩错误表示与 `Content-Encoding`”的决定。Transport 主动协商压缩后会对所有状态统一解码；最终错误仍透明返回上游状态和解码后的原始内容字节，不做 JSON 重序列化。
-
 ## 背景
 
 上游 HTTP 状态、正文和允许的响应 Header 是 Provider 的公开错误契约。any2api 的内部分类只服务
@@ -17,13 +15,13 @@
 - 只有 any2api 自己产生的错误使用 `PublicError` 与入口 `ProtocolAdapter::error_response`。其中包括
   网关鉴权、请求解码、模型/路由、队列、Transport、超时和内部编码失败。
 - 真正收到的最终上游非 2xx 绕过 `PublicError` 与协议错误适配器。Runtime 原样返回上游状态码和在
-  64 KiB 安全上限内完整收集的正文，只合并 Provider 白名单与通用安全清理后的响应 Header。
+  64 KiB 安全上限内完整收集的正文，只合并 Provider 白名单与通用安全清理后的响应 Header；响应
+  Content-Encoding 由 ADR-0127 在交给 Runtime 前统一增量解码。
 - Runtime 不根据分类或入口协议重建、补充或替换上游 `type`、`code`、`message`；该规则同样适用于
   跨协议桥。只有实际结束请求的最终 Attempt 可以返回，被重试或切换掉的响应全部丢弃。
 - 错误正文若超限、读取超时或中途断开，仍保留已收到的上游状态与安全 Header，但正文为空；不得
-  用固定摘要或新的本地 envelope 冒充上游内容。
-- 完整原始正文同时保留 Provider 白名单内的 `Content-Type` 和 `Content-Encoding`，使压缩错误正文
-  仍可由客户端按上游语义解码；正文被丢弃为空时同步删除 `Content-Encoding`，禁止留下失配元数据。
+  用固定摘要或新的本地 envelope 冒充上游内容。解码后的正文保持原始字节，不做 JSON 重序列化，
+  且不把失配的 `Content-Encoding` 交给客户端。
 - `ProviderDriver::classify_error` 继续产生不可见的机器分类，并可从 Provider 已声明 envelope 提取
   原始 `message`。机器分类只参与运行时决策；原始 message 只进入有界 RequestLog/RequestAttempt
   管理展示，不从任意 JSON 字段猜测，也不把完整正文写入 SQLite。

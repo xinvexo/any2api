@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-24
 - 决策者：maintainer
-- 部分修订：ADR-0111
+- 相关决策：ADR-0111、ADR-0146
 
 ## 背景
 
@@ -21,7 +21,7 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 - 重置与额度 refresh 共用 OAuthAccount 级操作门闩。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才调用 consume；不相信客户端提交的次数。Web 在用户确认时生成 UUID v4 `redeem_request_id`，失败后的同次重试继续复用且不写浏览器持久存储；Server 只接受合法 UUID，Runtime 在额度复核、401 后重试和 consume 中始终透传同一个值，使上游可以幂等识别浏览器超时后的重复提交。
 - consume 成功且响应确认至少重置一个窗口后，清除该账号当前运行代际的 credential/model 临时冷却并推进 scheduler epoch。认证错误、Endpoint/Proxy 状态和其他账号不受影响。
 - 管理 DTO 使用通用窗口列表，只返回安全窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数。最后一次成功快照按 ADR-0111 写入独立 SQLite 表，但不写 OAuth Provider JSON、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储，也不用于恢复路由健康。
-- Web 先读取持久化快照并允许显式刷新；只有最新成功查询确认可用次数大于 0 时启用重置，确认框明确提示会消耗一次，成功后删除重置前快照、清除本次幂等键并立即重新查询。额度 refresh/reset 由服务端分阶段读取超时约束，浏览器不得用通用 10 秒 deadline 提前制造结果不确定状态。
+- Web 先读取持久化快照并允许显式刷新；只有最新成功查询确认可用次数大于 0 时启用重置，确认框明确提示会消耗一次。成功后清除本次幂等键并立即重新查询；重新查询成功才替换展示快照，失败时保留此前最后一次成功快照并标记抓取失败。额度 refresh/reset 由服务端分阶段读取超时约束，浏览器不得用通用 10 秒 deadline 提前制造结果不确定状态。
 
 ## 备选方案
 

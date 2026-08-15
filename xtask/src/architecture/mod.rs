@@ -1,5 +1,6 @@
 mod configuration_publish_path;
 mod crate_dependencies;
+mod decision_records;
 mod migration_history;
 mod official_client_baselines;
 mod source_size;
@@ -14,6 +15,7 @@ pub(crate) fn run() -> Result<()> {
 
     crate_dependencies::check(&workspace)?;
     configuration_publish_path::check(&workspace)?;
+    decision_records::check(&workspace)?;
     migration_history::check(&workspace)?;
     official_client_baselines::check(&workspace)?;
     source_size::check(&workspace)?;

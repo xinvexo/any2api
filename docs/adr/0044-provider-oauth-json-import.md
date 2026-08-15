@@ -18,7 +18,7 @@ any2api 已能通过交互式登录创建 Codex、Claude 和 Grok `OAuthAccount`
 3. Provider Driver 负责识别和解析自己的外部账号结构。跨 Provider 基础设施只展开文件 envelope、枚举已注册 Driver 并拒绝无法识别或多重识别的条目；中央调度器和 Server Handler 不按 Provider 增长 `match`。
 4. 外部对象只提取 Token、账号身份、安全邮箱、绝对过期时间和可见标签。Sub2API 的代理、并发、优先级、分组、费率、运营扩展和非 OAuth 账号不进入 any2api。解析结果立即序列化为 ADR-0112 定义的唯一 any2api OAuthAccount JSON；未知字段、字段别名和外部 wrapper 不进入 SQLite 或运行时读取路径。
 5. 整次 HTTP 请求是 all-or-nothing：所有文件和账号先完成大小、数量、JSON、Provider、Token、路由目录与领域校验；随后在一个 `BEGIN IMMEDIATE` 事务中创建全部 `OAuthAccount` 和默认模型集合，只增加一次 config revision。Commit 后执行一次 Runtime reconcile 和一次 `ArcSwap<PublishedSnapshot>`。
-6. 导入账号默认启用、RPM 不限、固定绑定 DIRECT 并选择 Provider OAuth 默认模型。标签优先使用来源名称或安全邮箱，并在发布锁内针对当前 Provider 生成唯一后缀；导入不覆盖、合并或更新既有账号。ADR-0133 进一步要求在同一发布锁内拒绝与当前账号或同批输入可证明重复的 Provider 身份，或同一 Provider 下任一完全相同的 access/refresh/ID Token，冲突整批回滚；这不是覆盖或合并。
+6. 导入账号默认启用、RPM 不限、代理选择为 OAuth 默认出口 `Global`，并选择 Provider OAuth 默认模型。标签优先使用来源名称或安全邮箱，并在发布锁内针对当前 Provider 生成唯一后缀；导入不覆盖、合并或更新既有账号。账号若需固定本机直连或指定代理，管理员在导入后显式编辑其代理 Profile。ADR-0133 进一步要求在同一发布锁内拒绝与当前账号或同批输入可证明重复的 Provider 身份，或同一 Provider 下任一完全相同的 access/refresh/ID Token，冲突整批回滚；这不是覆盖或合并。
 7. 响应只返回导入数量、新 revision 和新账号的安全元数据。错误只包含文件/账号序号和稳定错误分类，不回显文件名、JSON、Token 或 Provider 原始错误正文。
 8. 上传边界固定为最多 32 个文件、单文件 2 MiB、请求总文件内容 8 MiB、最多 2,000 个账号。任一边界超限时整批拒绝。前端文件只保存在导入抽屉的局部组件状态，提交完成、失败、关闭或卸载时清空，不进入 React Query、Mutation Cache、URL、localStorage 或 sessionStorage。
 9. 本功能不增加 OAuth JSON 的读取、下载、导出、通用 Secret 导入或 ProviderCredential 导入，也不改变 OAuthAccount 与 API Key 只在 `RoutingCredential` 投影合流的边界。

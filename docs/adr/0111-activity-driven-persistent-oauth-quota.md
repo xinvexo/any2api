@@ -19,9 +19,9 @@
 4. 真实公共请求选中 OAuthAccount 且 Attempt 已经进入 Transport 后，在该 Attempt 的 buffered 结算或 streaming EOF、错误、断连、Drop 时记录一次账号活动。候选选择失败、RPM 预留失败、请求编码失败和其他尚未进入上游网络的本地失败不得触发额度刷新。
 5. 活动刷新由单个生命周期受管 Worker 合并。账号首次活动使用短 debounce，连续活动不无限推迟首次刷新；每个账号受最小自动刷新间隔约束，固定并发上限为 6。刷新进行中出现新活动时最多保留一个后续刷新。失败不按固定周期重试，只保留旧快照；只有新的真实账号活动才再次调度。没有待处理活动时 Worker 不启动轮询或扫描 SQLite/账号列表，进程启动也不为历史账号建立定时任务。
 6. 管理额度查询和 reset 是管理面 Provider 操作，不进入数据面 Route 选择，也不预留该账号配置的本地数据面 RPM。Refresh singleflight 与 reset 共用账号级操作门闩：reset 必须等待较早 refresh 完成后重新查询，reset 进行时到达的 refresh 必须在 reset 完成后重新查询，防止旧快照回流。它们仍受账号保存的代理选择、严格 SSRF、有界正文、读取超时以及活动 Worker 的并发和最小间隔保护。这样自动刷新不会因为刚完成的数据面请求已经占用 RPM 而必然失败，也不会释放或伪造任何数据面 RPM 名额。
-7. 单节点内账号级操作门闩定义成功额度观测的提交顺序，SQLite upsert 无条件保存后完成的查询。`fetched_at` 只用于展示抓取时间，不参与新旧比较，因此同一秒内的刷新和系统时钟回拨都不会拒绝当前结果。每次成功 upsert 或 reset 后的快照删除都推进进程内 quota change epoch。受认证的 `GET /api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 失效事件和 keepalive，不携带账号、额度或原始响应，也不持久化或回放。新连接先发送当前 epoch；Web 只使活动的额度缓存失效并重新执行 SQLite GET，不由 SSE 直接访问 Provider。
+7. 单节点内账号级操作门闩定义成功额度观测的提交顺序，SQLite upsert 无条件保存后完成的查询。`fetched_at` 只用于展示抓取时间，不参与新旧比较，因此同一秒内的刷新和系统时钟回拨都不会拒绝当前结果。每次成功 upsert 都推进进程内 quota change epoch；reset 成功不删除现有快照，后续权威 refresh 成功后再以新结果替换。受认证的 `GET /api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 失效事件和 keepalive，不携带账号、额度或原始响应，也不持久化或回放。新连接先发送当前 epoch；Web 只使活动的额度缓存失效并重新执行 SQLite GET，不由 SSE 直接访问 Provider。
 8. Web 账号卡片挂载后立即读取缓存 GET，因而页面刷新或新浏览器可显示最后一次成功结果及抓取时间。单账号、“刷新全部额度”、失效账号实时诊断和 reset 后刷新统一调用 POST refresh；前端 Query cache 仍只存在于当前浏览器内存，不写 localStorage/sessionStorage。初始读取、SSE 和自动刷新不弹成功通知。
-9. Codex reset 成功后删除重置前快照并发出失效事件，再由 Web 执行一次权威 refresh。若刷新失败，界面显示无当前快照而不是继续展示重置前结果。账号删除依赖外键级联清除快照。
+9. Codex reset 成功后保留重置前的最后一次成功快照，并由 Web 执行一次权威 refresh；refresh 成功才替换快照，失败时继续展示此前结果并标记本次刷新失败。账号删除依赖外键级联清除快照。
 
 自动刷新只覆盖当前具有 Provider 权威 quota 查询能力的 OAuthAccount。ProviderCredential API Key 没有统一、可靠的额度读取契约，不用本地请求日志或 Token 计数伪造余额。
 
@@ -46,4 +46,4 @@
 - Storage/Runtime 测试覆盖版本化编解码、大小上限、时钟回拨仍由后提交结果覆盖、最后成功快照保留、并发 refresh singleflight、refresh/reset 排序、手动刷新写入确认、缓存读取不更新健康和 reset 后删除。
 - Worker 测试覆盖无活动不查询、同账号突发合并、最小间隔、跨账号并发上限、失败只在后续活动重试，以及 streaming EOF/错误/Drop 只记录一次活动。
 - HTTP 契约覆盖 GET 不访问上游、POST refresh 持久化后可由新请求读取、SSE 鉴权/初始 epoch/变更通知和 DTO 脱敏。
-- Web 测试覆盖初始持久化快照、抓取时间、手动/批量 POST refresh、SSE 只重读缓存、reset 清空旧快照和无成功通知。
+- Web 测试覆盖初始持久化快照、抓取时间、手动/批量 POST refresh、SSE 只重读缓存、reset 后保留旧快照并用成功 refresh 替换，以及无成功通知。

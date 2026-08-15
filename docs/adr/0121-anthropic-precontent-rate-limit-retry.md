@@ -4,6 +4,7 @@
 - 日期：2026-08-06
 - 决策者：maintainer
 - 修订：ADR-0118、ADR-0120
+- 相关决策：ADR-0136
 
 ## 背景
 
@@ -36,12 +37,12 @@ Anthropic 线协议精确声明、且在任何语义事件前出现的窄化拒�
    继续复用总尝试数、Credential 切换数、绝对 deadline、RPM 预留和取消语义。它不是固定并发限制、
    全局信号量或机器规格相关准入。
 4. 已建立会话绑定的请求不得切换 Credential。该请求只能按绑定规则重试原 Credential（若预算和
-   RetrySafety 允许），或在预算耗尽时返回入口协议的本地上游错误；不会因为流式限流降低粘性强度。
+   RetrySafety 允许），或在预算耗尽时返回最后一次真实拒绝的入口协议状态与帧；不会因为流式限流降低粘性强度。
 5. 该拒绝证明当前代理和 Endpoint 已成功返回协议响应，因此不惩罚共享 Endpoint、Proxy 或 EgressPath
    健康状态；只在当前请求排除失败 Credential-Model。其他请求仍可使用该 Endpoint 和代理。
-6. 如果所有候选都耗尽或预算结束，仍在 Pending 时返回既有本地上游失败；不得向客户端伪造 HTTP 200
-   成功流。若任何语义事件、响应头或字节已经提交，`rate_limit_error` 与其他流内错误一样只终止当前
-   Body，永久禁止切换。
+6. 如果所有候选都耗尽或预算结束，仍在 Pending 时返回最后一次真实拒绝的状态、Header 和帧；不得向客户端
+   伪造 HTTP 200 成功流。若任何语义事件、响应头或字节已经提交，`rate_limit_error` 与其他流内错误一样只
+   终止当前 Body，永久禁止切换。
 7. 非流式 HTTP 429 的既有 Provider 错误分类和 `credential_model` 重选路径保持不变；本 ADR 只补齐
    Anthropic SSE 的等价协议表达，禁止在 Runtime 中增加按 Provider 增长的中央分支。
 
@@ -61,6 +62,6 @@ Anthropic 线协议精确声明、且在任何语义事件前出现的窄化拒�
 - Runtime 流式测试：`ping` → `rate_limit_error` → 第二候选成功时，只向客户端交付第二条完整流，第一条
   Attempt 记录为 `RejectedBeforeExecution`/`credential_model`/`reselect`；在内容事件后出现同样错误时
   不重试。
-- 绑定会话测试：同一错误不切换 Credential；预算耗尽时返回本地错误并清理预提交控制帧。
+- 绑定会话测试：同一错误不切换 Credential；预算耗尽时返回最后一次真实拒绝并清理预提交控制帧。
 - 任意 SSE 字节切分、CRLF、多行 `data`、无尾空行和取消/Drop 的单次 Guard 结算继续由现有测试矩阵
   覆盖。

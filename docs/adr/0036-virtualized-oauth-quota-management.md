@@ -4,7 +4,7 @@
 - 日期：2026-07-24
 - 修订：2026-08-04
 - 决策者：maintainer
-- 部分修订：ADR-0070、ADR-0111
+- 相关决策：ADR-0070、ADR-0111、ADR-0146
 
 ## 背景
 
@@ -20,9 +20,9 @@ OAuth 管理页一次读取当前实例的完整账号集合。原有客户端�
 - 批量刷新复用逐账号 `POST /api/admin/oauth/accounts/{id}/quota/refresh`，前端最多并发 6 个请求并采用 all-settled 语义。部分失败不阻断其他账号，完成后显示成功/失败汇总；不新增后端批量端点。
 - 单账号刷新、批量刷新和 reset 后刷新共用账号级 React Query cache；卡片初始挂载和额度变更 SSE 只调用缓存 GET。React Query cache 只存在于当前浏览器内存会话，不进入 OAuth JSON、localStorage 或 sessionStorage；服务端最后一次安全快照按 ADR-0111 独立写入 SQLite。
 - 批量请求的生命周期独立于虚拟行 observer；滚动导致最后一个可见 observer 卸载时，不得取消同账号的批量请求。HTTP 客户端自身的有界超时仍然生效。
-- reset mutation 使用账号级 mutation key，使 pending 状态跨虚拟卸载/重挂可见；从 POST reset 到清空此前快照并重新刷新额度的完整链路都属于同一次 pending。reset 后刷新失败不得继续展示重置前额度。
+- reset mutation 使用账号级 mutation key，使 pending 状态跨虚拟卸载/重挂可见；从 POST reset 到重新刷新额度的完整链路都属于同一次 pending。reset 成功后保留此前最后一次成功快照，直到权威 refresh 成功替换；refresh 失败时保留该快照并显示失败状态。
 - 本地同页批量刷新期间禁用账号编辑/删除，避免对批次快照中的账号并发执行配置变更。额度 Query 使用有限内存保留期，账号删除成功后取消并移除对应缓存。
-- “删除失效账号”先复用逐账号 quota refresh POST 实时检测当前 Provider 的完整账号集合，最多并发 6 个。缓存 GET 不能作为认证诊断。只有稳定错误码 `oauth_account_authentication_failed` 能够进入删除候选；ADR-0070 将该错误的可验证来源扩展为刷新后再次 401、已被 401 拒绝且没有 refresh token，以及刷新端点明确返回永久失效码。无法识别的刷新拒绝、超时、代理/网络故障、5xx、403、额度耗尽、机器人标记和其他读取失败仍记为无法确认并保留账号。
+- “删除失效账号”先复用逐账号 quota refresh POST 实时检测当前 Provider 的完整账号集合，最多并发 6 个。缓存 GET 不能作为认证诊断。只有稳定错误码 `oauth_refresh_token_missing`、`oauth_refresh_permanently_rejected` 或 `oauth_refreshed_access_token_rejected`，并且响应明确带有 `reauthorization_required=true` 时，账号才能进入删除候选。无法识别的刷新拒绝、超时、代理/网络故障、5xx、403、额度耗尽、机器人标记和其他读取失败仍记为无法确认并保留账号。
 - 检测结束后重新读取账号集合并保存候选的安全 ID、标签和 `token_version`，再由管理员确认精确数量。确认后按最新 revision 复用现有逐账号 DELETE 串行删除；账号已消失或 Token 版本已变化时跳过，revision 冲突也必须重新读取并再次核对 Token 版本后才能重试。整个流程不读取、下发或解析原始 OAuth JSON，也不增加后端批量删除端点。
 - 检测和删除期间锁定当前页面的其他账号写操作及批量额度刷新。成功删除后立即发布最新账号集合，并清除对应额度 Query cache；部分删除失败不阻断剩余候选，最终分别汇总删除、跳过与失败数量。
 
@@ -48,5 +48,5 @@ OAuth 页面不再显示页码和每页条数，滚动区成为账号集合的�
 - 浏览器布局测试覆盖高视口、多行账号卡片时虚拟滚动区占满管理壳分配的内容行，列表下方不再出现独立空白区，且滚动后末行可以完整进入可视范围。
 - OAuth 管理测试覆盖完整 Provider 集合、禁用和未挂载账号、Codex/Claude/Grok 有界并发、部分失败汇总及离屏账号缓存。
 - 失效清理模块测试覆盖错误码白名单、Token 版本变化跳过、revision 冲突复核和部分删除失败；管理页集成测试覆盖检测后确认、精确删除目标、无明确失效账号与操作互锁。
-- 额度面板测试覆盖单账号刷新、reset 的 GET → POST → GET 顺序、reset 后读取失败清空此前快照、虚拟卸载/重挂 pending，以及后续批量成功清除此前查询错误。
+- 额度面板测试覆盖单账号刷新、reset 的 GET → POST → GET 顺序、reset 后读取失败保留此前快照并显示失败、虚拟卸载/重挂 pending，以及后续批量成功清除此前查询错误。
 - typecheck、ESLint、Vitest、生产构建和内嵌资源一致性检查作为提交门禁。

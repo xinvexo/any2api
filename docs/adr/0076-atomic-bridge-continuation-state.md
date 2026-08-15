@@ -56,11 +56,9 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
 - Continuation 身份创建和提交只对当前 HMAC 键执行 TTL 检查，不在每次响应身份事件上扫描最多
   300,000 条的完整绑定表。无关过期记录由 60 秒周期 sweeper 回收；条目上限或 `64 MiB` 状态预算受压时，
   插入路径在返回容量错误前再执行一次全表过期回收。命中、过期与容量语义不变，且不驱逐 TTL 内记录。
-- `64 MiB` 是 Registry 中 Ready/Pending 状态的存量预算，不能代替在途请求的工作集准入。任何
-  `IngressAffinity::Continuation` 请求都必须在 Route、RPM 预留和上游 I/O 前，从现有进程级
-  PublicRequest 内存 Permit 额外预留一条最大状态的 `16 MiB`。该额度覆盖不透明状态引用、恢复桥会话
-  与对话工作副本，并持有到 buffered/SSE 响应 EOF、错误、断连或 Drop；即使 Registry 条目在途被 TTL
-  或显式清理移除，也不能让其实际工作集脱离计量。这复用同一 Permit，不新增 semaphore 或 Credential 并发限制。
+- `64 MiB` 是 Registry 中 Ready/Pending 状态的存量预算，只约束实际已经序列化并保存在 Registry
+  中的状态。它不创建进程级公开请求内存准入，也不为尚未分配的对话工作集预留 Permit；在途对象按
+  实际所有权、单对象硬上限和操作系统资源自然受限。
 - Protocol 在构造 Ready 状态时执行精确序列化大小检查，并在流式增量累积过程中执行完整硬上限检查；
   一旦累积将超过 `16 MiB` 立即失败并 Abort，不允许先生成超限状态再依赖全局驱逐，也不允许单条绕过
   `64 MiB` 总预算。尚未提交时返回本地失败，已提交流则终止 Body 并 Abort Pending 记录。
@@ -88,11 +86,11 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
 - Protocol 测试覆盖状态恢复、协议对不匹配、单条状态超限，以及 streaming 只有终止后才产生 Ready 状态。
 - Runtime 测试覆盖 Pending 等待、Ready 唤醒、Abort 唤醒、全局预留上限、TTL/清理释放容量，以及状态在
   Credential 选择和 RPM 预留前解析。
-- 公开请求内存测试覆盖续接工作集在路由前预留、并发容量拒绝，以及 buffered/SSE Drop 释放同一 Permit。
+- 公开请求内存测试覆盖实际状态对象的单条/总量上限，以及 buffered/SSE Drop 释放真实对象。
 - JSON/SSE 契约覆盖 buffered 原子提交、`response.created` 前 Pending、终止前 Ready、客户端 Drop 后
   `session_binding_lost`，并确认原 `ChatHistoryStore` 不再存在。
 - 故障回归覆盖 primed Body 所在任务被 abort、panic 展开、postcommit idle timeout，以及 Pending follow-up
   取消后 QueueTicket 归零并可被替代 waiter 复用；所有路径均确认 Pending 消失、完整预留归还且未提前消耗
   第二次 RPM。
 
-其中“Continuation 在途工作集向 PublicRequest Permit 额外预留 `16 MiB`”的决策已由 ADR-0082 取代；Registry 自身单条 `16 MiB`、合计 `64 MiB` 的状态存量边界及 Pending/Ready 原子语义不变。
+Registry 自身单条 `16 MiB`、合计 `64 MiB` 的状态存量边界及 Pending/Ready 原子语义保持不变。

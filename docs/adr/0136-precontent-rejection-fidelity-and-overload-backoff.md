@@ -20,7 +20,7 @@ ADR-0128 的 fallback 指数又按当前失败 Credential 计算。连续切换�
 6. 明确 precontent overload 的指数 fallback 使用本逻辑请求已注册总 Attempt 数，切换 Credential 不重置指数。其他 Transport/HTTP/认证/额度/限流失败以及 Anthropic `rate_limit_error` 继续按当前失败 Credential 计算，Retry-After 规则不变。
 7. 过载拒绝仍只在当前请求排除失败 ExactCandidate，并对 Endpoint、Proxy 和 EgressPath 健康保持 neutral。本决策不新增 Provider 全局熔断、跨请求冷却或固定并发限制。
 
-本决策局部取代 ADR-0118 的“预算耗尽时返回本地上游错误”条款，并为 ADR-0128 的按 Credential fallback 增加仅限精确 precontent overload 的请求级例外。
+预提交拒绝统一遵循本决策的真实终局帧保真规则；精确 precontent overload 是 ADR-0128 按 Credential fallback 的唯一请求级计数例外。
 
 ## 后果
 

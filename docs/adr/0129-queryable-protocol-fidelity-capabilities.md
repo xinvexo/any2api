@@ -25,6 +25,8 @@ Endpoint 管理 API 原先只返回“接受方言对应哪些上游方言”，
 
 - `openai-responses-to-chat-completions/v1`：只支持 `responses`；顶层字段表与 request converter 共用；工具类型只允许 `function`；明确登记 single-choice、canonical reconstruction、validated-only metadata、local continuation 和 synthetic response identity。
 - `openai-images-to-chat-completions/v1`：只支持 `images_generations`；明确登记非流式、URL-only、无 partial image 和 canonical reconstruction。
+- `openai-alpha-search/v1`：作为独立的 OpenAI Responses 入口操作注册，不创建新的 ProtocolBridge；能力表明确其
+  只允许 Codex OAuth 数据面、固定 `search_query` 结构和既有 Responses fidelity。
 
 ## 后果
 

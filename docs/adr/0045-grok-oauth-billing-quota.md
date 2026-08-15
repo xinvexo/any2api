@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-25
 - 决策人：项目维护者
-- 部分修订：ADR-0070、ADR-0106、ADR-0111
+- 相关决策：ADR-0070、ADR-0106、ADR-0111
 
 ## 背景
 
@@ -15,7 +15,7 @@ xAI 官方 rate-limit 文档把推理响应中的请求和 Token 限额定义为
 
 官方 Grok Build `/user` 响应使用 camelCase，并可携带 `userBlockedReason`、`teamBlockedReasons` 与实时 `subscriptionTier`。其中团队 blocked reason 还被官方客户端用于表达 ZDR/数据保留策略，不能一律解释成封禁。`grok2api` 对 Build 机器人标记的实现来自 access token JWT 的数值型 `bot_flag_source` claim：只有值为 `1` 才标记。Free 额度真正耗尽时，数据面返回稳定错误码 `subscription:free-usage-exhausted`，部分响应正文还包含 `tokens (actual/limit)`；这能证明耗尽及当次 actual/limit，却不能在未耗尽时反推出实时剩余值。
 
-后续核对官方 Grok Build 后确认，管理额度刷新不应通过真实生成请求获取响应 Header。Free Token 数字只在真实数据面明确耗尽并返回可验证 `actual/limit` 时展示；其他时候保持未知，不使用本地默认值或 usage 推算。完整修订见 ADR-0106。
+管理额度刷新不通过真实生成请求获取响应 Header。Free Token 数字只在真实数据面明确耗尽并返回可验证 `actual/limit` 时展示；其他时候保持未知，不使用本地默认值或 usage 推算。只读查询边界与拒绝证据统一见 ADR-0106。
 
 ## 决策
 
@@ -29,8 +29,8 @@ xAI 官方 rate-limit 文档把推理响应中的请求和 Token 限额定义为
 8. 查询复用现有 OAuth quota Runtime：使用账号保存的 `Global | Profile(id)` 选择、严格 SSRF、禁用重定向、有界响应体和读取超时；401 最多刷新 Token 一次并完整重试一次。两次均被拒绝时返回明确认证失效错误；403 只按 Provider 声明证据区分账号限制、出口限制与未分类失败。Provider 差异通过查询计划与解析结果表达，中央 Runtime 不增加 Provider `match`。
 9. Free Token 数字只接受真实数据面 `subscription:free-usage-exhausted` 响应中通过安全整数校验的 `actual/limit`；没有实际数据面证据时保持未知，不从 billing 金额、本地 usage、请求数或其他 Header 猜测。
 10. Grok 数据面错误分类可以识别稳定错误码 `subscription:free-usage-exhausted`，并只在真实响应出现时记录当前运行代际的内存耗尽观测。若正文包含 `tokens (actual/limit)`，只接受非负安全整数并随观测时间展示；该观测不得改写客户端收到的上游状态、正文或类型。成功数据面请求清除此观测。
-11. Grok quota、Token 余额与账号诊断是只读安全快照，按 ADR-0111 把最后一次成功结果写入独立 SQLite 表；不写 RequestLog、OAuth JSON、PublishedSnapshot 或浏览器持久化，也不参与账号启停或启动时路由健康恢复。ADR-0070 与 ADR-0095 允许真实数据面明确耗尽临时影响当前账号 `routing_generation` 的内存健康，并跨仅替换认证材料的 Token refresh 保留；主动 Header 探测由 ADR-0106 废止。
-13. Grok 不实现 `quota/reset`。Web 使用与 Codex/Claude 相同的账号卡片和额度面板；实时套餐层级映射到账号卡片既有的 `plan` badge。刷新成功本身不再显示“认证状态”，机器人状态按第 7 条只用卡片顶部图标表达，上游账号/团队限制只在真实返回时显示；通用额度详情继续显示 included allowance、本地或上游 Token 余额、真实耗尽观测、预付余额和按量使用，不增加 Grok 专属面板。只有 Codex 显示 reset credit 与重置按钮；Claude 的只读额度入口由 ADR-0046 定义。
+11. Grok quota、Token 余额与账号诊断是只读安全快照，按 ADR-0111 把最后一次成功结果写入独立 SQLite 表；不写 RequestLog、OAuth JSON、PublishedSnapshot 或浏览器持久化，也不参与账号启停或启动时路由健康恢复。真实数据面明确耗尽时，按 ADR-0070 与 ADR-0095 临时影响当前账号 `routing_generation` 的内存健康，并跨仅替换认证材料的 Token refresh 保留；管理额度刷新不改变该观测。
+12. Grok 不实现 `quota/reset`。Web 使用与 Codex/Claude 相同的账号卡片和额度面板；实时套餐层级映射到账号卡片既有的 `plan` badge。刷新成功本身不再显示“认证状态”，机器人状态按第 7 条只用卡片顶部图标表达，上游账号/团队限制只在真实返回时显示；通用额度详情继续显示 included allowance、本地或上游 Token 余额、真实耗尽观测、预付余额和按量使用，不增加 Grok 专属面板。只有 Codex 显示 reset credit 与重置按钮；Claude 的只读额度入口由 ADR-0046 定义。
 
 ## 参考
 
