@@ -31,15 +31,55 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
   expect(screen.getByText("8")).toBeInTheDocument();
   expect(screen.getByText("2026/8/23 14:03").parentElement)
     .toHaveTextContent("过期2026/8/23 14:03");
-  expect(screen.getByLabelText("账号状态：过期")).toHaveClass(
+  const expiredBadge = screen.getByLabelText("账号状态：过期");
+  expect(expiredBadge).toHaveClass(
     "bg-danger/10",
     "text-danger",
+  );
+  expect(expiredBadge.closest("[data-floating-bounds]")).toHaveClass(
+    "border-danger/20",
+    "bg-linear-to-b",
+    "from-danger/10",
+    "via-danger/[0.035]",
+    "to-surface",
   );
   expect(screen.queryByText("状态")).not.toBeInTheDocument();
   const updatedAt = screen.getByText(/最后更新 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
   expect(within(updatedAt.parentElement!).getByRole("button", {
     name: "编辑 Primary Codex",
   })).toBeInTheDocument();
+});
+
+test("gives an exhausted account a warning gradient", () => {
+  render(
+    <OAuthAccountCard
+      presentation={{
+        id: "account-1",
+        title: "Primary Codex",
+        subtitle: "owner@example.com",
+        enabled: true,
+        badges: [{ key: "quota-exhausted", label: "耗尽", tone: "warning" }],
+        metrics: [],
+        modelCatalog: [],
+      }}
+      proxyLabel="跟随全局（SOCKS5 US）"
+      pending={false}
+      onToggleEnabled={vi.fn()}
+      onViewModels={vi.fn()}
+      onEdit={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  );
+
+  const exhaustedBadge = screen.getByLabelText("账号状态：耗尽");
+  expect(exhaustedBadge).toHaveClass("bg-warning/12", "text-warning");
+  expect(exhaustedBadge.closest("[data-floating-bounds]")).toHaveClass(
+    "border-warning/20",
+    "bg-linear-to-b",
+    "from-warning/10",
+    "via-warning/[0.035]",
+    "to-surface",
+  );
 });
 
 test.each([
