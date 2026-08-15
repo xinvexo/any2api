@@ -41,6 +41,9 @@ export function OAuthAccountCard({
   );
   const hasExhaustedBackground = !hasDangerBackground
     && statusBadges.some((badge) => badge.key === "quota-exhausted");
+  const hasHealthyBackground = !hasDangerBackground
+    && !hasExhaustedBackground
+    && statusBadges.some((badge) => badge.tone === "success");
 
   return (
     <Surface
@@ -55,6 +58,10 @@ export function OAuthAccountCard({
         hasExhaustedBackground && [
           "border-warning/20 bg-linear-to-b",
           "from-warning/10 via-warning/[0.035] to-surface",
+        ],
+        hasHealthyBackground && [
+          "border-success/20 bg-linear-to-b",
+          "from-success/10 via-success/[0.035] to-surface",
         ],
         !presentation.enabled && "opacity-[0.72]",
       )}

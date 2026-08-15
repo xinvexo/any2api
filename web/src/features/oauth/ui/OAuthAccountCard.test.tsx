@@ -82,6 +82,38 @@ test("gives an exhausted account a warning gradient", () => {
   );
 });
 
+test("gives a healthy account a success gradient", () => {
+  render(
+    <OAuthAccountCard
+      presentation={{
+        id: "account-1",
+        title: "Primary Codex",
+        subtitle: "owner@example.com",
+        enabled: true,
+        badges: [{ key: "runtime-status", label: "正常", tone: "success" }],
+        metrics: [],
+        modelCatalog: [],
+      }}
+      proxyLabel="跟随全局（SOCKS5 US）"
+      pending={false}
+      onToggleEnabled={vi.fn()}
+      onViewModels={vi.fn()}
+      onEdit={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  );
+
+  const healthyBadge = screen.getByLabelText("账号状态：正常");
+  expect(healthyBadge).toHaveClass("bg-success/10", "text-success");
+  expect(healthyBadge.closest("[data-floating-bounds]")).toHaveClass(
+    "border-success/20",
+    "bg-linear-to-b",
+    "from-success/10",
+    "via-success/[0.035]",
+    "to-surface",
+  );
+});
+
 test.each([
   ["free", "border-subtle", "bg-surface-muted", "text-tertiary"],
   ["Go", "border-plan-entry/20", "bg-plan-entry/10", "text-plan-entry"],
