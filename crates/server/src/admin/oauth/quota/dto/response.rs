@@ -2,9 +2,10 @@
 
 use any2api_runtime::api::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaRateCard,
-    OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaResetCredits, OAuthQuotaSnapshot,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaManualRefreshResult,
+    OAuthQuotaRateCard, OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaResetCredits,
+    OAuthQuotaSnapshot, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaWindow,
+    OAuthQuotaWindowKind,
 };
 use serde::Serialize;
 
@@ -39,6 +40,23 @@ impl From<OAuthQuotaSnapshot> for OAuthQuotaResponse {
             account_status: snapshot.usage.account_status.map(Into::into),
             estimates: snapshot.estimates.into_iter().map(Into::into).collect(),
             rate_card: snapshot.rate_card.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(in crate::admin::oauth::quota) struct OAuthQuotaManualRefreshResponse {
+    #[serde(flatten)]
+    quota: OAuthQuotaResponse,
+    model_catalog_refreshed: bool,
+}
+
+impl From<OAuthQuotaManualRefreshResult> for OAuthQuotaManualRefreshResponse {
+    fn from(result: OAuthQuotaManualRefreshResult) -> Self {
+        let (quota, model_catalog_refreshed) = result.into_parts();
+        Self {
+            quota: quota.into(),
+            model_catalog_refreshed,
         }
     }
 }

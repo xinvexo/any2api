@@ -69,6 +69,41 @@ test("virtualizes the full collection and sends one Codex quota batch", async ()
   expect(client.getQueryData(oauthQueryKeys.quota("a12"))).toBeUndefined();
 });
 
+test("warns when every quota refresh succeeds but a model catalog fails", async () => {
+  const item = oauthAccountJson("a1", "Codex One", "codex");
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      return jsonResponse({ config_revision: 1, items: [item] });
+    }
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path.endsWith("/quota") && init?.method === "GET") {
+      return jsonResponse(null);
+    }
+    if (path === "/api/admin/oauth/quota/refresh" && init?.method === "POST") {
+      return jsonResponse({
+        succeeded_account_ids: ["a1"],
+        failed_account_ids: [],
+        model_catalog_refreshed_scopes: 0,
+        model_catalog_failed_scopes: 1,
+      });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderManagement();
+  expect(await screen.findByText("Codex One")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
+
+  const notification = await screen.findByRole("alert");
+  expect(notification).toHaveTextContent(
+    "已刷新全部 1 个 Codex 账号额度。 模型目录同步失败 1 组。",
+  );
+});
+
 test("keeps reauthorization accounts compact and marks the whole card", async () => {
   const failedAccount = {
     ...oauthAccountJson("reauthorize-1", "Needs Authorization", "codex", false),

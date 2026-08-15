@@ -118,7 +118,7 @@ impl OAuthQuotaService {
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_selection(proxy_selection)
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
-        let response = token_request::execute_response(
+        let response = token_request::execute_model_catalog_response(
             self.transport.as_ref(),
             self.control_plane.as_ref(),
             provider,
@@ -252,7 +252,7 @@ impl OAuthQuotaService {
             Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
             binding.transport_isolation(TransportTrafficClass::OAuthQuota),
         );
-        let response = request.execute(plan).await?;
+        let response = request.execute_model_catalog(plan).await?;
         if !response.status.is_success() {
             return Err(request.rejection(&response));
         }

@@ -7,6 +7,8 @@ import { oauthQueryKeys } from "./oauth-query-keys";
 export interface OAuthQuotaRefreshResult {
   total: number;
   failed: number;
+  modelCatalogRefreshedScopes: number;
+  modelCatalogFailedScopes: number;
 }
 
 export function useOAuthQuotaRefreshAll() {
@@ -37,6 +39,8 @@ export function useOAuthQuotaRefreshAll() {
       return {
         total: accountIds.length,
         failed: result.failedAccountIds.length,
+        modelCatalogRefreshedScopes: result.modelCatalogRefreshedScopes,
+        modelCatalogFailedScopes: result.modelCatalogFailedScopes,
       };
     } finally {
       setPending(false);

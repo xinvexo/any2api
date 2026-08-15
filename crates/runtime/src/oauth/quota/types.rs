@@ -64,6 +64,8 @@ pub enum OAuthQuotaError {
     ReadTimeout,
     #[error("OAuth quota response exceeded the size limit")]
     ResponseTooLarge,
+    #[error("OAuth model catalog response exceeded the size limit")]
+    ModelCatalogResponseTooLarge,
     #[error("OAuth quota upstream rejected the request with status {0}")]
     UpstreamRejected(u16),
     #[error("OAuth account access is restricted by the upstream provider")]

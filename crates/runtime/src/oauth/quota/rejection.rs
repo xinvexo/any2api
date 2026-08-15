@@ -65,6 +65,22 @@ impl<'a> RequestContext<'a> {
         .await
     }
 
+    pub(super) async fn execute_model_catalog(
+        &self,
+        plan: OAuthRequestPlan,
+    ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
+        self.control_plane.wait(self.driver.kind()).await;
+        request::execute_model_catalog(
+            self.transport,
+            self.proxy,
+            self.strict_ssrf,
+            self.read_timeout,
+            self.isolation,
+            plan,
+        )
+        .await
+    }
+
     pub(super) fn rejection(&self, response: &OAuthQuotaResponse) -> OAuthQuotaError {
         if response.status == StatusCode::UNAUTHORIZED {
             return OAuthQuotaError::UpstreamRejected(response.status.as_u16());

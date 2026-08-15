@@ -37,6 +37,10 @@ pub enum OAuthError {
     TokenResponseTooLarge,
     #[error("OAuth model catalog request was rejected with status {0}")]
     ModelCatalogRejected(u16),
+    #[error("OAuth model catalog request failed: {0}")]
+    ModelCatalogTransport(#[source] TransportError),
+    #[error("OAuth model catalog response exceeded the size limit")]
+    ModelCatalogResponseTooLarge,
     #[error("OAuth provider returned an invalid model catalog")]
     ModelCatalogResponseInvalid,
     #[error("OAuth model catalog could not be persisted")]

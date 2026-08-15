@@ -122,7 +122,7 @@ export function OAuthManagement() {
       return;
     }
     const message = formatQuotaRefreshResult(result, oauthProviderLabel(provider));
-    if (result.failed === 0) {
+    if (result.failed === 0 && result.modelCatalogFailedScopes === 0) {
       notify.success(message);
     } else if (result.failed === result.total) {
       notify.danger(message);
@@ -323,12 +323,22 @@ function resolveSelectedProvider(value: string | null): OAuthProvider {
   return OAUTH_PROVIDER_OPTIONS[0]?.provider ?? "codex";
 }
 
-function formatQuotaRefreshResult(result: { total: number; failed: number }, providerName: string) {
+function formatQuotaRefreshResult(
+  result: {
+    total: number;
+    failed: number;
+    modelCatalogFailedScopes: number;
+  },
+  providerName: string,
+) {
+  const catalogMessage = result.modelCatalogFailedScopes === 0
+    ? ""
+    : ` 模型目录同步失败 ${result.modelCatalogFailedScopes} 组。`;
   if (result.failed === 0) {
-    return `已刷新全部 ${result.total} 个 ${providerName} 账号额度。`;
+    return `已刷新全部 ${result.total} 个 ${providerName} 账号额度。${catalogMessage}`;
   }
   if (result.failed === result.total) {
-    return `全部 ${result.total} 个 ${providerName} 账号额度刷新失败。`;
+    return `全部 ${result.total} 个 ${providerName} 账号额度刷新失败。${catalogMessage}`;
   }
-  return `已刷新 ${result.total - result.failed} 个 ${providerName} 账号额度，${result.failed} 个失败。`;
+  return `已刷新 ${result.total - result.failed} 个 ${providerName} 账号额度，${result.failed} 个失败。${catalogMessage}`;
 }

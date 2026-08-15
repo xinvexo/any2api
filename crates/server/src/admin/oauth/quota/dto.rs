@@ -5,4 +5,4 @@ mod response;
 
 pub(super) use batch::{OAuthQuotaBatchRefreshRequest, OAuthQuotaBatchRefreshResponse};
 pub(super) use reset::{OAuthQuotaResetRequest, OAuthQuotaResetResponse};
-pub(super) use response::OAuthQuotaResponse;
+pub(super) use response::{OAuthQuotaManualRefreshResponse, OAuthQuotaResponse};

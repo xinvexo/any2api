@@ -13,8 +13,9 @@ use crate::{
 use super::{
     super::account,
     dto::{
-        OAuthQuotaBatchRefreshRequest, OAuthQuotaBatchRefreshResponse, OAuthQuotaResetRequest,
-        OAuthQuotaResetResponse, OAuthQuotaResponse,
+        OAuthQuotaBatchRefreshRequest, OAuthQuotaBatchRefreshResponse,
+        OAuthQuotaManualRefreshResponse, OAuthQuotaResetRequest, OAuthQuotaResetResponse,
+        OAuthQuotaResponse,
     },
     error,
 };
@@ -40,14 +41,14 @@ async fn cached_quota(
 async fn refresh_quota(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<OAuthQuotaResponse>, AdminApiError> {
+) -> Result<Json<OAuthQuotaManualRefreshResponse>, AdminApiError> {
     let id = account::parse_id(&id)?;
     let service = state.oauth().ok_or_else(oauth_unavailable)?;
     let result = service
         .refresh_quota_manually(id)
         .await
         .map_err(error::map)?;
-    Ok(Json(OAuthQuotaResponse::from(result)))
+    Ok(Json(OAuthQuotaManualRefreshResponse::from(result)))
 }
 
 async fn refresh_quota_batch(

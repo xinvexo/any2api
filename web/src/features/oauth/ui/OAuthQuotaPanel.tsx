@@ -43,6 +43,7 @@ export function OAuthQuotaPanel({
   const quotaQuery = useQuery(quotaOptions);
   const resetRequested = useRef(false);
   const [resetRefreshFailed, setResetRefreshFailed] = useState(false);
+  const [modelCatalogRefreshFailed, setModelCatalogRefreshFailed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const refreshMutationKey = oauthQueryKeys.quotaRefresh(accountId);
   const refreshMutation = useMutation({
@@ -65,21 +66,35 @@ export function OAuthQuotaPanel({
     mutationFn: async () => {
       const result = await resetOAuthAccountQuota(accountId);
       try {
-        await refreshOAuthAccountQuota(queryClient, accountId);
-        return { ...result, quotaRefreshed: true };
+        const refreshed = await refreshOAuthAccountQuota(queryClient, accountId);
+        return {
+          ...result,
+          quotaRefreshed: true,
+          modelCatalogRefreshed: refreshed.modelCatalogRefreshed,
+        };
       } catch {
         await queryClient.invalidateQueries({
           queryKey: oauthQueryKeys.accounts,
           refetchType: "active",
         });
-        return { ...result, quotaRefreshed: false };
+        return {
+          ...result,
+          quotaRefreshed: false,
+          modelCatalogRefreshed: true,
+        };
       }
     },
     onSuccess: (result) => {
       notify.success(`已重置 ${result.windowsReset} 个额度窗口。`);
       setResetRefreshFailed(!result.quotaRefreshed);
+      setModelCatalogRefreshFailed(
+        result.quotaRefreshed && !result.modelCatalogRefreshed,
+      );
     },
-    onError: () => setResetRefreshFailed(false),
+    onError: () => {
+      setResetRefreshFailed(false);
+      setModelCatalogRefreshFailed(false);
+    },
   });
   const resetPending =
     useIsMutating({ mutationKey: resetMutationKey, exact: true }) > 0;
@@ -94,6 +109,7 @@ export function OAuthQuotaPanel({
   const visibleError =
     (resetMutation.isError ? getOAuthErrorMessage(resetMutation.error) : null)
     ?? (resetRefreshFailed ? "额度已重置，但最新额度读取失败。" : null)
+    ?? (modelCatalogRefreshFailed ? "额度已刷新，但模型目录同步失败。" : null)
     ?? (refreshMutation.isError ? getOAuthErrorMessage(refreshMutation.error) : null)
     ?? (!quotaQuery.isFetching && quotaQuery.isError
         ? getOAuthErrorMessage(quotaQuery.error)
@@ -102,11 +118,17 @@ export function OAuthQuotaPanel({
 
   async function refreshQuota() {
     setResetRefreshFailed(false);
+    setModelCatalogRefreshFailed(false);
     resetMutation.reset();
     refreshMutation.reset();
     try {
-      await refreshMutation.mutateAsync();
-      notify.success(`已刷新「${accountLabel}」的额度`);
+      const result = await refreshMutation.mutateAsync();
+      if (result.modelCatalogRefreshed) {
+        notify.success(`已刷新「${accountLabel}」的额度`);
+      } else {
+        setModelCatalogRefreshFailed(true);
+        notify.warning(`已刷新「${accountLabel}」的额度，但模型目录同步失败。`);
+      }
     } catch {
       // The query cache owns the account-scoped error rendered below.
     }
@@ -118,6 +140,7 @@ export function OAuthQuotaPanel({
     }
     setConfirmOpen(false);
     setResetRefreshFailed(false);
+    setModelCatalogRefreshFailed(false);
     refreshMutation.reset();
     resetMutation.reset();
     resetRequested.current = true;

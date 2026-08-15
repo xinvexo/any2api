@@ -22,10 +22,10 @@ pub use crate::lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
 pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS, OAuthActivationResult, OAuthDevicePollResult, OAuthError,
     OAuthImportError, OAuthImportFailureKind, OAuthImportResult, OAuthModelCatalogSnapshot,
-    OAuthQuotaError, OAuthQuotaEstimate, OAuthQuotaRateCard, OAuthQuotaRefreshBatchResult,
-    OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthRefreshFailure, OAuthRefreshFailureReason,
-    OAuthRefreshFailureScope, OAuthRefreshFailureStage, OAuthRefreshTrigger, OAuthService,
-    OAuthStartFlow, OAuthStartResult,
+    OAuthQuotaError, OAuthQuotaEstimate, OAuthQuotaManualRefreshResult, OAuthQuotaRateCard,
+    OAuthQuotaRefreshBatchResult, OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthRefreshFailure,
+    OAuthRefreshFailureReason, OAuthRefreshFailureScope, OAuthRefreshFailureStage,
+    OAuthRefreshTrigger, OAuthService, OAuthStartFlow, OAuthStartResult,
 };
 pub use crate::proxy::ProxyPasswordSecret;
 pub use crate::proxy::{

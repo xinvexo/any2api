@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseNullableOAuthQuotaSnapshot,
+  parseOAuthQuotaManualRefreshResult,
   parseOAuthQuotaResetResult,
   parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
@@ -10,6 +11,22 @@ describe("OAuth quota contracts", () => {
   it("accepts an account without a persisted quota snapshot", () => {
     expect(parseNullableOAuthQuotaSnapshot(null)).toBeNull();
     expect(() => parseNullableOAuthQuotaSnapshot(undefined)).toThrow(
+      "invalid OAuth quota response",
+    );
+  });
+
+  it("requires the model catalog result from a manual refresh", () => {
+    const payload = {
+      ...currentNullableSnapshot(),
+      model_catalog_refreshed: true,
+    };
+    expect(parseOAuthQuotaManualRefreshResult(payload)).toEqual({
+      snapshot: parseOAuthQuotaSnapshot(payload),
+      modelCatalogRefreshed: true,
+    });
+
+    delete (payload as Record<string, unknown>).model_catalog_refreshed;
+    expect(() => parseOAuthQuotaManualRefreshResult(payload)).toThrow(
       "invalid OAuth quota response",
     );
   });

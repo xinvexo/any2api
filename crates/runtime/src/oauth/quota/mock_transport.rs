@@ -58,6 +58,7 @@ pub(super) struct QuotaTransport {
     grok_unified: bool,
     codex_exhausted: AtomicBool,
     codex_has_credits: AtomicBool,
+    large_model_catalog: AtomicBool,
     codex_reset_at: i64,
     block_next_usage: AtomicBool,
     usage_started: Semaphore,
@@ -84,6 +85,7 @@ impl QuotaTransport {
             grok_unified: false,
             codex_exhausted: AtomicBool::new(false),
             codex_has_credits: AtomicBool::new(false),
+            large_model_catalog: AtomicBool::new(false),
             codex_reset_at: unix_now().saturating_add(60),
             block_next_usage: AtomicBool::new(false),
             usage_started: Semaphore::new(0),
@@ -185,6 +187,10 @@ impl QuotaTransport {
     pub(super) fn set_codex_has_credits(&self, has_credits: bool) {
         self.codex_has_credits.store(has_credits, Ordering::Release);
     }
+
+    pub(super) fn set_large_model_catalog(&self) {
+        self.large_model_catalog.store(true, Ordering::Release);
+    }
 }
 
 fn unix_now() -> i64 {
@@ -265,6 +271,16 @@ impl TransportManager for QuotaTransport {
 impl QuotaTransport {
     fn codex_model_catalog_response(&self) -> (http::StatusCode, http::HeaderMap, Bytes) {
         self.model_catalog_calls.fetch_add(1, Ordering::AcqRel);
+        if self.large_model_catalog.load(Ordering::Acquire) {
+            let padding = "x".repeat(128 * 1024);
+            return (
+                http::StatusCode::OK,
+                http::HeaderMap::new(),
+                Bytes::from(format!(
+                    r#"{{"models":[{{"slug":"gpt-catalog-a","supported_in_api":true}}],"padding":"{padding}"}}"#
+                )),
+            );
+        }
         (
             http::StatusCode::OK,
             http::HeaderMap::new(),

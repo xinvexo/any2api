@@ -4,13 +4,16 @@ use any2api_domain::ProviderKind;
 use any2api_provider::api::{OAuthRequestPlan, ProviderError};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportProxy,
-    TransportRequest,
+    TransportRequest, TransportResponse,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
-use crate::oauth::{control_plane::OAuthControlPlanePacer, error::OAuthError};
+use crate::{
+    credential::{ModelCatalogReadError, collect_model_catalog},
+    oauth::{control_plane::OAuthControlPlanePacer, error::OAuthError},
+};
 
 const MAX_TOKEN_RESPONSE_BYTES: usize = 64 * 1024;
 const TOKEN_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -54,6 +57,66 @@ pub(in crate::oauth) async fn execute_response(
     isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<OAuthHttpResponse, OAuthError> {
+    let response = start(
+        transport,
+        control_plane,
+        provider,
+        proxy,
+        strict_ssrf,
+        isolation,
+        plan,
+    )
+    .await?;
+    Ok(OAuthHttpResponse {
+        status: response.status,
+        body: collect(response.body).await?,
+    })
+}
+
+pub(in crate::oauth) async fn execute_model_catalog_response(
+    transport: &dyn TransportManager,
+    control_plane: &OAuthControlPlanePacer,
+    provider: ProviderKind,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
+    isolation: TransportIsolationKey,
+    plan: OAuthRequestPlan,
+) -> Result<OAuthHttpResponse, OAuthError> {
+    let response = start(
+        transport,
+        control_plane,
+        provider,
+        proxy,
+        strict_ssrf,
+        isolation,
+        plan,
+    )
+    .await?;
+    let body = collect_model_catalog(
+        response.body,
+        TOKEN_READ_TIMEOUT,
+        response.read_failure_scope,
+    )
+    .await
+    .map_err(|error| match error {
+        ModelCatalogReadError::Transport(error) => OAuthError::ModelCatalogTransport(error),
+        ModelCatalogReadError::TooLarge => OAuthError::ModelCatalogResponseTooLarge,
+    })?;
+    Ok(OAuthHttpResponse {
+        status: response.status,
+        body,
+    })
+}
+
+async fn start(
+    transport: &dyn TransportManager,
+    control_plane: &OAuthControlPlanePacer,
+    provider: ProviderKind,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
+    isolation: TransportIsolationKey,
+    plan: OAuthRequestPlan,
+) -> Result<TransportResponse, OAuthError> {
     let request = TransportRequest {
         method: plan.method,
         uri: plan.url.as_str().parse().map_err(|_| {
@@ -68,11 +131,7 @@ pub(in crate::oauth) async fn execute_response(
         read_timeout: TOKEN_READ_TIMEOUT,
     };
     control_plane.wait(provider).await;
-    let response = transport.execute(proxy, request).await?;
-    Ok(OAuthHttpResponse {
-        status: response.status,
-        body: collect(response.body).await?,
-    })
+    transport.execute(proxy, request).await.map_err(Into::into)
 }
 
 async fn collect(mut body: any2api_transport::api::BoxByteStream) -> Result<Bytes, OAuthError> {

@@ -34,13 +34,13 @@ export async function refreshOAuthAccountQuota(
   // a quota-change event after persisting, so an SSE cache read may overlap this
   // command without cancelling it or accidentally turning a refetch into POST.
   try {
-    const snapshot = await refreshOAuthAccountQuotaRequest(accountId);
-    queryClient.setQueryData(oauthQueryKeys.quota(accountId), snapshot);
+    const result = await refreshOAuthAccountQuotaRequest(accountId);
+    queryClient.setQueryData(oauthQueryKeys.quota(accountId), result.snapshot);
     await queryClient.invalidateQueries({
       queryKey: oauthQueryKeys.accounts,
       refetchType: "active",
     });
-    return snapshot;
+    return result;
   } catch (error) {
     applyRefreshDiagnostic(queryClient, accountId, error);
     throw error;

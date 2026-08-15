@@ -63,6 +63,7 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
         ),
         OAuthQuotaError::UpstreamRejected(_)
         | OAuthQuotaError::ResponseTooLarge
+        | OAuthQuotaError::ModelCatalogResponseTooLarge
         | OAuthQuotaError::Provider(_)
         | OAuthQuotaError::Transport(_) => {
             tracing::warn!(error = ?error, "OAuth quota upstream request failed");

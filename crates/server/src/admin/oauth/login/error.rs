@@ -63,6 +63,8 @@ pub(super) fn map(error: OAuthError) -> AdminApiError {
             )
         }
         OAuthError::ModelCatalogRejected(_)
+        | OAuthError::ModelCatalogTransport(_)
+        | OAuthError::ModelCatalogResponseTooLarge
         | OAuthError::ModelCatalogResponseInvalid
         | OAuthError::ModelCatalogPersistence => {
             tracing::warn!(error = ?error, "OAuth model catalog initialization failed");

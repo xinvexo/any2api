@@ -86,6 +86,11 @@ export interface OAuthQuotaSnapshot {
   rateCard: OAuthQuotaRateCard | null;
 }
 
+export interface OAuthQuotaManualRefreshResult {
+  snapshot: OAuthQuotaSnapshot;
+  modelCatalogRefreshed: boolean;
+}
+
 export interface OAuthQuotaResetResult {
   windowsReset: number;
 }
@@ -111,6 +116,18 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
     accountStatus: parseAccountStatus(value.account_status),
     estimates: parseOAuthQuotaEstimates(value.estimates),
     rateCard: parseRateCard(value.rate_card),
+  };
+}
+
+export function parseOAuthQuotaManualRefreshResult(
+  value: unknown,
+): OAuthQuotaManualRefreshResult {
+  if (!isRecord(value) || typeof value.model_catalog_refreshed !== "boolean") {
+    throw invalidResponse();
+  }
+  return {
+    snapshot: parseOAuthQuotaSnapshot(value),
+    modelCatalogRefreshed: value.model_catalog_refreshed,
   };
 }
 

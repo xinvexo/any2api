@@ -44,6 +44,19 @@ pub struct OAuthQuotaRefreshBatchResult {
     model_catalog_failed_scopes: usize,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct OAuthQuotaManualRefreshResult {
+    quota: OAuthQuotaSnapshot,
+    model_catalog_refreshed: bool,
+}
+
+impl OAuthQuotaManualRefreshResult {
+    #[must_use]
+    pub fn into_parts(self) -> (OAuthQuotaSnapshot, bool) {
+        (self.quota, self.model_catalog_refreshed)
+    }
+}
+
 impl OAuthQuotaRefreshBatchResult {
     #[must_use]
     pub fn succeeded(&self) -> &[OAuthAccountId] {
@@ -198,12 +211,19 @@ impl OAuthService {
     pub async fn refresh_quota_manually(
         &self,
         id: OAuthAccountId,
-    ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
+    ) -> Result<OAuthQuotaManualRefreshResult, OAuthQuotaError> {
         let quota = self.refresh_quota(id).await?;
-        if let Err(error) = self.quota.refresh_model_catalog(id).await {
-            tracing::warn!(oauth_account_id = %id, error = %error, "manual OAuth model catalog refresh failed");
-        }
-        Ok(quota)
+        let model_catalog_refreshed = match self.quota.refresh_model_catalog(id).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(oauth_account_id = %id, error = %error, "manual OAuth model catalog refresh failed");
+                false
+            }
+        };
+        Ok(OAuthQuotaManualRefreshResult {
+            quota,
+            model_catalog_refreshed,
+        })
     }
 
     pub async fn refresh_quota_batch(

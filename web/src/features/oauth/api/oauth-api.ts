@@ -14,9 +14,9 @@ import {
 } from "./oauth-contracts";
 import {
   parseNullableOAuthQuotaSnapshot,
+  parseOAuthQuotaManualRefreshResult,
   parseOAuthQuotaRefreshBatchResult,
   parseOAuthQuotaResetResult,
-  parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
 
 export function startOAuthLogin(
@@ -133,7 +133,7 @@ export function refreshOAuthAccountQuotaRequest(id: string) {
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}/quota/refresh`,
     { method: "POST", timeoutMs: null },
-  ).then(parseOAuthQuotaSnapshot);
+  ).then(parseOAuthQuotaManualRefreshResult);
 }
 
 export function refreshOAuthQuotaBatchRequest(accountIds: readonly string[]) {

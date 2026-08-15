@@ -46,6 +46,28 @@ async fn only_manual_quota_refresh_reads_and_persists_the_live_model_catalog() {
 }
 
 #[tokio::test]
+async fn manual_quota_refresh_persists_a_catalog_larger_than_the_quota_limit() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    context.transport.set_large_model_catalog();
+
+    let result = context
+        .service
+        .refresh_quota_manually(context.account_id)
+        .await
+        .expect("manual quota refresh");
+    let (_, model_catalog_refreshed) = result.into_parts();
+
+    assert!(model_catalog_refreshed);
+    let catalogs = context
+        .storage
+        .load_oauth_model_catalog_snapshots()
+        .await
+        .expect("catalog snapshots");
+    assert_eq!(catalogs.len(), 1);
+    assert_eq!(catalogs[0].models, ["gpt-catalog-a"]);
+}
+
+#[tokio::test]
 async fn manual_batch_refreshes_one_catalog_per_shared_scope() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
     let second = context.add_codex_account("account-456").await;

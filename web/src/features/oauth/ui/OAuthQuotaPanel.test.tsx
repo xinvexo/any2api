@@ -92,6 +92,33 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   ]);
 });
 
+test("warns when quota refresh cannot synchronize the model catalog", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith("/quota") && init?.method === "GET") {
+      return response(null);
+    }
+    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
+      return response({ ...quota(1), model_catalog_refreshed: false });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPanel();
+  const panel = screen.getByRole("region", { name: "Codex 额度" });
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
+
+  expect(
+    await screen.findByText("已刷新「Primary Codex」的额度，但模型目录同步失败。"),
+  ).toBeInTheDocument();
+  expect(
+    await within(panel).findByText("额度已刷新，但模型目录同步失败。"),
+  ).toBeInTheDocument();
+});
+
 test("keeps reset pending when a virtualized account panel remounts", async () => {
   const client = createClient();
   client.setQueryData(
@@ -241,6 +268,7 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
       },
       rate_card: null,
       estimates: [],
+      model_catalog_refreshed: true,
     })),
   );
 
@@ -377,6 +405,7 @@ function quota(availableCount: number) {
       credits_per_usd: 25,
     },
     estimates: [],
+    model_catalog_refreshed: true,
   };
 }
 
