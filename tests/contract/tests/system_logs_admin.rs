@@ -43,7 +43,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert!(initial_events.contains("event: system_logs_changed\n"));
     assert_eq!(
         storage
-            .list_http_access_logs(0, None, 1, 100)
+            .list_http_access_logs(0, true, None, 1, 100)
             .await
             .expect("HTTP access logs after SSE connect")
             .total,
@@ -77,7 +77,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
         .as_str()
         .expect("next system log cursor");
     assert_ne!(first_cursor, next_cursor);
-    let request_cursor = first_cursor.replacen("s2.", "r3.invalid.", 1);
+    let request_cursor = first_cursor.replacen("s3.", "r3.invalid.", 1);
     let wrong_system_cursor = send(
         &app,
         Method::GET,
@@ -159,7 +159,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
-        .list_http_access_logs(0, None, 1, 100)
+        .list_http_access_logs(0, true, None, 1, 100)
         .await
         .expect("remaining HTTP access logs");
     assert_eq!(remaining.total, 0);
@@ -184,7 +184,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let epoch_after_denied = *system_log_changes.borrow_and_update();
     assert!(epoch_after_denied > epoch_before_denied);
     let denied_logs = storage
-        .list_http_access_logs(0, None, 1, 100)
+        .list_http_access_logs(0, true, None, 1, 100)
         .await
         .expect("denied SSE access log");
     assert_eq!(denied_logs.items[0].path, "/api/admin/log-events");
@@ -217,7 +217,7 @@ async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
     wait_for_log_count(storage.as_ref(), 1).await;
 
     let logs = storage
-        .list_http_access_logs(0, None, 1, 10)
+        .list_http_access_logs(0, true, None, 1, 10)
         .await
         .expect("mapped loopback system logs");
     assert_eq!(logs.total, 1);
@@ -430,7 +430,7 @@ async fn collect_response(response: axum::response::Response) -> TestResponse {
 async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
     for _ in 0..200 {
         if storage
-            .list_http_access_logs(0, None, 1, 100)
+            .list_http_access_logs(0, true, None, 1, 100)
             .await
             .expect("HTTP access logs")
             .items
