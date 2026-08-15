@@ -7,12 +7,12 @@ afterEach(() => vi.restoreAllMocks());
 test("paginates system logs without client-controlled audit headers", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => listResponse());
 
-  await getSystemLogs(false, "s3.0.cursor", 7, 50);
+  await getSystemLogs(false, "s4.0.cursor", 7, 50);
   await getSystemLogs();
 
   const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    "/api/admin/system-logs?page=7&page_size=50&show_admin_operations=false&cursor=s3.0.cursor",
+    "/api/admin/system-logs?page=7&page_size=50&show_admin_operations=false&cursor=s4.0.cursor",
   );
   expect(fetchMock.mock.calls[1]?.[0]).toBe(
     "/api/admin/system-logs?page=1&page_size=20&show_admin_operations=true",

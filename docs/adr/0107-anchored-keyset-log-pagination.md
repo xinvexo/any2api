@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-04
 - 决策者：maintainer
-- 修订：ADR-0015、ADR-0051
+- 修订：ADR-0015、ADR-0051；2026-08-16 补充 HttpAccessLog 管理活动筛选作用域
 
 ## 背景
 
@@ -27,7 +27,8 @@ RequestLog 与 HttpAccessLog 原先使用 `page + page_size + OFFSET`。单次�
   1. 首次读取时最新可见行的 `(started_at_ms, request_id)` 头部锚点；
   2. Cursor 对应的页号；
   3. 后续页可选的上一页末行排他边界；
-  4. RequestLog 当前规范化结构化筛选的固定长度指纹；HttpAccessLog 使用空筛选指纹。
+  4. RequestLog 当前规范化结构化筛选的固定长度指纹；HttpAccessLog 编码当前
+     `show_admin_operations` 状态，关闭时管理 API 与管理 Web 静态资源属于同一筛选集合。
   Server 对长度、版本、类型、整数、Base64 文本和边界顺序做有界校验；格式错误返回既有
   `invalid_request`。RequestLog Cursor 的指纹与本次 query 不一致时同样拒绝，客户端不能借 Cursor
   改变筛选集合、日志保留谓词或查询其他数据。项目不保留旧 Cursor 版本兼容分支；Cursor 本来就只存在于
@@ -51,7 +52,8 @@ RequestLog 与 HttpAccessLog 原先使用 `page + page_size + OFFSET`。单次�
   即使返回第一页也保持同一锚点。修改每页条数、任一 RequestLog 筛选条件、清理成功或手动刷新都清除
   Cursor 并回到最新第一页。
 - 已固定 Cursor 的历史页不再响应日志变更 SSE 自动重读，避免无变化查询和浏览视图漂移；第一页未固定时
-  仍按现有开关响应事件。系统日志自动刷新偏好本身仍按浏览器持久化，Cursor 和页码都不持久化。
+  仍按现有开关响应事件。系统日志的自动刷新与“显示管理操作”偏好都按浏览器持久化，后者切换时清除
+  Cursor 并回到最新页；Cursor 和页码都不持久化。
 - `total` 每次仍按同一 SQLite 事务、当前 3 天窗口和头部锚点精确计算，因此 retention 或清理后可以收缩。
   Storage 把超出新总页数的请求收敛到最后一个合法页，响应必须返回实际页号；“下一页”是否可用只以
   服务端 `next_cursor` 为准。
@@ -73,6 +75,8 @@ Cursor 不进入 SQLite、浏览器持久化或运行态恢复，不形成新的
   行不重复、不因头部插入漏过，迟到且位于未遍历区间的行可见。
 - Storage 回归在两页之间删除最旧行，断言 Keyset 从边界后的首个现存行继续；RequestLog 损坏行仍可跨过。
 - Server/HTTP 契约覆盖两类 Cursor 类型隔离、畸形 Cursor 拒绝、响应 Cursor 链和 `total`。
+- HttpAccessLog 契约覆盖管理活动开关进入 Cursor 作用域，关闭时管理 API 与管理 Web 静态资源在锚点、
+  `COUNT`、随机页边界和页面数据中使用同一谓词。
 - RequestLog Server/Storage 契约覆盖筛选后的列表与 `COUNT` 使用同一谓词、筛选指纹稳定，以及跨筛选复用
   Cursor 被拒绝。
 - Web 契约与组件测试覆盖下一页复用精确 Keyset Cursor、页码输入直接提交目标页、历史页暂停 SSE、手动刷新/

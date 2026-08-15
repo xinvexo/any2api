@@ -9,8 +9,12 @@ pub(crate) const SYSTEM_LOG_RETENTION_PREDICATE: &str = "\
     (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
     status_code IS NULL OR status_code >= 400 OR outcome <> 'completed'";
 
-pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str =
-    "path <> '/api/admin' AND path NOT GLOB '/api/admin/*'";
+pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str = "\
+    path <> '/api/admin' AND path NOT GLOB '/api/admin/*' AND \
+    path NOT GLOB '/assets/*' AND path NOT IN (\
+        '/any2api-icon.png', '/boot-theme.js', '/favicon-16x16.png', \
+        '/favicon-32x32.png', '/apple-touch-icon.png', '/index.html'\
+    )";
 
 const SYSTEM_LOG_PAGE_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
     method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \

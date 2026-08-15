@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-15
 - 决策者：maintainer
+- 修订日期：2026-08-16（Target ID 采用直接数据迁移，不保留旧公式兼容）
 - 修订：`AGENTS.md` §3 公开模型名边界、`ARCHITECTURE.md` §9.4 凭据模型集合、§9.5 内部
   ModelRoute、§11.2 Images 命名例外、§11.4 公开模型命名
 
@@ -59,9 +60,10 @@
 
 - 自定义命名上游加入标准公开名的候选池：客户端零改动，`/v1/models` 只列公开名，
   自定义上游名不再作为公开模型出现。
-- 一次性迁移代价：target id 身份串变化，升级后首次触发物化的配置变更会以新 ID 重建全部
-  `route_targets`；`request_attempts.route_target_id` 经由既有 `ON DELETE SET NULL` 与
-  历史遥测解耦，会话粘性为内存态不受影响。
+- 一次性数据迁移代价：启用新身份公式前，已有 `route_targets` 必须直接改写为新 ID，并在
+  同一事务中同步更新 `request_attempts.route_target_id`；不在运行时保留旧公式、双轨读取或
+  条件式兼容。迁移后模型或 Endpoint 真正变化时，旧 Target 仍经既有 `ON DELETE SET NULL`
+  与历史遥测解耦，会话粘性为内存态不受影响。
 - `domain` 新增条目类型与两类冲突校验；`storage` 扩展行读写与迁移；`runtime` 仅投影
   上游名（调度、健康、RPM、粘性零改动）；`protocol`、`transport`、`provider` 零改动；
   `server` 与 Web 更新模型条目 DTO 与别名编辑。

@@ -27,7 +27,7 @@ impl LogCursorScope<'_> {
         match self {
             Self::Request(fingerprint) => format!("r3.{fingerprint}"),
             Self::System(show_admin_operations) => {
-                format!("s3.{}", u8::from(show_admin_operations))
+                format!("s4.{}", u8::from(show_admin_operations))
             }
         }
     }

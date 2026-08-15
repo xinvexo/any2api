@@ -2,6 +2,10 @@ import { RefreshCw, ScrollText, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
+  loadSystemLogAdminOperationsPreference,
+  saveSystemLogAdminOperationsPreference,
+} from "../model/system-log-admin-operations-preference";
+import {
   loadSystemLogAutoRefreshPreference,
   saveSystemLogAutoRefreshPreference,
 } from "../model/system-log-auto-refresh-preference";
@@ -17,7 +21,9 @@ import { Switch } from "@/shared/ui/Switch";
 
 export function SystemLogManagement() {
   const [autoRefresh, setAutoRefresh] = useState(loadSystemLogAutoRefreshPreference);
-  const [showAdminOperations, setShowAdminOperations] = useState(true);
+  const [showAdminOperations, setShowAdminOperations] = useState(
+    loadSystemLogAdminOperationsPreference,
+  );
   const [confirmClear, setConfirmClear] = useState(false);
   const [{ page, cursor }, setLocation] = useState({ page: 1, cursor: null as string | null });
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
@@ -65,6 +71,7 @@ export function SystemLogManagement() {
 
   const handleShowAdminOperationsChange = (enabled: boolean) => {
     setShowAdminOperations(enabled);
+    saveSystemLogAdminOperationsPreference(enabled);
     setSelectedRequestId(null);
     setLocation({ page: 1, cursor: null });
   };

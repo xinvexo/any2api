@@ -77,7 +77,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
         .as_str()
         .expect("next system log cursor");
     assert_ne!(first_cursor, next_cursor);
-    let request_cursor = first_cursor.replacen("s3.", "r3.invalid.", 1);
+    let request_cursor = first_cursor.replacen("s4.", "r3.invalid.", 1);
     let wrong_system_cursor = send(
         &app,
         Method::GET,

@@ -138,7 +138,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
 }
 
 #[tokio::test]
-async fn access_log_pages_can_hide_only_admin_operation_paths() {
+async fn access_log_pages_can_hide_admin_activity_and_web_assets() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("access-log-admin-filter.sqlite3"))
         .await
@@ -148,8 +148,16 @@ async fn access_log_pages_can_hide_only_admin_operation_paths() {
             vec![
                 record(100, "/api/admin"),
                 record(200, "/api/admin/settings"),
-                record(300, "/api/administrator"),
-                record(400, "/v1/responses"),
+                record(300, "/any2api-icon.png"),
+                record(400, "/boot-theme.js"),
+                record(500, "/assets/SystemLogsPage-D2gm5oNd.js"),
+                record(600, "/favicon-16x16.png"),
+                record(700, "/favicon-32x32.png"),
+                record(800, "/apple-touch-icon.png"),
+                record(900, "/index.html"),
+                record(1_000, "/api/administrator"),
+                record(1_100, "/assets-not/application.js"),
+                record(1_200, "/v1/responses"),
             ],
             GENEROUS_CAPACITY,
         )
@@ -160,20 +168,21 @@ async fn access_log_pages_can_hide_only_admin_operation_paths() {
         .list_http_access_logs(0, true, None, 1, 10)
         .await
         .expect("unfiltered page");
-    assert_eq!(visible.total, 4);
+    assert_eq!(visible.total, 12);
 
     let first_page = store
-        .list_http_access_logs(0, false, None, 1, 1)
+        .list_http_access_logs(0, false, None, 1, 2)
         .await
         .expect("first filtered page");
-    assert_eq!(first_page.total, 2);
+    assert_eq!(first_page.total, 3);
     assert_eq!(first_page.items[0].path, "/v1/responses");
+    assert_eq!(first_page.items[1].path, "/assets-not/application.js");
 
     let second_page = store
-        .list_http_access_logs(0, false, first_page.next_cursor, 2, 1)
+        .list_http_access_logs(0, false, first_page.next_cursor, 2, 2)
         .await
         .expect("second filtered page");
-    assert_eq!(second_page.total, 2);
+    assert_eq!(second_page.total, 3);
     assert_eq!(second_page.items[0].path, "/api/administrator");
     assert!(second_page.next_cursor.is_none());
 }
