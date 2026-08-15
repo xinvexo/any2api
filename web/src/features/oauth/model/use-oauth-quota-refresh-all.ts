@@ -1,8 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import { runOAuthQuotaBatch } from "./oauth-quota-batch";
-import { refreshOAuthAccountQuota } from "./oauth-quota-query";
+import { refreshOAuthQuotaBatchRequest } from "../api/oauth-api";
 import { oauthQueryKeys } from "./oauth-query-keys";
 
 export interface OAuthQuotaRefreshResult {
@@ -24,18 +23,20 @@ export function useOAuthQuotaRefreshAll() {
     pendingRef.current = true;
     setPending(true);
     try {
-      const outcomes = await runOAuthQuotaBatch(accountIds, (accountId) =>
-        refreshOAuthAccountQuota(queryClient, accountId),
-      );
-      if (outcomes.some((outcome) => outcome.status === "rejected")) {
-        await queryClient.invalidateQueries({
+      const result = await refreshOAuthQuotaBatchRequest(accountIds);
+      await Promise.all([
+        queryClient.invalidateQueries({
           queryKey: oauthQueryKeys.accounts,
           refetchType: "active",
-        });
-      }
+        }),
+        queryClient.invalidateQueries({
+          queryKey: oauthQueryKeys.quotas,
+          refetchType: "active",
+        }),
+      ]);
       return {
         total: accountIds.length,
-        failed: outcomes.filter((outcome) => outcome.status === "rejected").length,
+        failed: result.failedAccountIds.length,
       };
     } finally {
       setPending(false);

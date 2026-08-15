@@ -221,13 +221,6 @@ fn parses_codex_token_claims_without_logging_token_values() {
         "https://chatgpt.com/backend-api/codex"
     );
     assert_eq!(profile.protocol_dialect(), ProtocolDialect::OpenAiResponses);
-    assert_eq!(profile.models().len(), 8);
-    assert!(
-        profile
-            .models()
-            .iter()
-            .any(|model| model.as_str() == "gpt-5.3-codex-spark")
-    );
     assert_eq!(
         driver
             .endpoint_plan(profile.base_url(), ProtocolOperation::Responses)
@@ -300,7 +293,7 @@ fn codex_principal_identity_uses_member_claim_not_workspace_alone() {
 }
 
 #[test]
-fn missing_codex_plan_uses_the_minimal_free_catalog() {
+fn missing_codex_plan_does_not_create_a_local_catalog() {
     let driver = CodexDriver::new();
     let token = driver
         .parse_oauth_token_response(br#"{"access_token":"access-secret","expires_in":3600}"#)
@@ -309,12 +302,9 @@ fn missing_codex_plan_uses_the_minimal_free_catalog() {
         .oauth_routing_profile(&token)
         .expect("OAuth routing profile");
 
-    assert_eq!(profile.models().len(), 5);
-    assert!(
-        profile
-            .models()
-            .iter()
-            .all(|model| model.as_str() != "gpt-5.6-sol")
+    assert_eq!(
+        profile.base_url().as_str(),
+        "https://chatgpt.com/backend-api/codex"
     );
 }
 

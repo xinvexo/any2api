@@ -82,7 +82,9 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
         ),
         OAuthQuotaError::InvalidEndpointUri
         | OAuthQuotaError::Persistence(_)
-        | OAuthQuotaError::InvalidPersistedSnapshot => {
+        | OAuthQuotaError::InvalidPersistedSnapshot
+        | OAuthQuotaError::ModelCatalogPersistence(_)
+        | OAuthQuotaError::InvalidPersistedModelCatalog => {
             tracing::error!(error = ?error, "OAuth quota request could not be constructed");
             AdminApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

@@ -31,24 +31,13 @@ impl ConfigPublisher {
         &self,
         current: &PublishedSnapshot,
         id: OAuthAccountId,
-        models: &[String],
+        _models: &[String],
     ) -> Result<(), ConfigPublishError> {
         current
             .oauth_accounts()
             .get(id)
-            .ok_or(ConfigPublishError::OAuthAccountNotFound)?;
-        let available = current
-            .oauth_available_models(id)
-            .ok_or(ConfigPublishError::OAuthAccountNotFound)?;
-        if models.iter().all(|model| {
-            available
-                .binary_search_by_key(&model.as_str(), |available| available.as_str())
-                .is_ok()
-        }) {
-            Ok(())
-        } else {
-            Err(ConfigPublishError::OAuthModelUnavailable)
-        }
+            .ok_or(ConfigPublishError::OAuthAccountNotFound)
+            .map(|_| ())
     }
 
     #[allow(clippy::too_many_arguments)]

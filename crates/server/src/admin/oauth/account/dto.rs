@@ -1,8 +1,12 @@
+use std::collections::{BTreeSet, HashMap};
+
 use any2api_domain::{
     ConfigRevision, OAuthAccount, OAuthAccountDraft, OAuthAccountId, ProviderKind,
     RequestsPerMinute, RoutingCredentialId,
 };
-use any2api_runtime::api::{OAuthService, PublishedSnapshot, UpstreamCredentialUsageSummary};
+use any2api_runtime::api::{
+    OAuthModelCatalogSnapshot, OAuthService, PublishedSnapshot, UpstreamCredentialUsageSummary,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::admin::{
@@ -24,13 +28,22 @@ impl OAuthAccountCollectionResponse {
         snapshot: &PublishedSnapshot,
         usage: &[UpstreamCredentialUsageSummary],
         oauth: Option<&OAuthService>,
+        model_catalogs: &HashMap<OAuthAccountId, OAuthModelCatalogSnapshot>,
     ) -> Self {
         let accounts = accounts_for_management(snapshot.oauth_accounts().accounts());
         Self {
             config_revision: snapshot.revision().get(),
             items: accounts
                 .into_iter()
-                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot, usage, oauth))
+                .map(|account| {
+                    OAuthAccountResponse::from_snapshot(
+                        account,
+                        snapshot,
+                        usage,
+                        oauth,
+                        model_catalogs.get(&account.id()),
+                    )
+                })
                 .collect(),
         }
     }
@@ -80,21 +93,18 @@ impl OAuthAccountResponse {
         snapshot: &PublishedSnapshot,
         usage: &[UpstreamCredentialUsageSummary],
         oauth: Option<&OAuthService>,
+        model_catalog: Option<&OAuthModelCatalogSnapshot>,
     ) -> Self {
         let selected = account
             .models()
             .iter()
             .map(|model| model.as_str().to_owned())
             .collect::<Vec<_>>();
-        let available_models = snapshot
-            .oauth_available_models(account.id())
-            .map(|models| {
-                models
-                    .iter()
-                    .map(|model| model.as_str().to_owned())
-                    .collect()
-            })
-            .unwrap_or_else(|| selected.clone());
+        let mut available_models = selected.iter().cloned().collect::<BTreeSet<_>>();
+        if let Some(model_catalog) = model_catalog {
+            available_models.extend(model_catalog.models().iter().cloned());
+        }
+        let available_models = available_models.into_iter().collect();
         let runtime = snapshot
             .credential_runtime_observation(RoutingCredentialId::oauth_account(account.id()))
             .expect("published OAuth account has runtime observation");

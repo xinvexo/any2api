@@ -8,7 +8,10 @@ use any2api_provider::api::{
     OAuthQuotaExhaustion, OAuthQuotaResetResult, OAuthQuotaTokenBalance,
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
 };
-use any2api_storage::api::{OAuthQuotaEstimationRepository, OAuthQuotaSnapshotRepository};
+use any2api_storage::api::{
+    OAuthModelCatalogSnapshotRepository, OAuthQuotaEstimationRepository,
+    OAuthQuotaSnapshotRepository,
+};
 use any2api_transport::api::{TransportManager, TransportTrafficClass};
 use http::StatusCode;
 use tokio::sync::watch;
@@ -38,13 +41,15 @@ pub(super) struct QueriedQuota {
 
 pub(in crate::oauth) struct OAuthQuotaService {
     pub(super) providers: Arc<ProviderRegistry>,
-    transport: Arc<dyn TransportManager>,
+    pub(super) transport: Arc<dyn TransportManager>,
     pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) refresher: Arc<OAuthRefresher>,
-    control_plane: Arc<OAuthControlPlanePacer>,
+    pub(super) control_plane: Arc<OAuthControlPlanePacer>,
     pub(super) persistence: OAuthQuotaPersistence,
     pub(super) estimator: OAuthQuotaEstimator,
     pub(super) telemetry: Arc<RequestTelemetry>,
+    pub(super) model_catalog_persistence: super::model_catalog::OAuthModelCatalogPersistence,
+    pub(super) model_catalog_gates: super::model_catalog::OAuthModelCatalogGates,
     activity: OAuthQuotaActivity,
     operation_gates: OAuthQuotaOperationGates,
 }
@@ -60,11 +65,17 @@ impl OAuthQuotaService {
         telemetry: Arc<RequestTelemetry>,
     ) -> Self
     where
-        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthModelCatalogSnapshotRepository
+            + OAuthQuotaEstimationRepository
+            + OAuthQuotaSnapshotRepository
+            + 'static,
     {
         let snapshot_repository: Arc<dyn OAuthQuotaSnapshotRepository> =
             Arc::clone(&quota_repository) as _;
-        let estimation_repository: Arc<dyn OAuthQuotaEstimationRepository> = quota_repository;
+        let estimation_repository: Arc<dyn OAuthQuotaEstimationRepository> =
+            Arc::clone(&quota_repository) as _;
+        let model_catalog_repository: Arc<dyn OAuthModelCatalogSnapshotRepository> =
+            quota_repository as _;
         Self {
             providers,
             transport,
@@ -74,6 +85,10 @@ impl OAuthQuotaService {
             persistence: OAuthQuotaPersistence::new(snapshot_repository),
             estimator: OAuthQuotaEstimator::new(estimation_repository),
             telemetry,
+            model_catalog_persistence: super::model_catalog::OAuthModelCatalogPersistence::new(
+                model_catalog_repository,
+            ),
+            model_catalog_gates: super::model_catalog::OAuthModelCatalogGates::default(),
             activity: OAuthQuotaActivity::new(),
             operation_gates: OAuthQuotaOperationGates::default(),
         }

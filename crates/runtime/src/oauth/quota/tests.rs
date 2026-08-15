@@ -4,7 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_storage::api::OAuthQuotaSnapshotRepository;
+use any2api_storage::api::{OAuthModelCatalogSnapshotRepository, OAuthQuotaSnapshotRepository};
 use any2api_transport::api::TransportTrafficClass;
 
 use super::{
@@ -13,6 +13,99 @@ use super::{
 };
 use crate::health::{HealthAcquireError, ReliabilityPolicy};
 use uuid::Uuid;
+
+#[tokio::test]
+async fn only_manual_quota_refresh_reads_and_persists_the_live_model_catalog() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+
+    context
+        .service
+        .refresh_quota(context.account_id)
+        .await
+        .expect("quota only refresh");
+    assert_eq!(context.transport.model_catalog_calls(), 0);
+
+    context
+        .service
+        .refresh_quota_manually(context.account_id)
+        .await
+        .expect("manual quota refresh");
+    assert_eq!(context.transport.model_catalog_calls(), 1);
+    let catalogs = context
+        .storage
+        .load_oauth_model_catalog_snapshots()
+        .await
+        .expect("catalog snapshots");
+    assert_eq!(catalogs.len(), 1);
+    assert_eq!(
+        catalogs[0].provider_kind,
+        any2api_domain::ProviderKind::Codex
+    );
+    assert_eq!(catalogs[0].directory_scope, "free");
+    assert_eq!(catalogs[0].models, ["gpt-catalog-a"]);
+}
+
+#[tokio::test]
+async fn manual_batch_refreshes_one_catalog_per_shared_scope() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    let second = context.add_codex_account("account-456").await;
+
+    let result = context
+        .service
+        .refresh_quota_batch(vec![context.account_id, second])
+        .await;
+
+    let mut expected = vec![context.account_id, second];
+    expected.sort();
+    assert_eq!(result.succeeded(), expected);
+    assert!(result.failed().is_empty());
+    assert_eq!(result.model_catalog_refreshed_scopes(), 1);
+    assert_eq!(result.model_catalog_failed_scopes(), 0);
+    assert_eq!(context.transport.usage_calls(), 2);
+    assert_eq!(context.transport.model_catalog_calls(), 1);
+}
+
+#[tokio::test]
+async fn manual_batch_refreshes_twenty_codex_accounts_with_two_plan_catalog_queries() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    let mut ids = vec![context.account_id];
+    for index in 1..10 {
+        ids.push(
+            context
+                .add_codex_account(&format!("free-account-{index}"))
+                .await,
+        );
+    }
+    for index in 0..10 {
+        ids.push(
+            context
+                .add_codex_account_with_plan(&format!("plus-account-{index}"), "plus")
+                .await,
+        );
+    }
+
+    let result = context.service.refresh_quota_batch(ids).await;
+
+    assert_eq!(result.succeeded().len(), 20);
+    assert!(result.failed().is_empty());
+    assert_eq!(result.model_catalog_refreshed_scopes(), 2);
+    assert_eq!(result.model_catalog_failed_scopes(), 0);
+    assert_eq!(context.transport.usage_calls(), 20);
+    assert_eq!(context.transport.model_catalog_calls(), 2);
+    let catalogs = context
+        .storage
+        .load_oauth_model_catalog_snapshots()
+        .await
+        .expect("catalog snapshots");
+    assert_eq!(catalogs.len(), 2);
+    assert_eq!(
+        catalogs
+            .iter()
+            .map(|catalog| catalog.directory_scope.as_str())
+            .collect::<Vec<_>>(),
+        ["free", "plus_or_pro"]
+    );
+}
 
 #[tokio::test]
 async fn reset_preserves_statistics_until_the_next_official_window() {

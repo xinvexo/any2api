@@ -1,6 +1,6 @@
 use super::{
-    headers as grok_headers, import as grok_import, oauth as grok_oauth, quota as grok_quota,
-    upstream_error as grok_error,
+    headers as grok_headers, import as grok_import, model_catalog as grok_model_catalog,
+    oauth as grok_oauth, quota as grok_quota, upstream_error as grok_error,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
@@ -11,8 +11,8 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan,
         OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaUsage,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaQueryPlan, OAuthQuotaRejection,
+        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -177,6 +177,24 @@ impl ProviderDriver for GrokDriver {
         _token: &OAuthTokenMaterial,
     ) -> Result<OAuthRoutingProfile, ProviderError> {
         grok_oauth::routing_profile()
+    }
+
+    fn oauth_model_catalog_scope(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthModelCatalogScope, ProviderError> {
+        grok_model_catalog::scope(token)
+    }
+
+    fn oauth_model_catalog_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        grok_model_catalog::request_plan(token)
+    }
+
+    fn parse_oauth_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+        grok_model_catalog::parse(bounded_body)
     }
 
     fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {

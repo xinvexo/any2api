@@ -8,6 +8,7 @@ mod http_access_log;
 mod local_data;
 mod migration;
 mod oauth_account;
+mod oauth_model_catalog_snapshot;
 mod oauth_quota_snapshot;
 mod provider;
 mod proxy;

@@ -5,8 +5,12 @@ use any2api_provider::api::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, ProviderDriver,
     ProviderRegistry,
 };
-use any2api_storage::api::{OAuthQuotaEstimationRepository, OAuthQuotaSnapshotRepository};
+use any2api_storage::api::{
+    OAuthModelCatalogSnapshotRepository, OAuthQuotaEstimationRepository,
+    OAuthQuotaSnapshotRepository,
+};
 use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportTrafficClass};
+use futures_util::{StreamExt, stream};
 use tokio::sync::watch;
 
 use crate::{
@@ -30,6 +34,38 @@ use super::{
     refresh::{OAuthRefreshFailure, OAuthRefresher},
 };
 
+const MAX_MANUAL_QUOTA_REFRESHES: usize = 6;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OAuthQuotaRefreshBatchResult {
+    succeeded: Vec<OAuthAccountId>,
+    failed: Vec<OAuthAccountId>,
+    model_catalog_refreshed_scopes: usize,
+    model_catalog_failed_scopes: usize,
+}
+
+impl OAuthQuotaRefreshBatchResult {
+    #[must_use]
+    pub fn succeeded(&self) -> &[OAuthAccountId] {
+        &self.succeeded
+    }
+
+    #[must_use]
+    pub fn failed(&self) -> &[OAuthAccountId] {
+        &self.failed
+    }
+
+    #[must_use]
+    pub const fn model_catalog_refreshed_scopes(&self) -> usize {
+        self.model_catalog_refreshed_scopes
+    }
+
+    #[must_use]
+    pub const fn model_catalog_failed_scopes(&self) -> usize {
+        self.model_catalog_failed_scopes
+    }
+}
+
 pub struct OAuthService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
@@ -50,7 +86,10 @@ impl OAuthService {
         telemetry: Arc<RequestTelemetry>,
     ) -> Self
     where
-        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthModelCatalogSnapshotRepository
+            + OAuthQuotaEstimationRepository
+            + OAuthQuotaSnapshotRepository
+            + 'static,
     {
         Self::new_with_control_plane_interval(
             providers,
@@ -71,7 +110,10 @@ impl OAuthService {
         control_plane_interval: std::time::Duration,
     ) -> Self
     where
-        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthModelCatalogSnapshotRepository
+            + OAuthQuotaEstimationRepository
+            + OAuthQuotaSnapshotRepository
+            + 'static,
     {
         let control_plane = Arc::new(OAuthControlPlanePacer::new(control_plane_interval));
         let refresher = OAuthRefresher::new(
@@ -108,7 +150,10 @@ impl OAuthService {
         quota_repository: Arc<R>,
     ) -> Self
     where
-        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthModelCatalogSnapshotRepository
+            + OAuthQuotaEstimationRepository
+            + OAuthQuotaSnapshotRepository
+            + 'static,
     {
         Self::new_with_control_plane_interval(
             providers,
@@ -148,6 +193,62 @@ impl OAuthService {
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
         self.quota.refresh(id).await
+    }
+
+    pub async fn refresh_quota_manually(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
+        let quota = self.refresh_quota(id).await?;
+        if let Err(error) = self.quota.refresh_model_catalog(id).await {
+            tracing::warn!(oauth_account_id = %id, error = %error, "manual OAuth model catalog refresh failed");
+        }
+        Ok(quota)
+    }
+
+    pub async fn refresh_quota_batch(
+        &self,
+        mut ids: Vec<OAuthAccountId>,
+    ) -> OAuthQuotaRefreshBatchResult {
+        ids.sort();
+        ids.dedup();
+        let quota = Arc::clone(&self.quota);
+        let results = stream::iter(ids)
+            .map(move |id| {
+                let quota = Arc::clone(&quota);
+                async move { (id, quota.refresh(id).await) }
+            })
+            .buffer_unordered(MAX_MANUAL_QUOTA_REFRESHES)
+            .collect::<Vec<_>>()
+            .await;
+        let mut succeeded = Vec::new();
+        let mut failed = Vec::new();
+        for (id, result) in results {
+            if result.is_ok() {
+                succeeded.push(id);
+            } else {
+                failed.push(id);
+            }
+        }
+        succeeded.sort();
+        failed.sort();
+        let summary = self.quota.refresh_model_catalogs(&succeeded).await;
+        OAuthQuotaRefreshBatchResult {
+            succeeded,
+            failed,
+            model_catalog_refreshed_scopes: summary.refreshed_scopes(),
+            model_catalog_failed_scopes: summary.failed_scopes(),
+        }
+    }
+
+    pub async fn model_catalogs_for_accounts(
+        &self,
+        snapshot: &crate::configuration::PublishedSnapshot,
+    ) -> Result<
+        std::collections::HashMap<OAuthAccountId, super::quota::OAuthModelCatalogSnapshot>,
+        OAuthQuotaError,
+    > {
+        self.quota.model_catalogs_for_accounts(snapshot).await
     }
 
     pub fn subscribe_quota_changes(&self) -> watch::Receiver<u64> {
@@ -303,14 +404,8 @@ impl OAuthService {
         let token = driver
             .parse_oauth_token_response(&body)
             .map_err(OAuthError::from_token_response_error)?;
-        activation::publish(
-            self.providers.as_ref(),
-            self.publisher.as_ref(),
-            session.provider,
-            session.proxy_selection,
-            token,
-        )
-        .await
+        self.activate_token(session.provider, session.proxy_selection, token)
+            .await
     }
 
     pub async fn poll_device(&self, session_id: &str) -> Result<OAuthDevicePollResult, OAuthError> {
@@ -355,15 +450,9 @@ impl OAuthService {
                 let provider = lease.provider();
                 let proxy_selection = lease.proxy_selection();
                 lease.finish();
-                activation::publish(
-                    self.providers.as_ref(),
-                    self.publisher.as_ref(),
-                    provider,
-                    proxy_selection,
-                    token,
-                )
-                .await
-                .map(OAuthDevicePollResult::Complete)
+                self.activate_token(provider, proxy_selection, token)
+                    .await
+                    .map(OAuthDevicePollResult::Complete)
             }
             OAuthDeviceTokenPoll::Denied => {
                 lease.finish();
@@ -395,6 +484,27 @@ impl OAuthService {
             strict_ssrf,
             TransportIsolationKey::ephemeral(TransportTrafficClass::OAuthToken),
             plan,
+        )
+        .await
+    }
+
+    async fn activate_token(
+        &self,
+        provider: ProviderKind,
+        proxy_selection: OAuthProxySelection,
+        token: any2api_provider::api::OAuthTokenMaterial,
+    ) -> Result<OAuthActivationResult, OAuthError> {
+        let models = self
+            .quota
+            .fetch_model_catalog_for_login(provider, proxy_selection, &token)
+            .await?;
+        activation::publish(
+            self.providers.as_ref(),
+            self.publisher.as_ref(),
+            provider,
+            proxy_selection,
+            token,
+            models,
         )
         .await
     }

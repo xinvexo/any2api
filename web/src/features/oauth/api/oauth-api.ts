@@ -14,6 +14,7 @@ import {
 } from "./oauth-contracts";
 import {
   parseNullableOAuthQuotaSnapshot,
+  parseOAuthQuotaRefreshBatchResult,
   parseOAuthQuotaResetResult,
   parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
@@ -133,6 +134,14 @@ export function refreshOAuthAccountQuotaRequest(id: string) {
     `${accountCollection}/${encodeURIComponent(id)}/quota/refresh`,
     { method: "POST", timeoutMs: null },
   ).then(parseOAuthQuotaSnapshot);
+}
+
+export function refreshOAuthQuotaBatchRequest(accountIds: readonly string[]) {
+  return requestJson<unknown>("/api/admin/oauth/quota/refresh", {
+    method: "POST",
+    body: { account_ids: accountIds },
+    timeoutMs: null,
+  }).then(parseOAuthQuotaRefreshBatchResult);
 }
 
 const quotaResetRequestIds = new Map<string, string>();

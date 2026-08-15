@@ -149,6 +149,8 @@ pub enum StorageError {
     CorruptTelemetry,
     #[error("stored OAuth quota snapshot is invalid")]
     CorruptOAuthQuotaSnapshot,
+    #[error("stored OAuth model catalog snapshot is invalid")]
+    CorruptOAuthModelCatalogSnapshot,
     #[error("setting value is invalid: {0}")]
     SettingsValidation(#[from] SettingsValidationError),
 }

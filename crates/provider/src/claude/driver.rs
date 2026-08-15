@@ -1,6 +1,6 @@
 use super::{
     error as claude_error, headers as claude_headers, import as claude_import,
-    oauth as claude_oauth, quota as claude_quota,
+    model_catalog as claude_model_catalog, oauth as claude_oauth, quota as claude_quota,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
@@ -13,8 +13,8 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaQueryPlan,
+        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -164,6 +164,24 @@ impl ProviderDriver for ClaudeDriver {
         _token: &OAuthTokenMaterial,
     ) -> Result<OAuthRoutingProfile, ProviderError> {
         claude_oauth::routing_profile()
+    }
+
+    fn oauth_model_catalog_scope(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthModelCatalogScope, ProviderError> {
+        claude_model_catalog::scope(token)
+    }
+
+    fn oauth_model_catalog_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        claude_model_catalog::request_plan(token)
+    }
+
+    fn parse_oauth_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+        claude_model_catalog::parse(bounded_body)
     }
 
     fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {

@@ -36,6 +36,10 @@ export async function refreshOAuthAccountQuota(
   try {
     const snapshot = await refreshOAuthAccountQuotaRequest(accountId);
     queryClient.setQueryData(oauthQueryKeys.quota(accountId), snapshot);
+    await queryClient.invalidateQueries({
+      queryKey: oauthQueryKeys.accounts,
+      refetchType: "active",
+    });
     return snapshot;
   } catch (error) {
     applyRefreshDiagnostic(queryClient, accountId, error);

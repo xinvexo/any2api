@@ -18,6 +18,7 @@ mod http_access_log_loopback_ips;
 mod legacy_upgrades;
 mod oauth_account_documents;
 mod oauth_account_proxy_selection;
+mod oauth_model_catalog_snapshots;
 mod oauth_quota_estimation_boundaries;
 mod oauth_quota_snapshot_v5;
 mod oauth_quota_snapshot_v6;
@@ -106,6 +107,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (31, "add oauth account proxy selection".to_owned()),
             (32, "add alpha search operation".to_owned()),
             (33, "add credential public model alias".to_owned()),
+            (34, "persist oauth model catalog snapshots".to_owned()),
         ]
     );
 
@@ -178,6 +180,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(oauth_quota_schema.contains("schema_version = 9"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
+    let oauth_model_catalog_schema = table_schema(&pool, "oauth_model_catalog_snapshots").await;
+    assert!(oauth_model_catalog_schema.contains("provider_kind IN ('codex', 'claude', 'grok')"));
+    assert!(oauth_model_catalog_schema.contains("PRIMARY KEY (provider_kind, directory_scope)"));
+    assert!(oauth_model_catalog_schema.contains("length(models_json) BETWEEN 2 AND 131072"));
     let quota_boundary_exists: Option<i64> = sqlx::query_scalar(
         "SELECT 1 FROM sqlite_schema WHERE type = 'table' \
          AND name = 'oauth_quota_estimation_boundaries'",

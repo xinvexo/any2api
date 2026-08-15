@@ -16,6 +16,10 @@ pub use crate::oauth_account::{
     OAuthAccountDocumentValidationError, OAuthAccountRefresh, StoredOAuthAccountMaterial,
     StoredOAuthAccountMaterials,
 };
+pub use crate::oauth_model_catalog_snapshot::{
+    MAX_OAUTH_MODEL_CATALOG_MODELS, MAX_OAUTH_MODEL_CATALOG_SNAPSHOT_BYTES,
+    OAuthModelCatalogSnapshotRepository, StoredOAuthModelCatalogSnapshot,
+};
 pub use crate::oauth_quota_snapshot::{
     MAX_OAUTH_QUOTA_SNAPSHOT_BYTES, OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
     OAuthQuotaSnapshotRepository, StoredOAuthQuotaSnapshot,

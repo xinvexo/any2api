@@ -24,32 +24,6 @@ const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const DATA_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
-const FREE_MODELS: &[&str] = &[
-    "codex-auto-review",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-    "gpt-5.6-luna",
-    "gpt-5.6-terra",
-];
-const TEAM_MODELS: &[&str] = &[
-    "codex-auto-review",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-    "gpt-5.6-luna",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-];
-const PLUS_MODELS: &[&str] = &[
-    "codex-auto-review",
-    "gpt-5.3-codex-spark",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.5",
-    "gpt-5.6-luna",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-];
 
 pub(crate) const fn redirect_uri() -> &'static str {
     REDIRECT_URI
@@ -156,14 +130,9 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
 }
 
 pub(crate) fn routing_profile(
-    token: &OAuthTokenMaterial,
+    _token: &OAuthTokenMaterial,
 ) -> Result<OAuthRoutingProfile, ProviderError> {
-    let claims = decode_claims(token.id_token());
-    OAuthRoutingProfile::fixed(
-        DATA_BASE_URL,
-        ProtocolDialect::OpenAiResponses,
-        models_for_plan(claims.plan.as_deref()),
-    )
+    OAuthRoutingProfile::fixed(DATA_BASE_URL, ProtocolDialect::OpenAiResponses)
 }
 
 pub(crate) fn principal_identity(token: &OAuthTokenMaterial) -> Option<OAuthPrincipalIdentity> {
@@ -243,20 +212,4 @@ struct CodexOAuthResponse {
     expires_in: i64,
     account_id: Option<String>,
     email: Option<String>,
-}
-
-fn models_for_plan(plan: Option<&str>) -> &'static [&'static str] {
-    let Some(plan) = plan.map(str::trim).filter(|plan| !plan.is_empty()) else {
-        return FREE_MODELS;
-    };
-    if plan.eq_ignore_ascii_case("pro") || plan.eq_ignore_ascii_case("plus") {
-        PLUS_MODELS
-    } else if plan.eq_ignore_ascii_case("team")
-        || plan.eq_ignore_ascii_case("business")
-        || plan.eq_ignore_ascii_case("go")
-    {
-        TEAM_MODELS
-    } else {
-        FREE_MODELS
-    }
 }

@@ -3,6 +3,7 @@ mod driver;
 mod headers;
 mod identity;
 mod import;
+mod model_catalog;
 mod oauth;
 mod quota;
 mod request;

@@ -167,7 +167,6 @@ fn parses_claude_account_email() {
         profile.protocol_dialect(),
         ProtocolDialect::AnthropicMessages
     );
-    assert_eq!(profile.models().len(), 14);
     assert_eq!(
         driver
             .endpoint_plan(profile.base_url(), ProtocolOperation::Messages)

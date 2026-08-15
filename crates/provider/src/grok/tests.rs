@@ -239,7 +239,6 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         "https://cli-chat-proxy.grok.com/v1"
     );
     assert_eq!(profile.protocol_dialect(), ProtocolDialect::OpenAiResponses);
-    assert_eq!(profile.models().len(), 7);
     assert!(driver.oauth_supports_operation(ProtocolOperation::Responses));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ResponsesCompact));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));

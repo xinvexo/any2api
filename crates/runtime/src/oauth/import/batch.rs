@@ -101,14 +101,10 @@ pub(in crate::oauth) async fn publish(
         driver
             .oauth_credential_headers(&token, &http::HeaderMap::new())
             .map_err(|_| invalid_account(file_index, account_index))?;
-        let routing_profile = driver
+        driver
             .oauth_routing_profile(&token)
             .map_err(|_| invalid_account(file_index, account_index))?;
-        let models = routing_profile
-            .models()
-            .iter()
-            .map(|model| model.as_str().to_owned())
-            .collect();
+        let models = Vec::new();
         let oauth_document = document::build_account_document(&token)
             .map_err(|_| invalid_account(file_index, account_index))?;
         let id = OAuthAccountId::new();

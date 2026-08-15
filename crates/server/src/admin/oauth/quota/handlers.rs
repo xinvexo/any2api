@@ -12,12 +12,16 @@ use crate::{
 
 use super::{
     super::account,
-    dto::{OAuthQuotaResetRequest, OAuthQuotaResetResponse, OAuthQuotaResponse},
+    dto::{
+        OAuthQuotaBatchRefreshRequest, OAuthQuotaBatchRefreshResponse, OAuthQuotaResetRequest,
+        OAuthQuotaResetResponse, OAuthQuotaResponse,
+    },
     error,
 };
 
 pub(in crate::admin::oauth) fn routes() -> Router<AppState> {
     Router::new()
+        .route("/oauth/quota/refresh", post(refresh_quota_batch))
         .route("/oauth/accounts/{id}/quota", get(cached_quota))
         .route("/oauth/accounts/{id}/quota/refresh", post(refresh_quota))
         .route("/oauth/accounts/{id}/quota/reset", post(reset_quota))
@@ -39,8 +43,22 @@ async fn refresh_quota(
 ) -> Result<Json<OAuthQuotaResponse>, AdminApiError> {
     let id = account::parse_id(&id)?;
     let service = state.oauth().ok_or_else(oauth_unavailable)?;
-    let result = service.refresh_quota(id).await.map_err(error::map)?;
+    let result = service
+        .refresh_quota_manually(id)
+        .await
+        .map_err(error::map)?;
     Ok(Json(OAuthQuotaResponse::from(result)))
+}
+
+async fn refresh_quota_batch(
+    State(state): State<AppState>,
+    AdminJson(request): AdminJson<OAuthQuotaBatchRefreshRequest>,
+) -> Result<Json<OAuthQuotaBatchRefreshResponse>, AdminApiError> {
+    let service = state.oauth().ok_or_else(oauth_unavailable)?;
+    let result = service
+        .refresh_quota_batch(request.into_account_ids()?)
+        .await;
+    Ok(Json(result.into()))
 }
 
 async fn reset_quota(

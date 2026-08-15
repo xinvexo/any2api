@@ -90,6 +90,13 @@ export interface OAuthQuotaResetResult {
   windowsReset: number;
 }
 
+export interface OAuthQuotaRefreshBatchResult {
+  succeededAccountIds: string[];
+  failedAccountIds: string[];
+  modelCatalogRefreshedScopes: number;
+  modelCatalogFailedScopes: number;
+}
+
 export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
   if (!isRecord(value)) throw invalidResponse();
   return {
@@ -178,6 +185,27 @@ function parseBilling(value: unknown): OAuthQuotaBilling | null {
 export function parseOAuthQuotaResetResult(value: unknown): OAuthQuotaResetResult {
   if (!isRecord(value)) throw invalidResponse();
   return { windowsReset: readInteger(value.windows_reset, 1) };
+}
+
+export function parseOAuthQuotaRefreshBatchResult(
+  value: unknown,
+): OAuthQuotaRefreshBatchResult {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.succeeded_account_ids) ||
+    !Array.isArray(value.failed_account_ids)
+  ) {
+    throw invalidResponse();
+  }
+  return {
+    succeededAccountIds: value.succeeded_account_ids.map(readString),
+    failedAccountIds: value.failed_account_ids.map(readString),
+    modelCatalogRefreshedScopes: readInteger(
+      value.model_catalog_refreshed_scopes,
+      0,
+    ),
+    modelCatalogFailedScopes: readInteger(value.model_catalog_failed_scopes, 0),
+  };
 }
 
 function parseRateLimit(value: unknown): OAuthQuotaRateLimit | null {

@@ -89,10 +89,21 @@ async fn accounts_response(
     snapshot: &any2api_runtime::api::PublishedSnapshot,
 ) -> Json<OAuthAccountCollectionResponse> {
     let usage = upstream_usage::load(state).await;
+    let model_catalogs = match state.oauth() {
+        Some(oauth) => match oauth.model_catalogs_for_accounts(snapshot).await {
+            Ok(catalogs) => catalogs,
+            Err(error) => {
+                tracing::warn!(error = %error, "OAuth model catalog snapshots could not be loaded");
+                Default::default()
+            }
+        },
+        None => Default::default(),
+    };
     Json(OAuthAccountCollectionResponse::from_snapshot(
         snapshot,
         &usage,
         state.oauth(),
+        &model_catalogs,
     ))
 }
 

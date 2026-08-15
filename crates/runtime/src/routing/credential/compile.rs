@@ -3,7 +3,6 @@ use std::{collections::HashMap, sync::Arc};
 use any2api_domain::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountId, ProviderCredentialConfiguration,
     ProviderEndpointConfiguration, ProviderEndpointId, ProviderKind, ProxyConfiguration,
-    UpstreamModelName,
 };
 use any2api_provider::api::{ProviderRegistry, decode_oauth_account_document};
 use any2api_storage::api::{SecretBytes, StoredOAuthAccountMaterial, StoredOAuthAccountMaterials};
@@ -41,11 +40,6 @@ pub(crate) enum RoutingCredentialCompileError {
     InvalidOAuthDocument(OAuthAccountId),
     #[error("OAuth routing profile is invalid for account {0}")]
     InvalidOAuthRoutingProfile(OAuthAccountId),
-    #[error("selected OAuth model {model:?} is unavailable for account {account_id}")]
-    OAuthModelUnavailable {
-        account_id: OAuthAccountId,
-        model: UpstreamModelName,
-    },
     #[error("the global proxy could not be resolved for OAuth account {0}")]
     MissingOAuthProxy(OAuthAccountId),
     #[error("OAuth material references unknown account {0}")]
@@ -163,17 +157,9 @@ fn compile_oauth_accounts(
         let proxy = proxies.resolve_oauth(account.proxy_selection()).ok_or(
             RoutingCredentialCompileError::MissingOAuthProxy(account.id()),
         )?;
-        let available_models = profile.models().to_vec();
-        if let Some(model) = account
-            .models()
-            .iter()
-            .find(|model| profile.models().binary_search(model).is_err())
-        {
-            return Err(RoutingCredentialCompileError::OAuthModelUnavailable {
-                account_id: account.id(),
-                model: model.clone(),
-            });
-        }
+        // OAuth model directories are fetched from upstream and persisted outside
+        // the published routing snapshot. Only explicitly saved selections route.
+        let available_models = account.models().to_vec();
         specs.push(RoutingCredentialSpec {
             projection: RoutingCredentialProjection {
                 id: account.id().into(),

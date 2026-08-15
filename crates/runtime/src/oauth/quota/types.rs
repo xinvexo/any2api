@@ -84,4 +84,8 @@ pub enum OAuthQuotaError {
     Persistence(#[source] Arc<StorageError>),
     #[error("persisted OAuth quota snapshot is invalid")]
     InvalidPersistedSnapshot,
+    #[error("OAuth model catalog persistence failed")]
+    ModelCatalogPersistence(#[source] Arc<StorageError>),
+    #[error("persisted OAuth model catalog snapshot is invalid")]
+    InvalidPersistedModelCatalog,
 }

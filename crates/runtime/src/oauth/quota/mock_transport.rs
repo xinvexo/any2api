@@ -51,6 +51,7 @@ pub(super) struct QuotaTransport {
     available_count: AtomicU32,
     authentication: AuthenticationMode,
     usage_calls: AtomicUsize,
+    model_catalog_calls: AtomicUsize,
     refresh_calls: AtomicUsize,
     consume_calls: AtomicUsize,
     block_consume: bool,
@@ -76,6 +77,7 @@ impl QuotaTransport {
             available_count: AtomicU32::new(available_count),
             authentication,
             usage_calls: AtomicUsize::new(0),
+            model_catalog_calls: AtomicUsize::new(0),
             refresh_calls: AtomicUsize::new(0),
             consume_calls: AtomicUsize::new(0),
             block_consume,
@@ -138,6 +140,10 @@ impl QuotaTransport {
 
     pub(super) fn usage_calls(&self) -> usize {
         self.usage_calls.load(Ordering::Acquire)
+    }
+
+    pub(super) fn model_catalog_calls(&self) -> usize {
+        self.model_catalog_calls.load(Ordering::Acquire)
     }
 
     pub(super) async fn wait_for_consume(&self) {
@@ -237,7 +243,9 @@ impl TransportManager for QuotaTransport {
         let (status, headers, body) = match path.as_str() {
             "/oauth/token" | "/oauth2/token" | "/v1/oauth/token" => self.refresh_response(),
             "/backend-api/wham/usage" => self.codex_usage_response(),
+            "/backend-api/codex/models" => self.codex_model_catalog_response(),
             "/api/oauth/usage" => self.claude_usage_response(),
+            "/v1/models" => self.openai_model_catalog_response(),
             "/v1/billing" => self.grok_billing_response(),
             "/v1/user" => self.grok_subscription_response(),
             "/backend-api/wham/rate-limit-reset-credits" => self.reset_credits_response(),
@@ -251,6 +259,28 @@ impl TransportManager for QuotaTransport {
             body,
             read_failure_scope: TransportFailureScope::Endpoint,
         })
+    }
+}
+
+impl QuotaTransport {
+    fn codex_model_catalog_response(&self) -> (http::StatusCode, http::HeaderMap, Bytes) {
+        self.model_catalog_calls.fetch_add(1, Ordering::AcqRel);
+        (
+            http::StatusCode::OK,
+            http::HeaderMap::new(),
+            Bytes::from_static(
+                br#"{"models":[{"slug":"gpt-catalog-a","supported_in_api":true},{"slug":"hidden","supported_in_api":false}]}"#,
+            ),
+        )
+    }
+
+    fn openai_model_catalog_response(&self) -> (http::StatusCode, http::HeaderMap, Bytes) {
+        self.model_catalog_calls.fetch_add(1, Ordering::AcqRel);
+        (
+            http::StatusCode::OK,
+            http::HeaderMap::new(),
+            Bytes::from_static(br#"{"data":[{"id":"catalog-model"}]}"#),
+        )
     }
 }
 

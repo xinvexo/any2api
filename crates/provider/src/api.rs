@@ -12,7 +12,6 @@ pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
 pub use crate::credential::ProviderSecret;
 pub use crate::error::ProviderError;
 pub use crate::grok::oauth_bot_flag as grok_oauth_bot_flag;
-pub use crate::oauth::OAuthRoutingProfile;
 pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
     parse_oauth_import_document,
@@ -22,6 +21,7 @@ pub use crate::oauth::{
     OAuthPrincipalIdentity, OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial,
     decode_oauth_account_document, encode_oauth_account_document,
 };
+pub use crate::oauth::{OAuthModelCatalogScope, OAuthRoutingProfile};
 pub use crate::oauth::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
     OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaQueryPlan,
@@ -237,6 +237,33 @@ pub trait ProviderDriver: Send + Sync {
     ) -> Result<OAuthRoutingProfile, ProviderError> {
         Err(ProviderError::InvalidResponse(
             "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_model_catalog_scope(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<OAuthModelCatalogScope, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth model catalog is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_model_catalog_plan(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        Err(ProviderError::InvalidCredential(
+            "OAuth model catalog is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_model_catalog(
+        &self,
+        _bounded_body: &[u8],
+    ) -> Result<Vec<String>, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth model catalog is not supported by this provider".into(),
         ))
     }
 

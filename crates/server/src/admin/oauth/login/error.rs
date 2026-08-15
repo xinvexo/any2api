@@ -62,6 +62,16 @@ pub(super) fn map(error: OAuthError) -> AdminApiError {
                 "the OAuth2 token exchange failed",
             )
         }
+        OAuthError::ModelCatalogRejected(_)
+        | OAuthError::ModelCatalogResponseInvalid
+        | OAuthError::ModelCatalogPersistence => {
+            tracing::warn!(error = ?error, "OAuth model catalog initialization failed");
+            AdminApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "oauth_model_catalog_initialization_failed",
+                "OAuth2 login completed but the upstream model catalog could not be loaded",
+            )
+        }
         OAuthError::Activation(ConfigPublishError::ShuttingDown) => AdminApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "server_shutting_down",

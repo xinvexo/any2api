@@ -32,3 +32,4 @@
 "0031_add_oauth_account_proxy_selection.sql" = "a80b995ca1247c97affee91aa91ff50b4c335920a6b8f13f798bde5fff567758"
 "0032_add_alpha_search_operation.sql" = "4fe91204555085684fd8e75cc341e5b4e2a64c073ebb8670372c3272933b28b1"
 "0033_add_credential_public_model_alias.sql" = "86b7e1ee8a7a9c4baa898ac97398284a1e84a7644a83ca81b9f98ca0d90a63fd"
+"0034_persist_oauth_model_catalog_snapshots.sql" = "07f01b2dbaee5a85b1db7813cdec152b30eec99c165e47331de4eb1dcb3d147a"

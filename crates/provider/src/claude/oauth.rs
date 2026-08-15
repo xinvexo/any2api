@@ -16,22 +16,6 @@ const TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const REDIRECT_URI: &str = "http://localhost:54545/callback";
 const DATA_BASE_URL: &str = "https://api.anthropic.com";
-const MODELS: &[&str] = &[
-    "claude-3-5-haiku-20241022",
-    "claude-3-7-sonnet-20250219",
-    "claude-fable-5",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-1-20250805",
-    "claude-opus-4-20250514",
-    "claude-opus-4-5-20251101",
-    "claude-opus-4-6",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-sonnet-4-20250514",
-    "claude-sonnet-4-5-20250929",
-    "claude-sonnet-4-6",
-    "claude-sonnet-5",
-];
 
 pub(crate) const fn redirect_uri() -> &'static str {
     REDIRECT_URI
@@ -119,7 +103,7 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
 }
 
 pub(crate) fn routing_profile() -> Result<OAuthRoutingProfile, ProviderError> {
-    OAuthRoutingProfile::fixed(DATA_BASE_URL, ProtocolDialect::AnthropicMessages, MODELS)
+    OAuthRoutingProfile::fixed(DATA_BASE_URL, ProtocolDialect::AnthropicMessages)
 }
 
 pub(crate) fn credential_headers(

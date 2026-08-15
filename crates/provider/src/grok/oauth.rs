@@ -22,15 +22,6 @@ const SCOPE: &str = "openid profile email offline_access grok-cli:access api:acc
 const DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DATA_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
-const MODELS: &[&str] = &[
-    "grok-4.5",
-    "grok-4.3",
-    "grok-build-0.1",
-    "grok-composer-2.5-fast",
-    "grok-4.20-0309-reasoning",
-    "grok-4.20-0309-non-reasoning",
-    "grok-4.20-multi-agent-0309",
-];
 
 pub(crate) fn device_authorization_request() -> Result<OAuthRequestPlan, ProviderError> {
     let mut form = url::form_urlencoded::Serializer::new(String::new());
@@ -153,7 +144,7 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
 }
 
 pub(crate) fn routing_profile() -> Result<OAuthRoutingProfile, ProviderError> {
-    OAuthRoutingProfile::fixed(DATA_BASE_URL, ProtocolDialect::OpenAiResponses, MODELS)
+    OAuthRoutingProfile::fixed(DATA_BASE_URL, ProtocolDialect::OpenAiResponses)
 }
 
 pub(crate) fn credential_headers(

@@ -1,6 +1,6 @@
 use super::{
-    headers as codex_headers, import as codex_import, oauth as codex_oauth, quota as codex_quota,
-    request as codex_request,
+    headers as codex_headers, import as codex_import, model_catalog as codex_model_catalog,
+    oauth as codex_oauth, quota as codex_quota, request as codex_request,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, QuotaServiceTier,
@@ -14,9 +14,10 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthPrincipalIdentity, OAuthQuotaRejection,
-        OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthTokenMaterial, ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthPrincipalIdentity,
+        OAuthQuotaRejection, OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestContext,
+        UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -196,6 +197,24 @@ impl ProviderDriver for CodexDriver {
         token: &OAuthTokenMaterial,
     ) -> Result<OAuthRoutingProfile, ProviderError> {
         codex_oauth::routing_profile(token)
+    }
+
+    fn oauth_model_catalog_scope(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthModelCatalogScope, ProviderError> {
+        codex_model_catalog::scope(token)
+    }
+
+    fn oauth_model_catalog_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        codex_model_catalog::request_plan(token)
+    }
+
+    fn parse_oauth_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+        codex_model_catalog::parse(bounded_body)
     }
 
     fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {

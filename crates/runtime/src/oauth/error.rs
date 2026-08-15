@@ -35,6 +35,12 @@ pub enum OAuthError {
     TokenReadTimeout,
     #[error("OAuth token response exceeded the size limit")]
     TokenResponseTooLarge,
+    #[error("OAuth model catalog request was rejected with status {0}")]
+    ModelCatalogRejected(u16),
+    #[error("OAuth provider returned an invalid model catalog")]
+    ModelCatalogResponseInvalid,
+    #[error("OAuth model catalog could not be persisted")]
+    ModelCatalogPersistence,
     #[error("OAuth provider returned an invalid token response")]
     TokenResponseInvalid,
     #[error("the published OAuth proxy path is unavailable")]
@@ -49,6 +55,13 @@ impl OAuthError {
     pub(super) fn from_token_response_error(error: ProviderError) -> Self {
         match error {
             ProviderError::InvalidResponse(_) => Self::TokenResponseInvalid,
+            error => Self::Provider(error),
+        }
+    }
+
+    pub(super) fn from_model_catalog_response_error(error: ProviderError) -> Self {
+        match error {
+            ProviderError::InvalidResponse(_) => Self::ModelCatalogResponseInvalid,
             error => Self::Provider(error),
         }
     }

@@ -13,7 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("virtualizes the full collection and refreshes every Codex quota", async () => {
+test("virtualizes the full collection and sends one Codex quota batch", async () => {
   const items = [
     ...Array.from({ length: 12 }, (_, index) =>
       oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex", index !== 11),
@@ -32,18 +32,13 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
     if (path.startsWith(quotaPrefix) && path.endsWith("/quota") && init?.method === "GET") {
       return jsonResponse(null);
     }
-    const refreshSuffix = "/quota/refresh";
-    const accountId =
-      path.startsWith(quotaPrefix) &&
-      path.endsWith(refreshSuffix) &&
-      init?.method === "POST"
-        ? path.slice(quotaPrefix.length, -refreshSuffix.length)
-        : null;
-    if (accountId === "a12") {
-      return errorResponse("oauth_quota_upstream_failed", 502);
-    }
-    if (accountId?.match(/^a\d+$/)) {
-      return jsonResponse(quota(Number(accountId.slice(1)), accountId === "a1"));
+    if (path === "/api/admin/oauth/quota/refresh" && init?.method === "POST") {
+      return jsonResponse({
+        succeeded_account_ids: Array.from({ length: 11 }, (_, index) => `a${index + 1}`),
+        failed_account_ids: ["a12"],
+        model_catalog_refreshed_scopes: 1,
+        model_catalog_failed_scopes: 0,
+      });
     }
     throw new Error(`unexpected request: ${path}`);
   });
@@ -63,22 +58,15 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(notification.className).toContain("notification-card");
   await waitFor(() => expect(refreshAll).toBeEnabled());
 
-  const refreshPaths = fetchMock.mock.calls
-    .filter(([, init]) => init?.method === "POST")
-    .map(([input]) => String(input))
-    .filter((path) => path.endsWith("/quota/refresh"));
-  expect(new Set(refreshPaths)).toEqual(
-    new Set(
-      Array.from(
-        { length: 12 },
-        (_, index) => `/api/admin/oauth/accounts/a${index + 1}/quota/refresh`,
-      ),
-    ),
+  const batchCalls = fetchMock.mock.calls.filter(
+    ([input, init]) =>
+      String(input) === "/api/admin/oauth/quota/refresh" && init?.method === "POST",
   );
-  expect(refreshPaths.some((path) => path.includes("claude-1"))).toBe(false);
-  expect(client.getQueryData(oauthQueryKeys.quota("a11"))).toBeDefined();
+  expect(batchCalls).toHaveLength(1);
+  expect(JSON.parse(String(batchCalls[0][1]?.body))).toEqual({
+    account_ids: Array.from({ length: 12 }, (_, index) => `a${index + 1}`),
+  });
   expect(client.getQueryData(oauthQueryKeys.quota("a12"))).toBeUndefined();
-  expect(screen.getByText("耗尽")).toBeInTheDocument();
 });
 
 test("keeps reauthorization accounts compact and marks the whole card", async () => {
@@ -182,13 +170,11 @@ test("shows a permanent refresh diagnostic before the account refetch completes"
   }));
 });
 
-test("limits refresh-all concurrency and keeps card spinners stable", async () => {
+test("keeps card actions disabled until the server batch completes", async () => {
   const items = Array.from({ length: 8 }, (_, index) =>
     oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex"),
   );
-  const quotaGates: Array<ReturnType<typeof deferred<void>>> = [];
-  let active = 0;
-  let maxActive = 0;
+  const batchGate = deferred<void>();
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/admin/oauth/accounts") {
@@ -200,14 +186,14 @@ test("limits refresh-all concurrency and keeps card spinners stable", async () =
     if (path.endsWith("/quota") && init?.method === "GET") {
       return jsonResponse(null);
     }
-    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
-      const gate = deferred<void>();
-      quotaGates.push(gate);
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await gate.promise;
-      active -= 1;
-      return jsonResponse(quota(1));
+    if (path === "/api/admin/oauth/quota/refresh" && init?.method === "POST") {
+      await batchGate.promise;
+      return jsonResponse({
+        succeeded_account_ids: items.map((item) => item.id),
+        failed_account_ids: [],
+        model_catalog_refreshed_scopes: 1,
+        model_catalog_failed_scopes: 0,
+      });
     }
     throw new Error(`unexpected request: ${path}`);
   });
@@ -217,8 +203,14 @@ test("limits refresh-all concurrency and keeps card spinners stable", async () =
   expect(await screen.findByText("Codex 1")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
 
-  await waitFor(() => expect(quotaGates).toHaveLength(6));
-  expect(maxActive).toBe(6);
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input) === "/api/admin/oauth/quota/refresh" && init?.method === "POST",
+      ),
+    ).toHaveLength(1),
+  );
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeDisabled();
   const quotaRefreshButtons = screen.getAllByRole("button", { name: "刷新额度" });
   expect(quotaRefreshButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
@@ -228,19 +220,11 @@ test("limits refresh-all concurrency and keeps card spinners stable", async () =
     ),
   ).toBe(true);
 
-  quotaGates.slice(0, 6).forEach((gate) => gate.resolve(undefined));
-  await waitFor(() => expect(quotaGates).toHaveLength(8));
-  expect(
-    quotaRefreshButtons.every((button) =>
-      button.querySelector("svg")?.classList.contains("animate-spin"),
-    ),
-  ).toBe(true);
-  quotaGates.slice(6).forEach((gate) => gate.resolve(undefined));
+  batchGate.resolve(undefined);
 
   const notification = await screen.findByRole("status");
   expect(notification).toHaveTextContent("已刷新全部 8 个 Codex 账号额度。");
   expect(notification.className).toContain("notification-card");
-  expect(maxActive).toBe(6);
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeEnabled();
   expect(
     screen.getAllByRole("button", { name: "刷新额度" }).every((button) =>
@@ -356,13 +340,6 @@ function quota(accountNumber: number, exhausted = false) {
     },
     estimates: [],
   };
-}
-
-function errorResponse(code: string, status: number) {
-  return new Response(
-    JSON.stringify({ error: { code, message: "quota request failed" } }),
-    { status, headers: { "Content-Type": "application/json" } },
-  );
 }
 
 function oauthRefreshFailureResponse(diagnostic: Record<string, unknown>) {

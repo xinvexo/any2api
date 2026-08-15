@@ -4,6 +4,7 @@ mod coordinator;
 mod estimation;
 mod health;
 mod identity;
+mod model_catalog;
 mod observation;
 mod operation_gate;
 mod persistence;
@@ -27,6 +28,7 @@ mod tests;
 
 pub(crate) use activity::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
 pub(in crate::oauth) use coordinator::OAuthQuotaService;
+pub use model_catalog::OAuthModelCatalogSnapshot;
 pub use types::{
     OAuthQuotaError, OAuthQuotaEstimate, OAuthQuotaRateCard, OAuthQuotaResetOutcome,
     OAuthQuotaSnapshot,

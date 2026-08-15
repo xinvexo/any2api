@@ -13,6 +13,7 @@ pub(in crate::oauth) async fn publish(
     provider: ProviderKind,
     proxy_selection: OAuthProxySelection,
     token: OAuthTokenMaterial,
+    models: Vec<String>,
 ) -> Result<OAuthActivationResult, OAuthError> {
     if token.provider() != provider {
         return Err(OAuthError::TokenResponseInvalid);
@@ -20,12 +21,7 @@ pub(in crate::oauth) async fn publish(
     let driver = providers
         .get(provider)
         .ok_or(OAuthError::ProviderUnavailable)?;
-    let routing_profile = driver.oauth_routing_profile(&token)?;
-    let models = routing_profile
-        .models()
-        .iter()
-        .map(|model| model.as_str().to_owned())
-        .collect();
+    driver.oauth_routing_profile(&token)?;
     let document = document::build_account_document(&token)?;
     let activation = OAuthAccountActivation {
         id: OAuthAccountId::new(),

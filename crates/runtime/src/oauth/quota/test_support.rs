@@ -6,6 +6,7 @@ use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
 use any2api_transport::api::TransportManager;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 pub(super) use super::mock_transport::AuthenticationMode;
 use super::mock_transport::QuotaTransport;
@@ -20,6 +21,7 @@ pub(super) struct QuotaTestContext {
     pub(super) storage: Arc<SqliteStore>,
     pub(super) snapshots: Arc<SnapshotStore>,
     pub(super) runtime: Arc<RuntimeRegistry>,
+    pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) service: Arc<OAuthService>,
     pub(super) transport: Arc<QuotaTransport>,
     pub(super) account_id: OAuthAccountId,
@@ -169,7 +171,7 @@ impl QuotaTestContext {
         let service = Arc::new(OAuthService::new_for_test(
             providers,
             Arc::clone(&transport) as Arc<dyn TransportManager>,
-            publisher,
+            Arc::clone(&publisher),
             Arc::clone(&storage),
         ));
         Self {
@@ -177,10 +179,53 @@ impl QuotaTestContext {
             storage,
             snapshots,
             runtime,
+            publisher,
             service,
             transport,
             account_id,
         }
+    }
+
+    pub(super) async fn add_codex_account(&self, account_id: &str) -> OAuthAccountId {
+        self.add_codex_account_with_document(account_id, codex_oauth_document_for(account_id))
+            .await
+    }
+
+    pub(super) async fn add_codex_account_with_plan(
+        &self,
+        account_id: &str,
+        plan: &str,
+    ) -> OAuthAccountId {
+        self.add_codex_account_with_document(
+            account_id,
+            codex_oauth_document_for_plan(account_id, plan),
+        )
+        .await
+    }
+
+    async fn add_codex_account_with_document(
+        &self,
+        account_id: &str,
+        document: OAuthAccountDocument,
+    ) -> OAuthAccountId {
+        let id = OAuthAccountId::new();
+        let snapshot = self
+            .publisher
+            .activate_oauth_account(
+                id,
+                ProviderKind::Codex,
+                OAuthAccountDraft::new(format!("Codex {account_id}"), None, true)
+                    .expect("OAuth draft"),
+                OAuthProxySelection::Global,
+                None,
+                None,
+                vec!["gpt-5.5".into()],
+                document,
+            )
+            .await
+            .expect("OAuth account");
+        assert!(snapshot.oauth_accounts().get(id).is_some());
+        id
     }
 }
 
@@ -204,6 +249,37 @@ fn codex_oauth_document() -> OAuthAccountDocument {
         br#"{"access_token":"old-access","refresh_token":"old-refresh","id_token":null,"account_id":"account-123","email":null}"#
             .to_vec()
             .into(),
+    )
+    .expect("OAuth document")
+}
+
+fn codex_oauth_document_for(account_id: &str) -> OAuthAccountDocument {
+    let document = format!(
+        r#"{{"access_token":"old-access-{account_id}","refresh_token":"old-refresh-{account_id}","id_token":null,"account_id":"{account_id}","email":null}}"#,
+    );
+    OAuthAccountDocument::new(ProviderKind::Codex, document.into_bytes().into())
+        .expect("OAuth document")
+}
+
+fn codex_oauth_document_for_plan(account_id: &str, plan: &str) -> OAuthAccountDocument {
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_plan_type": plan,
+            },
+        })
+        .to_string(),
+    );
+    let document = serde_json::json!({
+        "access_token": format!("old-access-{account_id}"),
+        "refresh_token": format!("old-refresh-{account_id}"),
+        "id_token": format!("header.{payload}.signature"),
+        "account_id": account_id,
+        "email": null,
+    });
+    OAuthAccountDocument::new(
+        ProviderKind::Codex,
+        document.to_string().into_bytes().into(),
     )
     .expect("OAuth document")
 }
