@@ -295,8 +295,13 @@ async fn system_log_detail_preserves_raw_client_http_exchange() {
         .as_array()
         .expect("response headers");
     assert!(response_headers.iter().any(|header| {
-        header["name"] == "x-any2api-request-id" && header["value"] == request_id.to_string()
+        header["name"] == "x-request-id" && header["value"] == request_id.to_string()
     }));
+    assert!(
+        !response_headers
+            .iter()
+            .any(|header| header["name"] == "x-any2api-request-id")
+    );
     assert!(
         detail.json["exchange"]["response"]["body"]["content"]
             .as_str()

@@ -107,7 +107,7 @@ flowchart TD
 | Runtime 的重试、换 Credential 与请求时序 | 是 | 间接 | 上游看到多个请求；下游通常只看到最终结果。 |
 | 合成的 Responses `resp_...` / item ID | 通常否 | 是 | Bridge 不把本地 response ID 当作 Chat 上游字段发送。 |
 | 合成的 Responses SSE 事件 wire/chunk | 否 | 是 | 上游只发送 Chat SSE；转换发生在返回方向。 |
-| `x-any2api-request-id` | 否 | 是 | 由 server response middleware 在下游响应上加入。 |
+| `x-request-id` | 否 | 是 | 上游最终响应 ID 会被保留；上游缺失时由 Server 用内部本地 Request ID 补齐。该值不作为上游请求指纹。 |
 | 本地错误 code/message | 否 | 是 | 除非错误触发另一次上游 attempt；错误正文自身不上行。 |
 
 ## 3. Confirmed Findings
@@ -941,7 +941,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 2. **不同 origin 即使返回同一 `Arc<Client>`，通常也不是同一物理连接。** hyper-util pool key 是 scheme + authority；路径不同会共享，authority 不同会分池。TLS resumption 对相同 SNI 是另一个更宽的状态边界。
 3. **Cookie cross-account 污染不存在。** reqwest 没启用 cookies feature/store；Ingress Cookie 也被剥离，response Set-Cookie 被下游 sanitize。
 4. **Gateway Key 不会上游。** server 在 Provider driver 前剥离 Authorization/x-api-key/cookie/account headers，再注入 selected credential。
-5. **`x-any2api-request-id` 不是上游指纹。** 它在下游 response middleware 中加入；client `x-request-id` 还会在 ingress auth 后被剥离。
+5. **下游 `x-request-id` 不是上游请求指纹。** 上游最终响应带有安全请求 ID 时 any2api 保留它，否则使用仅存在于服务端内部的本地 Request ID 补齐；客户端传入的 `x-request-id` 仍会在 ingress auth 后被剥离，且不向上游转发。
 6. **没有显式 `Via`、`Forwarded` 或 `X-Any2API` 上游 Header。** `x-forwarded-*` 被统一禁止。
 7. **并非所有 JSON 都被 canonicalize。** direct same-dialect raw fast path通常 byte-preserving；桥接、模型/stream/duplicate 处理或 replay ID normalization 才触发重建。
 8. **合成 `resp_`/`msg_`/`rs_`/`fc_` ID 主要是下游桥接特征。** 它们不会作为 Chat request ID 发给上游，不能直接算作 upstream TLS/request fingerprint。

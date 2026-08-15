@@ -618,6 +618,19 @@ impl WsTestClient {
             buffer.extend_from_slice(&chunk[..read]);
         };
         let head = String::from_utf8_lossy(&buffer[..header_end]).into_owned();
+        let mut header_names = head
+            .lines()
+            .filter_map(|line| line.split_once(':').map(|(name, _)| name));
+        assert!(
+            header_names
+                .clone()
+                .all(|name| !name.eq_ignore_ascii_case("x-any2api-request-id")),
+            "websocket response must not expose the any2api-specific request ID header"
+        );
+        assert!(
+            header_names.any(|name| name.eq_ignore_ascii_case("x-request-id")),
+            "websocket response must expose the single normalized request ID header"
+        );
         let status: u16 = head
             .split_whitespace()
             .nth(1)

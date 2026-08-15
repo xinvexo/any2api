@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-08-14<br>
+> 最后更新：2026-08-16<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -1081,7 +1081,7 @@ http_access_logs
 
 `HttpAccessLog` 与模型 `RequestLog` 相互独立。前者用于异常与访问审计：公开 `/v1` 请求无论结果都保留；客户端地址未知或不是 loopback 的访问无论结果都保留；任意 HTTP 4xx/5xx、Body 错误或取消也保留。本机 loopback 发起、非 `/v1`、状态低于 400 且 Body 正常完成的管理 API、健康检查、Web 资源和 deep link 属于正常内部流量，不写入。管理查询必须应用同一规则，立即隐藏规则发布前已经写入的内部噪音。RequestLog 只表达进入模型执行链后的调度与上游结果。两者共用全局 Request ID，以便在需要时关联，但不建立数据库外键或相互替代。
 
-`path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板；它只服务列表摘要和保留谓词。`uri` 保存 Axum 解析后收到的完整 URI，包括 query。请求 Header 在任何鉴权剥离前捕获，响应 Header 在本地 Request ID 注入后捕获；同名多值 Header 必须逐值保留，值按原始字节保存。该记录描述 any2api 的客户端侧 HTTP 交换，不包含 Runtime 发送给 Provider 的上游请求或 Provider 的原始上游响应。
+`path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板；它只服务列表摘要和保留谓词。`uri` 保存 Axum 解析后收到的完整 URI，包括 query。请求 Header 在任何鉴权剥离前捕获，响应 Header 在上游 Header 归一化及本地 `x-request-id` fallback 完成后捕获；同名多值 Header 必须逐值保留，值按原始字节保存。该记录描述 any2api 的客户端侧 HTTP 交换，不包含 Runtime 发送给 Provider 的上游请求或 Provider 的原始上游响应。
 
 请求与响应 Body 使用不改变背压的旁路流包装器捕获，每个方向最多保留前 1 MiB，同时保存实际观察到的总字节数、`complete` 与 `truncated`。未被 Handler 读取完的请求体、Body error、客户端取消和无限流不能被伪装成完整正文。正文和 Header 不做字段过滤、关键字替换或 Secret 脱敏；UTF-8 值通过管理 DTO 原样返回，非 UTF-8 值使用 Base64 并携带编码标记。这个明确例外只适用于已认证系统日志详情，普通 tracing/file log、模型 RequestLog、错误正文和 SSE 事件仍不得携带这些原始值。列表查询只读取摘要列；过滤与精确 `COUNT(*)` 必须通过包含时间、排序键和全部保留谓词字段的覆盖索引完成，不得为了判断摘要行而读取 Header/Body BLOB；`GET /api/admin/system-logs/{request_id}` 才读取单条交换详情，避免分页把多条大正文同时载入内存和浏览器。
 
@@ -1679,7 +1679,7 @@ Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央
 
 公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON。入口 `Content-Encoding` 是客户端到 any2api 的 hop 属性，不是对选中上游能力的声明。当前所有上游请求一律发送 identity JSON 并删除入口 `Content-Encoding`：不按认证面重新压缩，保证同一正文发往任何凭据的字节一致（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`，取代 `docs/adr/0139-credential-surface-request-content-coding.md` 的 Codex OAuth zstd 重压缩）。绝不转发与重编码正文失配的压缩元数据。
 
-响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。任意状态的上游响应若带 `gzip`、`br` 或 `zstd`，Transport 必须在 Protocol JSON/SSE 解码或 Provider 错误分类前按 Content-Encoding 逆序增量解码，并立即删除 `Content-Encoding`、`Content-Length`、`Content-Range`、`ETag`、`Digest` 与 `Content-MD5`；解压后的字节才计入 buffered/error response 上限并进入 stream frame parser。编码链最多四层，未知 token、空 token、损坏流或超过层数都作为 `ReadBody` 阶段的 Endpoint 响应失败，RetrySafety 为 `Ambiguous`。最终非成功响应仍透明返回上游状态、允许 Header 和解压后的原始内容字节，不做协议转换或 JSON 重序列化；ADR-0061 中保留压缩表示及 Content-Encoding 的旧决定由 ADR-0127 取代。正文被丢弃为空时仍不得生成替代 envelope。本地错误与成功响应重编码不得携带失配的 Content-Encoding。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
+响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值仍用于 Runtime、RequestLog 与 HttpAccessLog 内部关联。公开响应最多保留一个 `x-request-id`：仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补齐；不得额外写入 any2api 专用请求 ID 响应头。任意状态的上游响应若带 `gzip`、`br` 或 `zstd`，Transport 必须在 Protocol JSON/SSE 解码或 Provider 错误分类前按 Content-Encoding 逆序增量解码，并立即删除 `Content-Encoding`、`Content-Length`、`Content-Range`、`ETag`、`Digest` 与 `Content-MD5`；解压后的字节才计入 buffered/error response 上限并进入 stream frame parser。编码链最多四层，未知 token、空 token、损坏流或超过层数都作为 `ReadBody` 阶段的 Endpoint 响应失败，RetrySafety 为 `Ambiguous`。最终非成功响应仍透明返回上游状态、允许 Header 和解压后的原始内容字节，不做协议转换或 JSON 重序列化；ADR-0061 中保留压缩表示及 Content-Encoding 的旧决定由 ADR-0127 取代。正文被丢弃为空时仍不得生成替代 envelope。本地错误与成功响应重编码不得携带失配的 Content-Encoding。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
 
 ### 11.7 Provider URL 语义
 
@@ -2991,7 +2991,7 @@ oauth_token_refresh_failed
 
 请求遥测采用以下边界：
 
-- 最外层为每个 HTTP 请求生成本地 Request ID，并始终写入 `x-any2api-request-id`；上游最终 Attempt 已返回 `x-request-id` 时保留它，否则再用本地 ID 补齐 `x-request-id`；
+- 最外层为每个 HTTP 请求生成本地 Request ID，并把它传入 Runtime、RequestLog 与 HttpAccessLog；公开响应最多保留一个 `x-request-id`，上游最终 Attempt 已返回可归一化的值时保留它，否则再用本地 ID 补齐，不额外写入 any2api 专用响应头；
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
 - 公开鉴权层使用 Server 级可信代理策略解析客户端地址；直连取 TCP 对端，可信代理链按完整多行 XFF 从右到左解析，XFF 缺失时也取 TCP 对端，XFP 缺失时按非安全 HTTP，出现但无效的 XFF/XFP Fail-Closed。RequestLog 只保存规范化后的 `client_ip`，不保存原始转发头；
 - 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；

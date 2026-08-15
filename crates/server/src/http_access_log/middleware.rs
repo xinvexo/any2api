@@ -21,7 +21,6 @@ use super::{
 };
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
-const ANY2API_REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-any2api-request-id");
 
 #[derive(Clone, Copy)]
 pub(crate) struct HttpRequestId(RequestId);
@@ -92,9 +91,6 @@ pub(crate) async fn record(
             .encode_lower(&mut uuid_buffer),
     )
     .expect("request UUID is a valid header");
-    response
-        .headers_mut()
-        .insert(ANY2API_REQUEST_ID_HEADER, request_id_value.clone());
     if !response.headers().contains_key(&REQUEST_ID_HEADER) {
         response
             .headers_mut()

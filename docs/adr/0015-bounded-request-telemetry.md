@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-20
-- 修订：2026-08-14（分页由 ADR-0107 修订；鉴权拒绝队列隔离由 ADR-0109 修订；在途所有权字节边界由 ADR-0114 修订）
+- 修订：2026-08-16（分页由 ADR-0107 修订；鉴权拒绝队列隔离由 ADR-0109 修订；在途所有权字节边界由 ADR-0114 修订；公开请求 ID 响应头由 ADR-0156 修订）
 - 决策者：maintainer
 
 ## 背景
@@ -11,7 +11,7 @@
 
 ## 决策
 
-- Server 在 `/v1` 鉴权层之外生成本地 `RequestId`，始终写入响应 `x-any2api-request-id`，并把同一个 ID 传入 Runtime。最终上游 Attempt 的安全 `x-request-id` 可以保留；缺失时才用本地 ID 补齐 `x-request-id`。
+- Server 在 `/v1` 鉴权层之外生成本地 `RequestId`，并把同一个 ID 传入 Runtime、RequestLog 与 HttpAccessLog。公开响应最多保留一个 `x-request-id`：最终上游 Attempt 的安全请求 ID 可以保留；缺失时才用本地 ID 补齐。响应不再写入 any2api 专用的请求 ID Header，详见 ADR-0156。
 - RequestLog 持久化已通过 GatewayApiKey 鉴权并进入模型执行链的请求，包括解码、规划、排队和上游执行错误。鉴权失败、未知公开路由和方法错误只返回本地 Request ID 并写 HttpAccessLog，不写 RequestLog。
 - Runtime 使用每请求 `RequestRecorder` 和每次上游执行 `AttemptRecorder`。Attempt 在健康状态结算之后、运行态 Guard 结算之前完成；正常 JSON、错误、超时、取消和流式 Drop 都只能完成一次。
 - Request 与全部 Attempt 先在当前请求内存中聚合。请求结束时只执行一次同步 `try_send`，把完整聚合记录放入有界队列；队列满、Writer 已关闭或 SQLite 写入失败时丢弃该条遥测并增加计数，禁止等待、重试或反压数据面。

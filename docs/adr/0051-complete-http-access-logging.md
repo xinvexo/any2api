@@ -1,6 +1,6 @@
 # ADR-0051：完整 HTTP 访问系统日志
 
-- 状态：Accepted（原始交换字段由 ADR-0081 修订；独立容量由 ADR-0092 修订；分页由 ADR-0107 修订；鉴权拒绝隔离由 ADR-0109 修订；管理活动筛选由 2026-08-16 修订）
+- 状态：Accepted（原始交换字段由 ADR-0081 修订；独立容量由 ADR-0092 修订；分页由 ADR-0107 修订；鉴权拒绝隔离由 ADR-0109 修订；管理活动筛选由 2026-08-16 修订；公开请求 ID 响应头由 ADR-0156 修订）
 - 日期：2026-07-26
 - 修订：2026-08-16
 
@@ -44,7 +44,7 @@ Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 �
 
 ### 生命周期与关联
 
-全局中间件生成 Request ID 并为全部响应写入 `x-any2api-request-id`；仅在响应没有最终上游 `x-request-id` 时用本地值补齐该字段。公开模型执行链复用同一个本地 ID 写入 `RequestLog`，使两类日志可按 `x-any2api-request-id` 关联。
+全局中间件生成本地 Request ID，并在响应没有最终上游 `x-request-id` 时用该值补齐唯一的 `x-request-id`；不再写入 any2api 专用响应头。公开模型执行链复用同一个本地 ID 写入 `RequestLog`，系统日志也保存该内部 ID，因此两类日志仍可在服务端按本地 Request ID 关联。
 
 响应 Body 包装器统计成功 yield 的 data frame 字节数，并在 EOF、Body 错误或客户端 Drop 时以原子完成标记只提交一次。状态码在 Handler 返回 Response 时捕获；Body 错误不会伪装成普通完成，Drop 记录为取消。
 

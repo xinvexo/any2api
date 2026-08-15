@@ -1567,17 +1567,14 @@ fn assert_stream_headers(response: &Response) {
     assert_eq!(response.headers()["cache-control"], "no-cache");
     assert!(response.headers().get("x-api-key").is_none());
     assert!(response.headers().get("set-cookie").is_none());
-    let local_request_id = response.headers()["x-any2api-request-id"]
-        .to_str()
-        .expect("request ID text");
-    assert!(local_request_id.parse::<RequestId>().is_ok());
+    assert!(response.headers().get("x-any2api-request-id").is_none());
     let request_id = response.headers()["x-request-id"]
         .to_str()
         .expect("request ID text");
     if request_id == "upstream-stream-request" {
-        assert_ne!(local_request_id, request_id);
+        assert_eq!(request_id, "upstream-stream-request");
     } else {
-        assert_eq!(request_id, local_request_id);
+        assert!(request_id.parse::<RequestId>().is_ok());
     }
 }
 
