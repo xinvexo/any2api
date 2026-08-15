@@ -46,6 +46,7 @@ impl RequestTelemetry {
     pub async fn list_http_access_logs(
         &self,
         since_ms: u64,
+        show_admin_operations: bool,
         cursor: Option<LogPageCursor>,
         page: u32,
         limit: u32,
@@ -53,7 +54,7 @@ impl RequestTelemetry {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
-                    .list_http_access_logs(since_ms, cursor, page, limit)
+                    .list_http_access_logs(since_ms, show_admin_operations, cursor, page, limit)
                     .await
             }
             None => Ok(LogPage::empty()),

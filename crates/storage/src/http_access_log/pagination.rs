@@ -9,6 +9,9 @@ pub(crate) const SYSTEM_LOG_RETENTION_PREDICATE: &str = "\
     (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
     status_code IS NULL OR status_code >= 400 OR outcome <> 'completed'";
 
+pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str =
+    "path <> '/api/admin' AND path NOT GLOB '/api/admin/*'";
+
 const SYSTEM_LOG_PAGE_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
     method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
     exchange_captured";
@@ -16,11 +19,17 @@ const SYSTEM_LOG_PAGE_COLUMNS: &str = "request_id, started_at_ms, config_revisio
 pub(super) async fn list(
     store: &SqliteStore,
     since_ms: u64,
+    show_admin_operations: bool,
     cursor: Option<LogPageCursor>,
     requested_page: u32,
     limit: u32,
 ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
     let since_ms = to_i64(since_ms)?;
+    let admin_operations_predicate = if show_admin_operations {
+        "TRUE"
+    } else {
+        HIDE_ADMIN_OPERATIONS_PREDICATE
+    };
     let mut transaction = store.pool().begin().await?;
     let requested_cursor = match cursor {
         Some(cursor) => cursor,
@@ -29,6 +38,7 @@ pub(super) async fn list(
                 "SELECT started_at_ms, request_id FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT 1"
             );
             let row = sqlx::query_as::<_, (i64, String)>(&statement)
@@ -49,6 +59,7 @@ pub(super) async fn list(
         "SELECT COUNT(*) FROM http_access_logs \
          INDEXED BY http_access_logs_summary_filter_idx \
          WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+         AND ({admin_operations_predicate}) \
          AND (started_at_ms, request_id) <= (?, ?)"
     );
     let total: i64 = sqlx::query_scalar(&count_statement)
@@ -68,6 +79,7 @@ pub(super) async fn list(
             "SELECT started_at_ms, request_id FROM http_access_logs \
              INDEXED BY http_access_logs_summary_filter_idx \
              WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+             AND ({admin_operations_predicate}) \
              AND (started_at_ms, request_id) <= (?, ?) \
              ORDER BY started_at_ms DESC, request_id DESC LIMIT 1 OFFSET ?"
         );
@@ -92,6 +104,7 @@ pub(super) async fn list(
                 "SELECT {SYSTEM_LOG_PAGE_COLUMNS} FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  AND (started_at_ms, request_id) <= (?, ?) \
                  AND (started_at_ms, request_id) < (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
@@ -111,6 +124,7 @@ pub(super) async fn list(
                 "SELECT {SYSTEM_LOG_PAGE_COLUMNS} FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  AND (started_at_ms, request_id) <= (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
             );

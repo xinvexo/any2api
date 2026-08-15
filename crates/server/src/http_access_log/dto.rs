@@ -20,15 +20,16 @@ impl SystemLogListResponse {
         logs: LogPage<HttpAccessLogSummary>,
         page_size: u32,
         metrics: RequestTelemetryMetrics,
+        show_admin_operations: bool,
     ) -> Self {
         let cursor = logs
             .cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::System.encode(cursor, logs.page));
-        let next_cursor = logs
-            .next_cursor
-            .as_ref()
-            .map(|cursor| LogCursorScope::System.encode(cursor, logs.page.saturating_add(1)));
+            .map(|cursor| LogCursorScope::System(show_admin_operations).encode(cursor, logs.page));
+        let next_cursor = logs.next_cursor.as_ref().map(|cursor| {
+            LogCursorScope::System(show_admin_operations)
+                .encode(cursor, logs.page.saturating_add(1))
+        });
         Self {
             items: logs
                 .items

@@ -1,5 +1,4 @@
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -10,23 +9,38 @@ import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
 const systemLogQueryKeys = {
   all: ["system-logs"] as const,
-  list: (cursor: string | null, page: number, pageSize: number) =>
-    ["system-logs", "list", cursor ?? "latest", page, pageSize] as const,
+  list: (
+    showAdminOperations: boolean,
+    cursor: string | null,
+    page: number,
+    pageSize: number,
+  ) =>
+    [
+      "system-logs",
+      "list",
+      showAdminOperations ? "with-admin" : "without-admin",
+      cursor ?? "latest",
+      page,
+      pageSize,
+    ] as const,
   detail: (requestId: string) => ["system-logs", "detail", requestId] as const,
 };
 
 export function useSystemLogs(
   autoRefresh: boolean,
+  showAdminOperations: boolean,
   cursor: string | null,
   page: number,
   pageSize: number,
 ) {
   const queryClient = useQueryClient();
-  const queryKey = systemLogQueryKeys.list(cursor, page, pageSize);
+  const queryKey = systemLogQueryKeys.list(showAdminOperations, cursor, page, pageSize);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getSystemLogs(cursor, page, pageSize, signal),
-    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) =>
+      getSystemLogs(showAdminOperations, cursor, page, pageSize, signal),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === queryKey[2] ? previousData : undefined,
   });
 
   useLogChangeEvent("system_logs_changed", autoRefresh && cursor === null, () => {

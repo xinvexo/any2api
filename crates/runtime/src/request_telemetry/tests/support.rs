@@ -67,6 +67,7 @@ impl HttpAccessLogRepository for BlockingRepository {
     async fn list_http_access_logs(
         &self,
         _since_ms: u64,
+        _show_admin_operations: bool,
         _cursor: Option<LogPageCursor>,
         page: u32,
         limit: u32,

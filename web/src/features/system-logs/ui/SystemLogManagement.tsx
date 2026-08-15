@@ -17,11 +17,18 @@ import { Switch } from "@/shared/ui/Switch";
 
 export function SystemLogManagement() {
   const [autoRefresh, setAutoRefresh] = useState(loadSystemLogAutoRefreshPreference);
+  const [showAdminOperations, setShowAdminOperations] = useState(true);
   const [confirmClear, setConfirmClear] = useState(false);
   const [{ page, cursor }, setLocation] = useState({ page: 1, cursor: null as string | null });
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const query = useSystemLogs(autoRefresh, cursor, page, pageSize);
+  const query = useSystemLogs(
+    autoRefresh,
+    showAdminOperations,
+    cursor,
+    page,
+    pageSize,
+  );
   const clearMutation = useClearSystemLogs();
   const total = query.data?.total ?? 0;
   const displayedPage = query.isPlaceholderData ? page : (query.data?.page ?? page);
@@ -56,6 +63,12 @@ export function SystemLogManagement() {
     saveSystemLogAutoRefreshPreference(enabled);
   };
 
+  const handleShowAdminOperationsChange = (enabled: boolean) => {
+    setShowAdminOperations(enabled);
+    setSelectedRequestId(null);
+    setLocation({ page: 1, cursor: null });
+  };
+
   const handlePageChange = (nextPage: number) => {
     if (query.isPlaceholderData || !query.data || nextPage === query.data.page) {
       return;
@@ -83,28 +96,6 @@ export function SystemLogManagement() {
     });
   };
 
-  if (query.isPending && !query.data) {
-    return (
-      <div className="flex min-h-56 items-center justify-center text-sm text-secondary" aria-busy="true">
-        正在读取系统日志
-      </div>
-    );
-  }
-
-  if (!query.data) {
-    return (
-      <div className="flex min-h-56 flex-col items-center justify-center text-center" role="alert">
-        <p className="text-sm font-semibold">无法读取系统日志</p>
-        <Button className="mt-4" onClick={() => void refreshLogs()} disabled={query.isFetching}>
-          <RefreshCw size={15} />
-          重试
-        </Button>
-      </div>
-    );
-  }
-
-  const items = query.data.items;
-
   return (
     <div
       className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden"
@@ -114,14 +105,25 @@ export function SystemLogManagement() {
         data-system-log-fixed="toolbar"
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3"
       >
-        <div className="flex items-center gap-2 text-[12px] text-secondary">
-          <span id="system-log-auto-refresh-label">自动刷新</span>
-          <Switch
-            id="system-log-auto-refresh"
-            checked={autoRefresh}
-            aria-labelledby="system-log-auto-refresh-label"
-            onCheckedChange={handleAutoRefreshChange}
-          />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-secondary">
+          <div className="flex items-center gap-2">
+            <span id="system-log-auto-refresh-label">自动刷新</span>
+            <Switch
+              id="system-log-auto-refresh"
+              checked={autoRefresh}
+              aria-labelledby="system-log-auto-refresh-label"
+              onCheckedChange={handleAutoRefreshChange}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span id="system-log-admin-operations-label">显示管理操作</span>
+            <Switch
+              id="system-log-admin-operations"
+              checked={showAdminOperations}
+              aria-labelledby="system-log-admin-operations-label"
+              onCheckedChange={handleShowAdminOperationsChange}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-0.5">
           <Button
@@ -149,40 +151,65 @@ export function SystemLogManagement() {
         </div>
       </div>
 
-      {query.isError ? (
-        <p className="shrink-0 border-b border-warning/30 py-3 text-[12px] text-warning" role="status">
-          刷新失败，当前显示最近一次有效数据
-        </p>
-      ) : null}
+      {query.data ? (
+        <>
+          {query.isError ? (
+            <p
+              className="shrink-0 border-b border-warning/30 py-3 text-[12px] text-warning"
+              role="status"
+            >
+              刷新失败，当前显示最近一次有效数据
+            </p>
+          ) : null}
 
-      <div className="pt-3 md:min-h-0 md:flex-1">
-        {items.length === 0 ? (
-          <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
-            <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
-            <p className="mt-3 text-[13px] font-medium">还没有系统日志</p>
+          <div className="pt-3 md:min-h-0 md:flex-1">
+            {query.data.items.length === 0 ? (
+              <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
+                <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
+                <p className="mt-3 text-[13px] font-medium">还没有系统日志</p>
+              </div>
+            ) : (
+              <SystemLogList items={query.data.items} onSelect={setSelectedRequestId} />
+            )}
           </div>
-        ) : (
-          <SystemLogList items={items} onSelect={setSelectedRequestId} />
-        )}
-      </div>
 
-      <div
-        data-system-log-fixed="pagination"
-        className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3"
-      >
-        <LogPagination
-          page={displayedPage}
-          pageSize={pageSize}
-          total={total}
-          hasNextPage={!query.isPlaceholderData && query.data.nextCursor !== null}
-          disabled={query.isPlaceholderData}
-          onPageChange={handlePageChange}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setLocation({ page: 1, cursor: null });
-          }}
-        />
-      </div>
+          <div
+            data-system-log-fixed="pagination"
+            className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3"
+          >
+            <LogPagination
+              page={displayedPage}
+              pageSize={pageSize}
+              total={total}
+              hasNextPage={!query.isPlaceholderData && query.data.nextCursor !== null}
+              disabled={query.isPlaceholderData}
+              onPageChange={handlePageChange}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setLocation({ page: 1, cursor: null });
+              }}
+            />
+          </div>
+        </>
+      ) : query.isPending ? (
+        <div
+          className="flex min-h-56 flex-1 items-center justify-center text-sm text-secondary"
+          aria-busy="true"
+        >
+          正在读取系统日志
+        </div>
+      ) : (
+        <div
+          className="flex min-h-56 flex-1 flex-col items-center justify-center text-center"
+          role="alert"
+        >
+          <p className="text-sm font-semibold">无法读取系统日志</p>
+          <Button className="mt-4" onClick={() => void refreshLogs()} disabled={query.isFetching}>
+            <RefreshCw size={15} />
+            重试
+          </Button>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmClear}

@@ -10,6 +10,7 @@ import {
 } from "./system-log-contracts";
 
 export function getSystemLogs(
+  showAdminOperations = true,
   cursor: string | null = null,
   page = 1,
   pageSize = 20,
@@ -18,6 +19,7 @@ export function getSystemLogs(
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
+    show_admin_operations: String(showAdminOperations),
   });
   if (cursor !== null) {
     query.set("cursor", cursor);

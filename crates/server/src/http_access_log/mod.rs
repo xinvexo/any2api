@@ -5,6 +5,7 @@ mod dto;
 mod handlers;
 mod middleware;
 mod policy;
+mod query;
 
 use axum::{Router, routing::get};
 

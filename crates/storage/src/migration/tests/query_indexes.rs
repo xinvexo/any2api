@@ -1,6 +1,6 @@
 use sqlx::{Connection, SqliteConnection};
 
-use crate::http_access_log::SYSTEM_LOG_RETENTION_PREDICATE;
+use crate::http_access_log::{HIDE_ADMIN_OPERATIONS_PREDICATE, SYSTEM_LOG_RETENTION_PREDICATE};
 
 use super::{DIRECT_PROXY_ID, foreign_key_violations, migrate_through, migration_versions};
 
@@ -171,6 +171,7 @@ async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
         "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM http_access_logs \
          INDEXED BY http_access_logs_summary_filter_idx \
          WHERE started_at_ms >= 0 AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+         AND ({HIDE_ADMIN_OPERATIONS_PREDICATE}) \
          AND (started_at_ms, request_id) <= (1000, 'ffffffff-ffff-ffff-ffff-ffffffffffff')"
     );
     let count_plan = query_plan(connection, &count_statement).await;

@@ -2,21 +2,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use any2api_domain::{LogPageCursor, LogPagePosition};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde::Deserialize;
 
 const DEFAULT_PAGE_SIZE: u32 = 20;
 const MAX_PAGE_SIZE: u32 = 100;
 const LOG_WINDOW_MS: u64 = 3 * 24 * 60 * 60 * 1_000;
 const MAX_CURSOR_CHARS: usize = 1_024;
 const MAX_SORT_KEY_BYTES: usize = 256;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct LogListQuery {
-    cursor: Option<String>,
-    page: Option<u32>,
-    page_size: Option<u32>,
-}
 
 pub(crate) struct LogPageRequest {
     pub(crate) cursor: Option<LogPageCursor>,
@@ -28,14 +19,16 @@ pub(crate) struct LogPageRequest {
 #[derive(Clone, Copy)]
 pub(crate) enum LogCursorScope<'a> {
     Request(&'a str),
-    System,
+    System(bool),
 }
 
 impl LogCursorScope<'_> {
     fn prefix(self) -> String {
         match self {
             Self::Request(fingerprint) => format!("r3.{fingerprint}"),
-            Self::System => "s2".to_owned(),
+            Self::System(show_admin_operations) => {
+                format!("s3.{}", u8::from(show_admin_operations))
+            }
         }
     }
 
@@ -68,15 +61,18 @@ impl LogCursorScope<'_> {
     }
 }
 
-impl LogListQuery {
-    pub(crate) fn validate(self) -> Option<LogPageRequest> {
-        validate_log_page(
-            self.cursor,
-            self.page,
-            self.page_size,
-            LogCursorScope::System,
-        )
-    }
+pub(crate) fn validate_system_log_page(
+    cursor: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+    show_admin_operations: bool,
+) -> Option<LogPageRequest> {
+    validate_log_page(
+        cursor,
+        page,
+        page_size,
+        LogCursorScope::System(show_admin_operations),
+    )
 }
 
 pub(crate) fn validate_request_log_page(
@@ -176,23 +172,12 @@ mod tests {
 
     #[test]
     fn defaults_and_validates_log_pages() {
-        let page = LogListQuery {
-            cursor: None,
-            page: None,
-            page_size: None,
-        }
-        .validate()
-        .expect("default page");
+        let page = validate_system_log_page(None, None, None, true).expect("default page");
         assert!(page.cursor.is_none());
         assert_eq!(page.page, 1);
         assert_eq!(page.page_size, 20);
 
-        let invalid_size = LogListQuery {
-            cursor: None,
-            page: None,
-            page_size: Some(0),
-        };
-        assert!(invalid_size.validate().is_none());
+        assert!(validate_system_log_page(None, None, Some(0), true).is_none());
     }
 
     #[test]
@@ -206,7 +191,7 @@ mod tests {
         let query =
             validate_request_log_page(Some(encoded.clone()), Some(2), Some(50), "filters-a")
                 .expect("request cursor");
-        assert_eq!(query.cursor, Some(cursor));
+        assert_eq!(query.cursor, Some(cursor.clone()));
         assert_eq!(query.page, 2);
         assert_eq!(query.page_size, 50);
 
@@ -221,15 +206,14 @@ mod tests {
                 .is_none()
         );
 
+        assert!(validate_system_log_page(Some(encoded), Some(2), Some(50), true).is_none());
+
+        let system_cursor = LogCursorScope::System(true).encode(&cursor, 2);
         assert!(
-            LogListQuery {
-                cursor: Some(encoded),
-                page: Some(2),
-                page_size: Some(50)
-            }
-            .validate()
-            .is_none()
+            validate_system_log_page(Some(system_cursor.clone()), Some(2), Some(50), true)
+                .is_some()
         );
+        assert!(validate_system_log_page(Some(system_cursor), Some(2), Some(50), false).is_none());
 
         assert!(
             validate_request_log_page(
