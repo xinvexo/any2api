@@ -67,7 +67,7 @@ pub use settings::{
     SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
-    CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,
+    ActiveRequestLog, CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,
     HttpAccessLogExchange, HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpHeader,
     HttpProtocolVersion, LogPage, LogPageCursor, LogPagePosition,
     MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES, MAX_QUOTA_RATE_CARD_CHARS,

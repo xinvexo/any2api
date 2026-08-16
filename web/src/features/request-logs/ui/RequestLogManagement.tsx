@@ -6,6 +6,10 @@ import { useRequestLogs } from "../model/use-request-logs";
 import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 import { hasActiveRequestLogFilters } from "../api/request-log-filter-contracts";
 import {
+  ActiveRequestLogCard,
+  ActiveRequestLogTableRow,
+} from "./ActiveRequestLogRow";
+import {
   RequestLogCard,
   RequestLogTableRows,
   requestLogGridClass,
@@ -26,6 +30,8 @@ export function RequestLogManagement() {
   const query = useRequestLogs(cursor, page, pageSize, filters);
 
   const items = query.data?.items ?? [];
+  const activeItems = query.data?.activeItems ?? [];
+  const activeTotal = query.data?.activeTotal ?? 0;
   const total = query.data?.total ?? 0;
   const displayedPage = query.isPlaceholderData ? page : (query.data?.page ?? page);
   const visibleExpandedId = items.some((item) => item.requestId === expandedId)
@@ -131,6 +137,13 @@ export function RequestLogManagement() {
           <span className="tabular-nums text-primary">
             {query.data.telemetry.droppedRecords}
           </span>
+          {activeTotal > 0 ? (
+            <>
+              <span className="mx-1.5 text-tertiary">·</span>
+              进行中{" "}
+              <span className="tabular-nums text-accent-copy">{activeTotal}</span>
+            </>
+          ) : null}
         </p>
         <RequestLogFilterBar
           filters={filters}
@@ -151,7 +164,7 @@ export function RequestLogManagement() {
 
       {/* Mobile follows document scrolling; desktop fills the remaining workspace height. */}
       <div className="pt-3 md:min-h-0 md:flex-1">
-        {total === 0 ? (
+        {total === 0 && activeItems.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
             <p className="mt-3 text-[13px] font-medium">
@@ -169,6 +182,11 @@ export function RequestLogManagement() {
               role="list"
               aria-label="请求日志列表"
             >
+              {activeItems.map((log) => (
+                <div key={log.requestId} role="listitem">
+                  <ActiveRequestLogCard log={log} />
+                </div>
+              ))}
               {items.map((log) => (
                 <div key={log.requestId} role="listitem">
                   <RequestLogCard
@@ -189,7 +207,7 @@ export function RequestLogManagement() {
               <div
                 role="table"
                 aria-label="请求日志表格"
-                aria-rowcount={items.length + 1}
+                aria-rowcount={activeItems.length + items.length + 1}
                 className="flex h-full min-w-[76rem] flex-col"
               >
                 <div
@@ -233,6 +251,9 @@ export function RequestLogManagement() {
                   tabIndex={0}
                   className="focus-ring min-h-0 flex-1 overflow-y-scroll bg-transparent outline-none [scrollbar-gutter:stable]"
                 >
+                  {activeItems.map((log) => (
+                    <ActiveRequestLogTableRow key={log.requestId} log={log} />
+                  ))}
                   {items.map((log) => (
                     <RequestLogTableRows
                       key={log.requestId}

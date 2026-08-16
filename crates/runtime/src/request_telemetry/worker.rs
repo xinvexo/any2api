@@ -1,7 +1,7 @@
 use std::{
     mem,
     sync::{Arc, RwLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use any2api_domain::{CompletedRequestLog, HttpAccessLog};
@@ -16,9 +16,11 @@ use tokio::{
 
 use super::{
     RequestLogPolicy,
+    active_requests::ActiveRequestRegistry,
     changes::LogChangeNotifier,
     event::{TelemetryEnvelope, TelemetryEvent},
     metrics::{TelemetryCounters, TelemetryQueueClass},
+    timestamp::unix_time_ms,
 };
 
 const WRITE_BATCH_SIZE: usize = 64;
@@ -30,6 +32,7 @@ pub(super) struct WorkerState {
     pub(super) counters: TelemetryCounters,
     pub(super) policy: Arc<RwLock<RequestLogPolicy>>,
     pub(super) changes: LogChangeNotifier,
+    pub(super) active_requests: ActiveRequestRegistry,
     pub(super) prune_wakeup: Arc<Notify>,
     pub(super) request_prune_wakeup: Arc<Notify>,
 }
@@ -234,6 +237,13 @@ async fn flush_request_logs(
         .await
     {
         Ok(cleanup) => {
+            state.active_requests.remove_many(
+                batch
+                    .records
+                    .iter()
+                    .map(|record| &record.request.request_id),
+                false,
+            );
             state
                 .counters
                 .persisted(batch.records.len(), batch.owned_bytes, 0);
@@ -243,6 +253,13 @@ async fn flush_request_logs(
             }
         }
         Err(error) => {
+            state.active_requests.remove_many(
+                batch
+                    .records
+                    .iter()
+                    .map(|record| &record.request.request_id),
+                true,
+            );
             state
                 .counters
                 .storage_failed(batch.records.len(), batch.owned_bytes, 0);
@@ -377,12 +394,4 @@ async fn prune_request_logs(request_logs: &dyn RequestLogRepository, state: &Wor
         }
         Err(error) => tracing::warn!(%error, "request telemetry retention cleanup failed"),
     }
-}
-
-fn unix_time_ms() -> u64 {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    u64::try_from(millis).unwrap_or(u64::MAX)
 }

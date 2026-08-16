@@ -76,6 +76,9 @@ async fn collapsed_gateway_updates_preserve_record_metrics() {
         counters: counters.clone(),
         policy,
         changes: LogChangeNotifier::new(),
+        active_requests: super::super::active_requests::ActiveRequestRegistry::new(
+            LogChangeNotifier::new(),
+        ),
         prune_wakeup: Arc::new(Notify::new()),
         request_prune_wakeup: Arc::new(Notify::new()),
     };

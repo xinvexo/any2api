@@ -146,6 +146,28 @@ impl RequestAttemptRetryDecision {
 /// Bounded text for admin diagnostics. Not full request/response bodies.
 pub const MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS: usize = 1_024;
 
+/// Process-local projection of a request that has entered runtime execution but
+/// has not produced its final persisted [`RequestLog`] yet.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActiveRequestLog {
+    pub request_id: RequestId,
+    pub started_at_ms: u64,
+    pub client_ip: IpAddr,
+    pub config_revision: ConfigRevision,
+    pub gateway_api_key_id: GatewayApiKeyId,
+    pub ingress_protocol: ProtocolDialect,
+    pub operation: ProtocolOperation,
+    pub public_model: Option<String>,
+    pub thinking_level: Option<String>,
+    pub provider_endpoint_id: Option<ProviderEndpointId>,
+    pub credential_id: Option<CredentialId>,
+    pub oauth_account_id: Option<OAuthAccountId>,
+    pub proxy_profile_id: Option<ProxyProfileId>,
+    pub attempt_count: u32,
+    /// Unknown until protocol decoding succeeds.
+    pub is_stream: Option<bool>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestLog {
     pub request_id: RequestId,

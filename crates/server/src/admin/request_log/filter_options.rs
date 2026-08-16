@@ -1,4 +1,4 @@
-use any2api_domain::RequestLog;
+use any2api_domain::{ActiveRequestLog, RequestLog};
 use any2api_runtime::api::PublishedSnapshot;
 use serde::Serialize;
 
@@ -9,9 +9,14 @@ pub(super) struct RequestLogFilterOptionsResponse {
 }
 
 impl RequestLogFilterOptionsResponse {
-    pub(super) fn new(logs: &[RequestLog], snapshot: &PublishedSnapshot) -> Self {
+    pub(super) fn new(
+        logs: &[RequestLog],
+        active: &[ActiveRequestLog],
+        snapshot: &PublishedSnapshot,
+    ) -> Self {
         let mut public_models = snapshot.public_model_names();
         public_models.extend(logs.iter().filter_map(|log| log.public_model.clone()));
+        public_models.extend(active.iter().filter_map(|log| log.public_model.clone()));
 
         let mut gateway_api_keys = snapshot
             .gateway_api_keys()
@@ -23,6 +28,9 @@ impl RequestLogFilterOptionsResponse {
             if let Some(id) = log.gateway_api_key_id {
                 push_deleted_option(&mut gateway_api_keys, id.to_string());
             }
+        }
+        for log in active {
+            push_deleted_option(&mut gateway_api_keys, log.gateway_api_key_id.to_string());
         }
         sort_options(&mut gateway_api_keys);
 

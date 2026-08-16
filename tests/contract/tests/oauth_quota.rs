@@ -122,14 +122,14 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
     ] {
         assert!(!encoded.contains(secret));
     }
-    assert_eq!(transport.calls.load(Ordering::Acquire), 2);
+    assert_eq!(transport.calls.load(Ordering::Acquire), 3);
     let quota_event = next_sse_event(&mut events).await;
     assert!(quota_event.contains("event: oauth_quota_changed"));
     assert!(quota_event.contains("data: 1"));
 
     let persisted = request(app.clone(), Method::GET, &quota_uri, loopback).await;
     assert_eq!(persisted.json["fetched_at"], refreshed.json["fetched_at"]);
-    assert_eq!(transport.calls.load(Ordering::Acquire), 2);
+    assert_eq!(transport.calls.load(Ordering::Acquire), 3);
 
     let reset = request_json(
         app.clone(),
@@ -191,7 +191,10 @@ impl TransportManager for QuotaTransport {
                 self.available.store(0, Ordering::Release);
                 self.consumed.fetch_add(1, Ordering::AcqRel);
                 Bytes::from_static(br#"{"code":"ok","windows_reset":2}"#)
-            }
+            },
+            "/backend-api/codex/models" => Bytes::from_static(
+                br#"{"models":[{"slug":"gpt-5.5","supported_in_api":true}]}"#,
+            ),
             path => panic!("unexpected quota path: {path}"),
         };
         let body: BoxByteStream = Box::pin(stream::iter([Ok(body)]));

@@ -396,7 +396,8 @@ async fn open_log_events(app: &Router) -> (Body, String) {
     let mut body = response.into_body();
     let first = next_sse_data(&mut body).await;
     let second = next_sse_data(&mut body).await;
-    (body, first + &second)
+    let third = next_sse_data(&mut body).await;
+    (body, first + &second + &third)
 }
 
 async fn next_sse_data(body: &mut Body) -> String {

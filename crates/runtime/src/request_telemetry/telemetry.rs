@@ -20,6 +20,7 @@ use tokio::{
 use uuid::Uuid;
 
 use super::{
+    active_requests::ActiveRequestRegistry,
     changes::LogChangeNotifier,
     event::{HttpAccessLogChangeNotification, TelemetryEnvelope, TelemetryEvent},
     gateway_usage::{
@@ -54,7 +55,8 @@ pub struct RequestTelemetry {
     prune_wakeup: Arc<Notify>,
     gateway_usage: Mutex<GatewayUsageTracker>,
     gateway_usage_debounce: GatewayUsageDebounce,
-    changes: LogChangeNotifier,
+    pub(super) changes: LogChangeNotifier,
+    pub(super) active_requests: ActiveRequestRegistry,
     pub(super) process_id: Uuid,
     pub(super) quota_sequence: Mutex<u64>,
 }
@@ -69,6 +71,8 @@ impl RequestTelemetry {
                 .clone(),
         );
         policy.enabled = false;
+        let changes = LogChangeNotifier::new();
+        let active_requests = ActiveRequestRegistry::new(changes.clone());
         Self {
             request_logs: None,
             http_access_logs: None,
@@ -81,7 +85,8 @@ impl RequestTelemetry {
             prune_wakeup: Arc::new(Notify::new()),
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
-            changes: LogChangeNotifier::new(),
+            changes,
+            active_requests,
             process_id: Uuid::new_v4(),
             quota_sequence: Mutex::new(0),
         }
@@ -113,6 +118,7 @@ impl RequestTelemetry {
             revision, settings,
         )));
         let changes = LogChangeNotifier::new();
+        let active_requests = ActiveRequestRegistry::new(changes.clone());
         let prune_wakeup = Arc::new(Notify::new());
         let request_prune_wakeup = Arc::new(Notify::new());
         let worker = lifecycle.spawn_tracked(worker::run(
@@ -124,6 +130,7 @@ impl RequestTelemetry {
                 counters: counters.clone(),
                 policy: Arc::clone(&policy),
                 changes: changes.clone(),
+                active_requests: active_requests.clone(),
                 prune_wakeup: Arc::clone(&prune_wakeup),
                 request_prune_wakeup,
             },
@@ -141,6 +148,7 @@ impl RequestTelemetry {
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes,
+            active_requests,
             process_id,
             quota_sequence: Mutex::new(0),
         }
@@ -190,16 +198,21 @@ impl RequestTelemetry {
         if !policy.enabled {
             return;
         }
+        let request_id = record.request.request_id;
         if record.request.oauth_account_id.is_some() {
-            self.try_record_oauth(record, policy);
+            if !self.try_record_oauth(record, policy) {
+                self.active_requests.remove(request_id, true);
+            }
             return;
         }
         record.telemetry_position = None;
-        self.try_send_event(
+        if !self.try_send_event(
             TelemetryEvent::RequestLog(Box::new(record)),
             policy.queue_capacity,
             policy.queue_max_bytes,
-        );
+        ) {
+            self.active_requests.remove(request_id, true);
+        }
     }
 
     pub fn try_record_http_access(
@@ -266,16 +279,6 @@ impl RequestTelemetry {
         self.counters.snapshot()
     }
 
-    #[must_use]
-    pub fn subscribe_request_log_changes(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.changes.subscribe_request_logs()
-    }
-
-    #[must_use]
-    pub fn subscribe_http_access_log_changes(&self) -> tokio::sync::watch::Receiver<u64> {
-        self.changes.subscribe_http_access_logs()
-    }
-
     #[cfg(test)]
     pub(crate) fn current_policy(&self) -> RequestLogPolicy {
         *self.policy.read().expect("request telemetry policy")
@@ -339,9 +342,15 @@ impl RequestTelemetry {
             }
             self.counters.writer_stopped();
         }
+        self.active_requests.clear();
     }
 
-    pub(super) fn try_send_event(&self, event: TelemetryEvent, capacity: usize, max_bytes: usize) {
+    pub(super) fn try_send_event(
+        &self,
+        event: TelemetryEvent,
+        capacity: usize,
+        max_bytes: usize,
+    ) -> bool {
         let envelope = TelemetryEnvelope::new(event);
         let records = envelope.record_count;
         let queue_class = envelope.queue_class;
@@ -349,19 +358,21 @@ impl RequestTelemetry {
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
             self.counters.rejected(records);
-            return;
+            return false;
         };
         if !self
             .counters
             .try_reserve(capacity, max_bytes, owned_bytes, queue_class)
         {
             self.counters.rejected(records);
-            return;
+            return false;
         }
         self.counters.enqueued(records, owned_bytes);
         if sender.try_send(envelope).is_err() {
             self.counters.send_failed(records, owned_bytes, queue_class);
+            return false;
         }
+        true
     }
 }
 

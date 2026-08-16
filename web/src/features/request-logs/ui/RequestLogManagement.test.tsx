@@ -33,10 +33,37 @@ test("shows client IP and explicit token metric names in the request list", () =
       "IP 203.0.113.8",
     ),
   ).toBeInTheDocument();
+  expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
+  expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 });
 
 function requestLogs(): RequestLogList {
   return {
+    activeItems: [
+      {
+        state: "processing",
+        requestId: "55555555-5555-4555-8555-555555555555",
+        startedAtMs: 1_700_000_000_100,
+        clientIp: "203.0.113.9",
+        configRevision: 9,
+        gatewayApiKeyId: "22222222-2222-4222-8222-222222222222",
+        ingressProtocol: "openai_responses",
+        operation: "responses",
+        publicModel: "codex-live",
+        thinkingLevel: "high",
+        providerEndpointId: null,
+        providerEndpointName: null,
+        credentialId: null,
+        credentialLabel: null,
+        oauthAccountId: null,
+        oauthAccountLabel: null,
+        proxyProfileId: null,
+        proxyProfileLabel: null,
+        attemptCount: 0,
+        isStream: true,
+      },
+    ],
+    activeTotal: 1,
     items: [
       {
         requestId: "11111111-1111-4111-8111-111111111111",

@@ -228,12 +228,18 @@ impl TransportManager for TokenTransport {
             (Some("auth.openai.com"), "/oauth/token") => Bytes::from_static(
                 br#"{"access_token":"codex-access-token","refresh_token":"codex-refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyJ9fQ.signature","expires_in":3600}"#,
             ),
+            (Some("chatgpt.com"), "/backend-api/codex/models") => Bytes::from_static(
+                br#"{"models":[{"slug":"gpt-5.5","supported_in_api":true}]}"#,
+            ),
             (Some("auth.x.ai"), "/oauth2/device/code") => Bytes::from_static(
                 br#"{"device_code":"device-secret","user_code":"ABCD-1234","verification_uri":"https://accounts.x.ai/oauth2/device","expires_in":1800,"interval":5}"#,
             ),
             (Some("auth.x.ai"), "/oauth2/token") => Bytes::from_static(
                 br#"{"access_token":"grok-access-token","refresh_token":"grok-refresh-token","id_token":"header.eyJlbWFpbCI6Imdyb2tAZXhhbXBsZS5jb20iLCJzdWIiOiJncm9rLXN1YmplY3QifQ.signature","expires_in":3600}"#,
             ),
+            (Some("cli-chat-proxy.grok.com"), "/v1/models") => {
+                Bytes::from_static(br#"{"data":[{"id":"grok-4"}]}"#)
+            }
             target => panic!("unexpected OAuth request target: {target:?}"),
         };
         Ok(TransportResponse {

@@ -1,18 +1,19 @@
 use std::{
     net::IpAddr,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
+    ActiveRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId,
+    ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, RequestQuotaCostRate,
     TokenUsage, bound_error_message,
 };
 
 use super::super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
 use super::attempt::AttemptRecorder;
+use crate::request_telemetry::timestamp::unix_time_ms;
 use crate::routing::RouteCandidate;
 
 pub(super) const CANCELLED_STATUS_CODE: u16 = 499;
@@ -71,12 +72,31 @@ impl RequestRecorder {
         if !policy.enabled {
             return Self { inner: None };
         }
+        let started_at_ms = unix_time_ms();
+        let started_at = Instant::now();
+        telemetry.register_active_request(ActiveRequestLog {
+            request_id,
+            started_at_ms,
+            client_ip,
+            config_revision: policy.revision,
+            gateway_api_key_id,
+            ingress_protocol: operation.dialect(),
+            operation,
+            public_model: None,
+            thinking_level: None,
+            provider_endpoint_id: None,
+            credential_id: None,
+            oauth_account_id: None,
+            proxy_profile_id: None,
+            attempt_count: 0,
+            is_stream: None,
+        });
         Self {
             inner: Some(Arc::new(RequestRecorderInner {
                 telemetry,
                 policy,
-                started_at_ms: unix_time_ms(),
-                started_at: Instant::now(),
+                started_at_ms,
+                started_at,
                 request_id,
                 config_revision: policy.revision,
                 gateway_api_key_id,
@@ -97,9 +117,16 @@ impl RequestRecorder {
             return;
         };
         let mut state = inner.state.lock().expect("request recorder state");
-        state.public_model = Some(public_model);
+        state.public_model = Some(public_model.clone());
         state.is_stream = is_stream;
-        state.thinking_level = thinking_level;
+        state.thinking_level = thinking_level.clone();
+        drop(state);
+        inner.telemetry.update_active_request_metadata(
+            inner.request_id,
+            public_model,
+            thinking_level,
+            is_stream,
+        );
     }
 
     pub(crate) fn begin_attempt(
@@ -124,6 +151,14 @@ impl RequestRecorder {
         state.final_target = Some(target);
         state.quota_cost_rate = None;
         drop(state);
+        inner.telemetry.update_active_request_attempt(
+            inner.request_id,
+            attempt_no,
+            target.endpoint_id,
+            target.credential_id,
+            target.oauth_account_id,
+            target.proxy_id,
+        );
         AttemptRecorder::new(
             self.clone(),
             inner.request_id,
@@ -233,14 +268,6 @@ pub(crate) const fn public_error_class(code: PublicErrorCode) -> ErrorClass {
         | PublicErrorCode::SessionBindingLost
         | PublicErrorCode::UpstreamError => ErrorClass::Upstream,
     }
-}
-
-fn unix_time_ms() -> u64 {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    u64::try_from(millis).unwrap_or(u64::MAX)
 }
 
 pub(super) fn duration_ms(duration: Duration) -> u64 {

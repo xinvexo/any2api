@@ -1,11 +1,10 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use any2api_domain::{CompletedRequestLog, RequestTelemetryPosition};
 
 use super::{
     RequestLogPolicy,
     event::{TelemetryEnvelope, TelemetryEvent},
     telemetry::RequestTelemetry,
+    timestamp::unix_time_ms,
 };
 
 #[derive(Clone, Debug)]
@@ -19,7 +18,7 @@ impl RequestTelemetry {
         &self,
         mut record: CompletedRequestLog,
         policy: RequestLogPolicy,
-    ) {
+    ) -> bool {
         let mut sequence = self
             .quota_sequence
             .lock()
@@ -35,7 +34,7 @@ impl RequestTelemetry {
             TelemetryEvent::RequestLog(Box::new(record)),
             policy.queue_capacity,
             policy.queue_max_bytes,
-        );
+        )
     }
 
     pub(crate) async fn quota_observation(&self) -> QuotaObservationBoundary {
@@ -71,12 +70,4 @@ impl RequestTelemetry {
         permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaFlush { reply }));
         Some(result)
     }
-}
-
-fn unix_time_ms() -> u64 {
-    let milliseconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }

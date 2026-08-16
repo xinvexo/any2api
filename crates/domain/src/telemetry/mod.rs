@@ -21,10 +21,10 @@ pub use request_attempt_diagnostics::{
     RequestTransportResolverMode, RequestTransportTrafficClass,
 };
 pub use request_log::{
-    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS,
-    RequestAttempt, RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
-    RequestLog, RequestRoutingMode, RequestTelemetryPosition, bound_error_message,
-    bound_thinking_level,
+    ActiveRequestLog, CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
+    MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, RequestAttempt, RequestAttemptFailureScope,
+    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestLog, RequestRoutingMode,
+    RequestTelemetryPosition, bound_error_message, bound_thinking_level,
 };
 pub use request_log_filter::{RequestLogFilter, RequestLogOutcomeFilter};
 pub use token_usage::{MAX_TOKEN_COUNT, TokenUsage};

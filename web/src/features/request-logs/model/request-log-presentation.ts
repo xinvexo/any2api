@@ -142,6 +142,10 @@ export function resultTone(outcome: RequestLogOutcome, status: number) {
   return "bg-danger/10 text-danger";
 }
 
+export function processingTone() {
+  return "bg-accent/10 text-accent-copy";
+}
+
 export function upstreamKindTone(kind: UpstreamSourceKind) {
   if (kind === "oauth") {
     return "bg-accent/10 text-accent-copy";

@@ -74,6 +74,22 @@ describe("request log contracts", () => {
     expect(detail.request.cacheCreationTokens).toBe(11);
   });
 
+  it("parses a bounded processing request projection", () => {
+    const list = parseRequestLogList({
+      ...requestLogPage([]),
+      active_items: [activeRequest()],
+      active_total: 1,
+    });
+
+    expect(list.activeTotal).toBe(1);
+    expect(list.activeItems[0]).toMatchObject({
+      state: "processing",
+      publicModel: "codex-live",
+      isStream: true,
+    });
+    expect(list.activeItems[0]).not.toHaveProperty("statusCode");
+  });
+
   it("rejects invalid request and attempt status codes", () => {
     expect(() =>
       parseRequestLogDetail({
@@ -277,6 +293,8 @@ describe("request log contracts", () => {
 
 function requestLogPage(items: unknown[]) {
   return {
+    active_items: [],
+    active_total: 0,
     items,
     total: items.length,
     page: 1,
@@ -285,6 +303,31 @@ function requestLogPage(items: unknown[]) {
     next_cursor: null,
     telemetry: telemetry(),
     filter_options: filterOptions(),
+  };
+}
+
+function activeRequest() {
+  return {
+    state: "processing",
+    request_id: "55555555-5555-4555-8555-555555555555",
+    started_at_ms: 1_700_000_000_100,
+    client_ip: "203.0.113.9",
+    config_revision: 9,
+    gateway_api_key_id: "22222222-2222-4222-8222-222222222222",
+    ingress_protocol: "openai_responses",
+    operation: "responses",
+    public_model: "codex-live",
+    thinking_level: "high",
+    provider_endpoint_id: null,
+    provider_endpoint_name: null,
+    credential_id: null,
+    credential_label: null,
+    oauth_account_id: null,
+    oauth_account_label: null,
+    proxy_profile_id: null,
+    proxy_profile_label: null,
+    attempt_count: 0,
+    is_stream: true,
   };
 }
 

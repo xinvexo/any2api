@@ -24,6 +24,8 @@ test("serializes exact request log filters without client-controlled audit heade
 function listResponse() {
   return new Response(
     JSON.stringify({
+      active_items: [],
+      active_total: 0,
       items: [],
       total: 0,
       page: 1,

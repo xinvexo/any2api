@@ -18,3 +18,24 @@ reason = "Configuration publisher tests share one atomic publication fixture and
 adr = "docs/adr/0047-feature-first-crate-layout.md"
 owner = "maintainer"
 expires_at = "2026-11-14"
+
+[[exceptions]]
+path = "crates/runtime/src/oauth/coordinator.rs"
+reason = "OAuth login, activation, and manual quota orchestration currently share one stateful service facade"
+adr = "docs/adr/0158-live-oauth-model-discovery.md"
+owner = "maintainer"
+expires_at = "2026-11-16"
+
+[[exceptions]]
+path = "crates/runtime/src/oauth/quota/tests.rs"
+reason = "OAuth quota and live model catalog tests share one provider-aware control-plane fixture"
+adr = "docs/adr/0158-live-oauth-model-discovery.md"
+owner = "maintainer"
+expires_at = "2026-11-16"
+
+[[exceptions]]
+path = "crates/runtime/src/oauth/quota/coordinator.rs"
+reason = "OAuth quota refresh, cached snapshots, and live catalog refresh share one account-scoped coordinator"
+adr = "docs/adr/0158-live-oauth-model-discovery.md"
+owner = "maintainer"
+expires_at = "2026-11-16"

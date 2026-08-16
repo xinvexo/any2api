@@ -1,14 +1,16 @@
 use any2api_domain::{CompletedRequestLog, ErrorClass, LogPage, RequestAttemptOutcome, RequestLog};
-use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
+use any2api_runtime::api::{ActiveRequestLogPage, PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
 use crate::log_pagination::LogCursorScope;
 
-use super::attempt_dto::RequestAttemptResponse;
 use super::filter_options::RequestLogFilterOptionsResponse;
+use super::{active_dto::ActiveRequestLogResponse, attempt_dto::RequestAttemptResponse};
 
 #[derive(Serialize)]
 pub(crate) struct RequestLogListResponse {
+    active_items: Vec<ActiveRequestLogResponse>,
+    active_total: u64,
     items: Vec<RequestLogResponse>,
     total: u64,
     page: u32,
@@ -22,12 +24,27 @@ pub(crate) struct RequestLogListResponse {
 impl RequestLogListResponse {
     pub(crate) fn new(
         logs: LogPage<RequestLog>,
+        mut active: ActiveRequestLogPage,
         page_size: u32,
         metrics: RequestTelemetryMetrics,
         snapshot: &PublishedSnapshot,
         filter_fingerprint: &str,
     ) -> Self {
-        let filter_options = RequestLogFilterOptionsResponse::new(&logs.items, snapshot);
+        let persisted_ids = logs
+            .items
+            .iter()
+            .map(|log| log.request_id)
+            .collect::<std::collections::HashSet<_>>();
+        let visible_before = active.items.len();
+        active
+            .items
+            .retain(|log| !persisted_ids.contains(&log.request_id));
+        active.total = active.total.saturating_sub(
+            u64::try_from(visible_before.saturating_sub(active.items.len()))
+                .expect("visible active request count fits u64"),
+        );
+        let filter_options =
+            RequestLogFilterOptionsResponse::new(&logs.items, &active.items, snapshot);
         let cursor = logs
             .cursor
             .as_ref()
@@ -36,6 +53,12 @@ impl RequestLogListResponse {
             LogCursorScope::Request(filter_fingerprint).encode(cursor, logs.page.saturating_add(1))
         });
         Self {
+            active_items: active
+                .items
+                .into_iter()
+                .map(|log| ActiveRequestLogResponse::from_log(log, snapshot))
+                .collect(),
+            active_total: active.total,
             items: logs
                 .items
                 .into_iter()

@@ -64,6 +64,29 @@ export interface RequestLog {
   isStream: boolean;
 }
 
+export interface ActiveRequestLog {
+  state: "processing";
+  requestId: string;
+  startedAtMs: number;
+  clientIp: string;
+  configRevision: number;
+  gatewayApiKeyId: string;
+  ingressProtocol: RequestLogProtocol;
+  operation: RequestLogOperation;
+  publicModel: string | null;
+  thinkingLevel: string | null;
+  providerEndpointId: string | null;
+  providerEndpointName: string | null;
+  credentialId: string | null;
+  credentialLabel: string | null;
+  oauthAccountId: string | null;
+  oauthAccountLabel: string | null;
+  proxyProfileId: string | null;
+  proxyProfileLabel: string | null;
+  attemptCount: number;
+  isStream: boolean | null;
+}
+
 interface RequestTelemetryMetrics {
   queuedRecords: number;
   inFlightRecords: number;
@@ -72,6 +95,8 @@ interface RequestTelemetryMetrics {
 }
 
 export interface RequestLogList {
+  activeItems: ActiveRequestLog[];
+  activeTotal: number;
   items: RequestLog[];
   total: number;
   page: number;
@@ -90,6 +115,8 @@ export interface RequestLogDetail {
 
 export function parseRequestLogList(value: unknown): RequestLogList {
   const record = readRecord(value);
+  const activeItems = readArray(record.active_items).map(parseActiveRequestLog);
+  const activeTotal = readNonNegativeInteger(record.active_total);
   const items = readArray(record.items).map(parseRequestLog);
   const total = readNonNegativeInteger(record.total);
   const page = readPositiveInteger(record.page);
@@ -98,6 +125,8 @@ export function parseRequestLogList(value: unknown): RequestLogList {
   const nextCursor = readCursor(record.next_cursor);
   if (
     pageSize > 100 ||
+    activeItems.length > pageSize ||
+    activeItems.length > activeTotal ||
     page > Math.max(1, Math.ceil(total / pageSize)) ||
     items.length > pageSize ||
     items.length > total ||
@@ -107,6 +136,8 @@ export function parseRequestLogList(value: unknown): RequestLogList {
     throw invalidResponse();
   }
   return {
+    activeItems,
+    activeTotal,
     items,
     total,
     page,
@@ -115,6 +146,35 @@ export function parseRequestLogList(value: unknown): RequestLogList {
     nextCursor,
     telemetry: parseTelemetry(record.telemetry),
     filterOptions: parseRequestLogFilterOptions(record.filter_options),
+  };
+}
+
+function parseActiveRequestLog(value: unknown): ActiveRequestLog {
+  const record = readRecord(value);
+  if (record.state !== "processing") {
+    throw invalidResponse();
+  }
+  return {
+    state: "processing",
+    requestId: readString(record.request_id),
+    startedAtMs: readNonNegativeInteger(record.started_at_ms),
+    clientIp: readString(record.client_ip),
+    configRevision: readPositiveInteger(record.config_revision),
+    gatewayApiKeyId: readString(record.gateway_api_key_id),
+    ingressProtocol: readProtocol(record.ingress_protocol),
+    operation: readOperation(record.operation),
+    publicModel: readNullableString(record.public_model),
+    thinkingLevel: readNullableDisplayString(record.thinking_level),
+    providerEndpointId: readNullableString(record.provider_endpoint_id),
+    providerEndpointName: readNullableDisplayString(record.provider_endpoint_name),
+    credentialId: readNullableString(record.credential_id),
+    credentialLabel: readNullableDisplayString(record.credential_label),
+    oauthAccountId: readNullableString(record.oauth_account_id),
+    oauthAccountLabel: readNullableDisplayString(record.oauth_account_label),
+    proxyProfileId: readNullableString(record.proxy_profile_id),
+    proxyProfileLabel: readNullableDisplayString(record.proxy_profile_label),
+    attemptCount: readNonNegativeInteger(record.attempt_count),
+    isStream: readNullableBoolean(record.is_stream),
   };
 }
 
@@ -253,6 +313,10 @@ function readBoolean(value: unknown): boolean {
     throw invalidResponse();
   }
   return value;
+}
+
+function readNullableBoolean(value: unknown): boolean | null {
+  return value === null ? null : readBoolean(value);
 }
 
 function readNonNegativeInteger(value: unknown): number {

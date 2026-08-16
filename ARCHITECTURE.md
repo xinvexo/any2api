@@ -1046,7 +1046,21 @@ request_logs
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
+请求进入 Runtime 并创建 `RequestRecorder` 时，同时在 `RequestTelemetry` 的进程内注册表中创建
+`ActiveRequestLog`。该活动投影只保存当时已经知道的 Request ID、开始时间、规范客户端 IP、配置
+revision、Gateway Key、协议与操作；请求解码和每次开始 Attempt 时再原位补充公开模型、思考级别、
+流式标记和当前上游来源。它不写入 SQLite，不进入 RequestLog/Attempt 保留、容量、统计、额度估算或
+启动恢复，进程结束后直接消失。最终成功、失败或取消仍只生成一条完整 `CompletedRequestLog`，不得把
+活动投影当成第二种持久化日志或用占位 HTTP 状态伪装完成结果。
+
 管理读取必须从最终 RequestLog 派生不暴露内部分类细节的粗粒度 `outcome`：2xx 且 `error_class IS NULL` 为 `success`，`error_class = cancelled` 为 `cancelled`，其余为 `failed`。HTTP 状态仍作为独立事实展示；流式响应已经返回 200 后收到协议失败事件、Body 错误或被取消时，不能再仅凭 200 显示“成功”。内部 `error_class`、Attempt 原始 `outcome` 与 `retry_safety` 仍不进入管理 DTO。
+
+管理列表在未固定 Cursor 的最新第一页额外返回独立的 `active_items` 与匹配条件下的精确
+`active_total`。`active_items` 最多返回当前 `page_size` 条并按开始时间、Request ID 倒序排列，Web
+把它们放在最终日志之前并显示“请求中”；活动项没有最终 HTTP 状态、耗时、Token 或 Attempt 详情，
+完成前不可展开。活动项不进入持久化 `items`、`total`、Cursor 或页数，因而不能改变已锚定历史页。
+精确模型和 Gateway Key 筛选同时作用于活动投影；任何 `outcome=success|failed|cancelled` 筛选都只看
+最终日志并隐藏活动项。固定 Cursor、历史页和非第一页均不返回活动项。
 
 管理 Web 的请求日志展开区按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使换账号或同账号重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。
 
@@ -1054,7 +1068,14 @@ request_logs
 
 请求日志列表只提供三个有界、精确的结构化筛选：`outcome=success|failed|cancelled`、精确 `public_model` 和 `gateway_api_key_id`。不提供 `operation`、`credential_id`、`oauth_account_id` 筛选，也不提供 Request ID 手工定位输入；Request ID 只作为列表项进入既有单条详情端点的内部标识。筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 从当前配置快照和当前日志页合并模型、Gateway API Key 选择项，已经从配置删除但仍出现在当前日志页中的稳定 Gateway API Key ID 保持可见。队列观测、刷新动作与筛选控件必须位于同一个紧凑工具栏，不能拆成重复边框的独立面板。
 
-请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page`、`page_size` 与版本化不透明 `cursor` 做带头部锚点的混合分页，并返回实际 `page`、锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、所属页号、该页可选的排他边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝。相邻下一页继续直接使用 Keyset 边界；请求页号与 Cursor 所属页不同时，Storage 只允许在同一读事务内通过现有索引驱动、相同筛选谓词且仅投影排序键的 `OFFSET` 查询定位目标页前一行，再按 Keyset 读取本页，禁止对完整日志行做 OFFSET 分页或让 Web 连发中间页请求。精确 `COUNT(*)`、边界定位与列表必须复用同一筛选谓词；请求页号超过收缩后的总页数时，服务端收敛到最后一页并返回实际页号。Web 只保存当前页和一个锚定 Cursor，页码输入可直接跳转任意页；首次页保持实时，一旦进入历史页或固定锚点后，返回第一页也保持同一锚定视图。手动刷新、改变页大小或改变任一筛选条件都清除锚点并回到最新第一页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史锚定视图不因事件漂移或重复查询。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
+请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page`、`page_size` 与版本化不透明 `cursor` 做带头部锚点的混合分页，并返回实际 `page`、锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、所属页号、该页可选的排他边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝。相邻下一页继续直接使用 Keyset 边界；请求页号与 Cursor 所属页不同时，Storage 只允许在同一读事务内通过现有索引驱动、相同筛选谓词且仅投影排序键的 `OFFSET` 查询定位目标页前一行，再按 Keyset 读取本页，禁止对完整日志行做 OFFSET 分页或让 Web 连发中间页请求。精确 `COUNT(*)`、边界定位与列表必须复用同一筛选谓词；请求页号超过收缩后的总页数时，服务端收敛到最后一页并返回实际页号。Web 只保存当前页和一个锚定 Cursor，页码输入可直接跳转任意页；首次页保持实时，一旦进入历史页或固定锚点后，返回第一页也保持同一锚定视图。手动刷新、改变页大小或改变任一筛选条件都清除锚点并回到最新第一页。页面只在未固定 Cursor 时响应 `request_logs_changed` 与 `active_requests_changed`，历史锚定视图不因事件漂移或重复查询。两类 SSE 都只发送递增的内存 epoch，不发送 RequestLog、Attempt、活动投影或其他日志正文；其中 `request_logs_changed` 仍只在 SQLite 提交后推进。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整分页决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
+
+活动投影使用独立的 `active_requests_changed` SSE epoch。注册、解码元数据变化和 Attempt 当前来源变化
+推进该 epoch；最终日志成功提交时，Writer 先移除对应活动项，再推进既有
+`request_logs_changed`，不额外制造中间空档。最终遥测无法入队或 SQLite 写入失败时，请求已经结束，
+活动项仍必须移除并推进 `active_requests_changed`，不能让可降级遥测故障留下永久“请求中”。浏览器
+在同一 `/api/admin/log-events` 连接中同时订阅两个事件，并只在未固定 Cursor 的最新视图重新查询。
+完整活动投影决策见 `docs/adr/0159-live-request-log-overlay.md`。
 
 ### 9.10 HttpAccessLog
 
@@ -2993,8 +3014,9 @@ oauth_token_refresh_failed
 
 - 最外层为每个 HTTP 请求生成本地 Request ID，并把它传入 Runtime、RequestLog 与 HttpAccessLog；公开响应最多保留一个 `x-request-id`，上游最终 Attempt 已返回可归一化的值时保留它，否则再用本地 ID 补齐，不额外写入 any2api 专用响应头；
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
+- `RequestRecorder` 创建时登记进程内 `ActiveRequestLog`，解码和 Attempt 开始时更新其安全字段；它只服务最新请求日志视图，不持久化、不恢复，也不进入历史统计与 OAuth quota fence；
 - 公开鉴权层使用 Server 级可信代理策略解析客户端地址；直连取 TCP 对端，可信代理链按完整多行 XFF 从右到左解析，XFF 缺失时也取 TCP 对端，XFP 缺失时按非安全 HTTP，出现但无效的 XFF/XFP Fail-Closed。RequestLog 只保存规范化后的 `client_ip`，不保存原始转发头；
-- 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
+- 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；活动投影保留到该消息成功提交，入队或写入失败则在对应终止路径立即清除；
 - 客户端直接收到最终上游非 2xx 的有界原始正文；请求级和 Attempt 级遥测对该最终或中间 Attempt 只保存 Provider 已声明 envelope 中提取的有界原始 `message`，不保存整段正文，也不根据状态码或分类生成替代消息。any2api 本地失败保存自己的有界消息；两类消息都禁止包含已知 Secret；
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；队列内、Writer 已接收未结算和累计持久化/丢弃使用互不混淆的记录计数；
 - SSE 只有在首帧验证与会话绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；

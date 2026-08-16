@@ -1,3 +1,4 @@
+mod active_dto;
 mod attempt_dto;
 mod dto;
 mod filter_options;

@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use any2api_domain::RequestId;
+use any2api_runtime::api::ActiveRequestLogPage;
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::QueryRejection},
@@ -24,6 +25,11 @@ pub(crate) async fn list(
         .validate()
         .ok_or_else(|| AdminApiError::invalid_request("request log page is invalid"))?;
     let telemetry = state.request_telemetry();
+    let active = if query.page.cursor.is_none() && query.page.page == 1 {
+        telemetry.list_active_requests(&query.filter, query.page.page_size)
+    } else {
+        ActiveRequestLogPage::empty()
+    };
     let logs = telemetry
         .list(
             query.page.since_ms,
@@ -40,6 +46,7 @@ pub(crate) async fn list(
     let snapshot = state.snapshots().load();
     Ok(Json(RequestLogListResponse::new(
         logs,
+        active,
         query.page.page_size,
         telemetry.metrics(),
         snapshot.as_ref(),

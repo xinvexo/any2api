@@ -5,6 +5,8 @@ import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 import { requestLogQueryKeys } from "./request-log-query-keys";
 import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
+const REQUEST_LOG_EVENTS = ["request_logs_changed", "active_requests_changed"] as const;
+
 export function useRequestLogs(
   cursor: string | null,
   page: number,
@@ -19,7 +21,7 @@ export function useRequestLogs(
     placeholderData: keepPreviousData,
   });
 
-  useLogChangeEvent("request_logs_changed", cursor === null, () => {
+  useLogChangeEvent(REQUEST_LOG_EVENTS, cursor === null, () => {
     void queryClient.invalidateQueries({ queryKey, exact: true });
   });
 

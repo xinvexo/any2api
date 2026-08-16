@@ -6,9 +6,10 @@ use any2api_domain::{
     OAuthProxySelection, ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId,
     RequestId, RequestLog,
 };
-use any2api_runtime::api::RequestTelemetry;
+use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::{
-    ConfigurationRepository, OAuthAccountDocument, RequestLogRepository, SqliteStore,
+    ConfigurationRepository, OAuthAccountDocument, OAuthModelCatalogSnapshotRepository,
+    RequestLogRepository, SqliteStore, StoredOAuthModelCatalogSnapshot,
 };
 use axum::{
     Router,
@@ -160,21 +161,6 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     );
     assert_eq!(updated["items"][0]["config_version"], 2);
     assert_eq!(updated["items"][0]["account_generation"], 2);
-
-    let (status, unavailable) = request_json(
-        app.clone(),
-        Method::PUT,
-        &format!("/api/admin/oauth/accounts/{account_id}/models"),
-        Some(json!({
-            "expected_revision": 3,
-            "expected_config_version": 2,
-            "models": ["gpt-not-in-plan"]
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(unavailable["error"]["code"], "oauth_model_unavailable");
 
     let (status, models) = request_json(
         app.clone(),
@@ -338,13 +324,38 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
         )
         .await
         .expect("activate OAuth account");
+    storage
+        .upsert_oauth_model_catalog_snapshot(&StoredOAuthModelCatalogSnapshot {
+            provider_kind: ProviderKind::Codex,
+            directory_scope: "free".to_owned(),
+            fetched_at: 1_800_000_000,
+            models: vec![
+                "codex-auto-review".to_owned(),
+                "gpt-5.4-mini".to_owned(),
+                "gpt-5.5".to_owned(),
+                "gpt-5.6-luna".to_owned(),
+                "gpt-5.6-terra".to_owned(),
+            ],
+        })
+        .await
+        .expect("persist OAuth model catalog snapshot");
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         snapshots.load().revision(),
         snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let state = fixture.state().with_request_telemetry(telemetry);
+    let oauth = Arc::new(OAuthService::new(
+        fixture.components().provider_registry_handle(),
+        fixture.components().transport_manager(),
+        publisher,
+        Arc::clone(&storage),
+        Arc::clone(&telemetry),
+    ));
+    let state = fixture
+        .state()
+        .with_oauth(oauth)
+        .with_request_telemetry(telemetry);
     let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
     (directory, app, storage, account_id)
 }
