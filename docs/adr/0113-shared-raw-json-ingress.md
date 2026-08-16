@@ -29,7 +29,7 @@ ADR-0101 已经取消 Attempt 与 OAuth replan 对 `DecodedRequest` 的深拷贝
    克隆共享 `Bytes` 句柄作为 Transport Body；该操作不复制正文。确实需要替换模型、删除字段或消除重复
    顶层字段时，只按顶层索引把未修改的原始字段片段写入一个新的有界 wire Body，禁止先物化完整树。
    已登记的 Provider Profile（当前包括 ADR-0115 的 Codex OAuth Responses 兼容变换和 ADR-0154 的
-   memory `prompt_cache_key` 派生）在当前 Attempt 已选中后可以对 attempt-owned Body 再做借用式顶层改写；
+   memory prompt cache 稳定化）在当前 Attempt 已选中后可以对 attempt-owned Body 再做借用式顶层改写；
    它们不得修改或替换共享入口 payload。
 4. Responses 可移植 item ID 归一化继续发生在路由前。实现使用 `RawValue` 增量扫描顶层 `input` 数组和每个
    item 的顶层 `type`/`id`；只有发现已知类型的非法字符串 ID 时才重建正文并删除该字段。未知 item、嵌套

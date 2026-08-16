@@ -9,7 +9,6 @@ mod openai_images;
 mod openai_images_chat;
 mod openai_responses;
 mod openai_responses_chat;
-mod openai_responses_websocket;
 mod raw_json;
 mod registry;
 mod sse;

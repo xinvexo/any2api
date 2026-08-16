@@ -244,6 +244,20 @@ fn api_key_memory_requests_get_the_derived_cache_key_without_oauth_normalization
         output["prompt_cache_key"],
         "860acffa-b5ad-4192-ac67-1708a8316480"
     );
+    assert!(output.get("instructions").is_none());
+    assert_eq!(output["input"][0]["role"], "developer");
+    assert_eq!(output["input"][0]["content"][0]["type"], "input_text");
+    assert_eq!(
+        output["input"][0]["content"][0]["text"],
+        "memory-instructions"
+    );
+    assert_eq!(
+        output["input"][0]["content"][0]["prompt_cache_breakpoint"],
+        json!({"mode": "explicit"})
+    );
+    assert_eq!(output["input"][1]["role"], "user");
+    assert_eq!(output["input"][1]["content"], "rollout");
+    assert_eq!(output["prompt_cache_options"], json!({"mode": "explicit"}));
     assert_eq!(output["store"], true);
     assert_eq!(output["user"], "request-owner");
     assert!(output.get("include").is_none());
@@ -262,8 +276,54 @@ fn oauth_memory_requests_combine_the_profile_with_the_derived_cache_key() {
         output["prompt_cache_key"],
         "860acffa-b5ad-4192-ac67-1708a8316480"
     );
+    assert!(output.get("instructions").is_none());
+    assert_eq!(output["input"][0]["role"], "developer");
+    assert_eq!(
+        output["input"][0]["content"][0]["text"],
+        "memory-instructions"
+    );
+    assert_eq!(
+        output["input"][0]["content"][0]["prompt_cache_breakpoint"],
+        json!({"mode": "explicit"})
+    );
+    assert_eq!(output["input"][1]["role"], "user");
+    assert_eq!(output["input"][1]["content"], "rollout");
+    assert_eq!(output["prompt_cache_options"], json!({"mode": "explicit"}));
     assert_eq!(output["store"], false);
     assert_eq!(output["include"], json!(["reasoning.encrypted_content"]));
     assert!(output.get("user").is_none());
-    assert_eq!(output["instructions"], "memory-instructions");
+}
+
+#[test]
+fn ordinary_turn_with_memory_shaped_fields_is_left_untouched() {
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "model": "gpt-5.6-sol",
+            "instructions": "turn instructions",
+            "input": "turn rollout",
+            "prompt_cache_key": "turn-key",
+            "prompt_cache_options": {"mode": "implicit"},
+            "client_metadata": {
+                "x-codex-turn-metadata": "{\"request_kind\":\"turn\"}"
+            }
+        }))
+        .expect("request JSON"),
+    );
+    let output =
+        prepare(context(false, ProtocolOperation::Responses), body.clone()).expect("ordinary turn");
+    assert_eq!(output.as_ptr(), body.as_ptr());
+    assert_eq!(output, body);
+}
+
+#[test]
+fn memory_shaped_body_is_untouched_for_non_responses_upstream_operations() {
+    let body = memory_marked_body(true);
+    for operation in [
+        ProtocolOperation::ResponsesCompact,
+        ProtocolOperation::ChatCompletions,
+    ] {
+        let output = prepare(context(false, operation), body.clone()).expect("unchanged request");
+        assert_eq!(output.as_ptr(), body.as_ptr());
+        assert_eq!(output, body);
+    }
 }

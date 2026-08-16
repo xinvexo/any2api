@@ -44,7 +44,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 13. 多个 `GatewayApiKey` 仅用于不同设备、客户端和密钥轮换，权限等价，不具备用户、租户、套餐、余额或额度语义。
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
-16. 首版 TransportMode 只有 JSON 和 SSE，上游不使用 WebSocket。`POST /v1/responses` 同路径接受 OpenAI Responses WebSocket 入口（`responses_websockets=2026-02-06` 协议）：连接内每条 `response.create` 还原为一个独立公开请求走既有执行链，增量请求与 warmup 由连接内存状态承接，上游请求保持全量、凭据无关的 HTTP JSON/SSE。WebSocket 连接数达到硬上限时对新 Upgrade 返回 426 让客户端按协议降级 HTTP。完整边界见 `docs/adr/0151-openai-responses-websocket-ingress.md`。
+16. 首版 TransportMode 只有 JSON 和 SSE，上游和公开入口均不使用 WebSocket。`GET /v1/responses` 对尝试 Upgrade 的客户端返回 HTTP 426，作为明确的 HTTP 回退信号；服务端不建立连接内状态、不持有长连接。完整边界见 `docs/adr/0161-remove-responses-websocket-ingress.md`。
 17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化；公开模型名默认等于上游模型名，凭据模型条目可配置可选公开别名（ADR-0153），同一 Endpoint 内公开名与上游名映射必须双向一致。OAuthAccount 的模型目录不得硬编码在 Provider 或 Runtime 代码中：登录成功时读取上游目录，之后只在管理面手动刷新额度时读取。Provider Driver 从当前 Token 导出非敏感的“目录身份”，共享目录快照按 `Provider + directory_scope` 存储，单次批量刷新中每个身份至多请求一次。Codex 以规范化套餐归类目录身份；其他 Provider 只在 Driver 能证明目录相同的订阅身份内共享，无法证明时必须退回更细身份。每组选择一个当前账号的 Token 与实际 OAuth 出口发起请求。排序去重后的安全模型名和抓取时间写入独立 SQLite 目录快照，既不自动改变已选模型，也不触发配置发布，更绝不附着到按活跃度触发的自动额度刷新。没有成功目录快照的账号只显示其已保存模型；新账号目录读取失败时不创建路由账号，导入账号则以空模型选择等待手动刷新。管理员可保存经确认的最新或手工模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
@@ -116,7 +116,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 - Gemini 或其他 Provider；
 - 通用或可导出的 Provider OAuth2 JSON 导入；Provider 专用、只写入 `OAuthAccount` 的批量导入属于当前范围；
 - `/backend-api/codex/responses` 兼容入口；
-- 上游 WebSocket 传输（`/v1/responses` 的 WebSocket 入口属于当前范围，见 ADR-0151）；
+- 上游或下游 WebSocket 传输；
 - Codex/OpenAI 与 Claude Messages 双向跨协议路由；
 - 动态本地插件 ABI；
 - Redis 缓存和消息队列；
@@ -874,7 +874,7 @@ Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profil
 
 Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 只导出规范化目录身份（free、plus/pro、team/business/go），不携带模型名。目录内容始终由上游读取并存入共享 SQLite 快照；读取结果不隐式修改已选模型，只有管理员显式保存的模型进入路由。`chatgpt_account_id` 表示 Token 当前选择的个人账户或工作区，继续用于数据面 `chatgpt-account-id` Header；`chatgpt_user_id`（兼容 `user_id`）才表示成员主体，两者不得混为 OAuthAccount 去重身份。选中 Codex OAuthAccount 的普通 Responses Attempt 在协议编码后、进入 Transport I/O 前应用固定出站 Profile：强制 `store=false`，删除 ChatGPT Codex 后端不支持的已登记字段，把字符串 input 与 `system` role 规范成该后端接受的等价形状，并补齐 reasoning include；该 Profile 不按 User-Agent 识别客户端、不修改 `stream`，也绝不应用于 Codex API Key 或 Responses Compact。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选。固定基址、方言和 Provider Endpoint Profile 只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。完整决策见 `docs/adr/0115-codex-oauth-responses-request-profile.md`、`docs/adr/0147-codex-workspace-member-oauth-identity.md` 与 `docs/adr/0158-live-oauth-model-discovery.md`。
 
-`prompt_cache_key` 默认一律原值转发，唯一例外是 Codex Driver 的 Responses 上游请求命中官方 memory 标记时：请求体 `client_metadata["x-codex-turn-metadata"]` 解析出的 `request_kind` 为 `memory` 或 `memory_consolidation` 且 `instructions` 非空，any2api 才把 `prompt_cache_key` 替换为 `SHA-256(版本盐 + 实际上游模型 + reasoning.effort + instructions)` 派生的 UUID 形态稳定 key，使全局固定的 memory instructions 前缀跨 Codex 任务命中上游 prompt cache。该规则与凭据类型（OAuth/API Key）和公开模型名无关，只改写这一个字段，判定有任何歧义即原样放行；派生 key 是请求内容的确定函数，换凭据重试的字节仍完全一致（ADR-0149）。完整决策见 `docs/adr/0154-codex-memory-prompt-cache-key.md`。
+`prompt_cache_key` 默认一律原值转发，唯一例外是 Codex Driver 的 Responses 上游请求命中官方 memory 标记时：请求体 `client_metadata["x-codex-turn-metadata"]` 解析出的 `request_kind` 为 `memory` 或 `memory_consolidation`、`instructions` 为非空字符串，且实际上游模型属于 GPT-5.6 系列（`gpt-5.6` 或 `gpt-5.6-*`）。此时 any2api 用 `SHA-256(版本盐 + 实际上游模型 + reasoning.effort + instructions)` 派生 UUID 形态稳定 key；该 key 只负责 cache routing/grouping，不能单独保证 GPT-5.6 的前缀复用。为固定 instructions 建立真正的可缓存前缀，Driver 会把顶层 `instructions` 字符串等价转换成首个 Responses developer message 的 `input_text` block，在该 block 上设置 `prompt_cache_breakpoint: {"mode":"explicit"}`，保留动态 `input` 项在其后，并补齐或合并 `prompt_cache_options: {"mode":"explicit"}`。该规则与凭据类型（OAuth/API Key）和公开模型名无关；Responses 入口仅保留 HTTP/SSE，共享同一准备路径。Responses→Chat 桥接因实际上游操作不是 Responses 而不触发。任一判定或结构化字段有歧义即原样放行；派生 key 与 wire 重写都是请求内容的确定函数，换凭据重试仍不绑定账号（ADR-0149）。完整决策见 `docs/adr/0154-codex-memory-prompt-cache-key.md`。
 
 ### 9.5 内部 ModelRoute
 
@@ -1378,7 +1378,7 @@ ProviderKind
 | 入口 | 用途 | 上游方言 | 模式 |
 |---|---|---|---|
 | `GET /v1/models` | 返回已发布并放行的公开模型 | 本地 PublishedSnapshot | JSON |
-| `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE + WebSocket 入口 |
+| `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
 | `POST /v1/alpha/search` | Codex 客户端 `web__run` 独立联网搜索 | openai_responses alpha search | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
@@ -1393,9 +1393,8 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回
 运行时错误，而不是让模型列表抖动。
 
-上游不使用 WebSocket。公开入口中仅 `/v1/responses` 接受 WebSocket Upgrade：同路径 `GET` 升级进入
-OpenAI Responses WebSocket 入口（ADR-0151），连接内每条 `response.create` 还原为一个独立公开请求
-复用上表 `POST /v1/responses` 的全部执行语义；其余入口不接受 WebSocket Upgrade。
+上游和公开入口均不使用 WebSocket。`GET /v1/responses` 返回 HTTP 426（`websocket_unavailable`），
+让支持该回退约定的 Codex 客户端改用上表的 HTTP/SSE `POST`；服务端不创建 WebSocket 连接或连接内状态。
 
 #### `/v1/images/generations` 与 `/v1/images/edits`
 
@@ -3430,7 +3429,7 @@ Transport Traffic Class = DataPlane / OAuthToken / OAuthQuota / Diagnostic
 TLS Resumption Store = Per Transport Client / Never Cross Transport Isolation
 
 Session Binding ──> Fixed Credential + Route Target + Model + Dialect
-Prompt Cache Locality ──> HMAC-Keyed Soft Success Hint + Immediate Normal Fallback + Memory Only
+Prompt Cache Locality ──> Stable Memory Key for Routing + Explicit GPT-5.6 Prefix Breakpoint + Immediate Normal Fallback + Memory Only
 Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque Typed State
 Bridge Continuation Memory ──> 16 MiB Per Entry + 64 MiB Total Hard Cap
 All Session State ──> Memory Only
@@ -3442,8 +3441,8 @@ Provider Accepted Protocol = Required
 Provider Internal Conversion Protocol = Optional
 Effective Upstream Protocol = Internal Conversion ?? Accepted Protocol
 Registered Bridge = Responses -> Chat Completions + Images -> Chat Completions (Generations JSON Only)
-Codex WebSocket = Responses Ingress Only + Connection-Scoped Incremental State + HTTP Upstream (ADR-0151)
-/v1/responses = JSON + SSE + WebSocket Ingress enabled; /v1/responses/compact = JSON only
+/v1/responses = JSON + SSE; WebSocket ingress unavailable (HTTP 426 fallback)
+/v1/responses/compact = JSON only
 /v1/alpha/search = JSON only + Codex Upstream Only (ADR-0152)
 /v1/chat/completions = JSON + SSE enabled
 /v1/images/generations = JSON + SSE enabled

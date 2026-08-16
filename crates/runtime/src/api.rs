@@ -52,7 +52,7 @@ pub use crate::routing::{SelectAndReserveResult, select_and_try_reserve};
 pub use crate::system_metrics::{SystemMetricsError, SystemMetricsSnapshot};
 pub use any2api_protocol::api::{
     BridgeLimitation, BridgeRequestFieldBehavior, BridgeRequestFieldCapability,
-    ProtocolBridgeCapabilities, ProtocolFidelity, SseDecoder, SseFrame, responses_websocket,
+    ProtocolBridgeCapabilities, ProtocolFidelity, SseDecoder, SseFrame,
 };
 pub use any2api_provider::api::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,

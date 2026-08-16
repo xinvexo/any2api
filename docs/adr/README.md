@@ -150,13 +150,14 @@
 | [0147](0147-codex-workspace-member-oauth-identity.md) | ADR-0147：分离 Codex 工作区路由标识与成员 OAuth 身份 |
 | [0149](0149-upstream-request-surface-and-cache-continuity.md) | ADR-0149：上游请求面与 prompt cache 连续性 |
 | [0150](0150-oauth-only-global-proxy.md) | ADR-0150: OAuth 默认出口与账号级代理选择 |
-| [0151](0151-openai-responses-websocket-ingress.md) | ADR-0151：OpenAI Responses WebSocket 入口 |
+| [0151](0151-openai-responses-websocket-ingress.md) | ADR-0151：OpenAI Responses WebSocket 入口（已由 ADR-0161 取代） |
 | [0152](0152-openai-alpha-search-ingress.md) | ADR-0152：OpenAI Alpha Search 入口（`POST /v1/alpha/search`） |
 | [0153](0153-provider-credential-public-model-alias.md) | ADR-0153：凭据模型条目的可选公开别名 |
-| [0154](0154-codex-memory-prompt-cache-key.md) | ADR-0154：Codex memory 请求派生稳定 prompt_cache_key |
+| [0154](0154-codex-memory-prompt-cache-key.md) | ADR-0154：Codex memory 请求稳定 Prompt Cache |
 | [0155](0155-background-oauth-refresh-configuration-rebase.md) | ADR-0155: 管理配置跨自动 OAuth 刷新透明 Rebase |
 | [0156](0156-remove-redundant-local-request-id-header.md) | ADR-0156: 移除重复的本地请求 ID 响应头 |
 | [0157](0157-standard-sk-gateway-key-prefix.md) | ADR-0157：GatewayApiKey 使用标准 `sk-` 前缀 |
 | [0158](0158-live-oauth-model-discovery.md) | ADR-0158：手动 OAuth 额度刷新附带上游模型目录 |
 | [0159](0159-live-request-log-overlay.md) | ADR-0159：请求日志使用进程内活动请求投影 |
 | [0160](0160-system-resource-overview.md) | ADR-0160：系统总览的实时资源与负载指标 |
+| [0161](0161-remove-responses-websocket-ingress.md) | ADR-0161：移除 OpenAI Responses WebSocket 入口 |

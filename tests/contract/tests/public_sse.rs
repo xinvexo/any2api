@@ -30,6 +30,42 @@ use tower::ServiceExt;
 const OPENAI_OVERLOAD_FRAME: &[u8] = b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n";
 
 #[tokio::test]
+async fn responses_websocket_upgrade_is_rejected_for_http_fallback() {
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/v1/responses")
+                .header("authorization", format!("Bearer {token}"))
+                .header("connection", "upgrade")
+                .header("upgrade", "websocket")
+                .header("sec-websocket-version", "13")
+                .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+                .extension(ConnectInfo(remote))
+                .body(Body::empty())
+                .expect("Responses GET request"),
+        )
+        .await
+        .expect("Responses GET response");
+    assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+    assert!(response.headers().get("sec-websocket-accept").is_none());
+    assert!(response.headers().get("x-any2api-request-id").is_none());
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("upgrade-required response body")
+            .to_bytes(),
+    )
+    .expect("upgrade-required JSON");
+    assert_eq!(body["error"]["code"], "websocket_unavailable");
+}
+
+#[tokio::test]
 async fn codex_and_claude_streams_forward_incrementally_with_selected_model_names() {
     let (codex_address, codex_request, release_codex) = paused_sse_server(
         "/v1/responses",

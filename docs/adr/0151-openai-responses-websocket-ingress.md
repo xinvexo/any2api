@@ -1,9 +1,12 @@
 # ADR-0151：OpenAI Responses WebSocket 入口
 
-- 状态：Accepted
+- 状态：Superseded（由 ADR-0161 取代）
 - 日期：2026-08-15
 - 决策者：maintainer
 - 修订：`ARCHITECTURE.md` 需求 16、§3.2 首批范围外清单与 §11.2 支持矩阵中"不接受 WebSocket Upgrade"的表述
+
+> 本 ADR 保留已移除的 WebSocket 入口设计作为历史记录。当前实现不再接受或建立
+> Responses WebSocket；`GET /v1/responses` 返回 HTTP 426，提示客户端回退到 HTTP/SSE。
 
 ## 问题
 
@@ -23,7 +26,7 @@ Codex CLI 自 0.147 起为 `prefer_websockets` 模型目录条目（当前 `gpt-
 2. **warmup**：`generate: false` 的 `response.create` 只上传前缀、不生成内容，客户端等待
    `response.completed` 并把其 `response.id` 用作下一次增量请求的 `previous_response_id`。
 
-## 决策
+## 已废止的决策
 
 1. `POST /v1/responses` 同路径接受 `GET` WebSocket Upgrade，进入 OpenAI Responses WebSocket
    入口。Upgrade 经过与 HTTP 完全相同的中间件栈：HttpAccessLog 记录、客户端地址解析、
@@ -75,7 +78,7 @@ Codex CLI 自 0.147 起为 `prefer_websockets` 模型目录条目（当前 `gpt-
   请求仍按既有规则写入 RequestLog，可观测性以 RequestLog 为准。
 - 不实现服务端主动 Ping 与上游式 60 分钟连接寿命上限；客户端 Ping 由读循环即时回应 Pong。
 
-## 后果
+## 历史后果
 
 - Codex CLI ≥0.147 对 any2api 直接以 WebSocket 工作；不支持 WS 的部署链路（如无 WS 的反向
   代理）下客户端收到非 426 握手失败仍是硬错误，需要在部署文档中说明。

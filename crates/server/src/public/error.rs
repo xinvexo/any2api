@@ -1,7 +1,11 @@
 use any2api_domain::{ProtocolDialect, PublicError, PublicErrorCode};
 use axum::{
+    body::Body,
     extract::{Request, State},
-    http::{HeaderValue, Uri, header::CACHE_CONTROL},
+    http::{
+        HeaderValue, StatusCode, Uri,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+    },
     response::Response,
 };
 
@@ -158,8 +162,23 @@ pub(crate) async fn method_not_allowed(
     PublicApiError::method_not_allowed().into_response_for(&state, request.uri())
 }
 
-pub(super) fn method_not_allowed_response(state: &AppState, uri: &Uri) -> Response {
-    PublicApiError::method_not_allowed().into_response_for(state, uri)
+/// Codex clients use HTTP 426 as the clean signal to retry Responses over
+/// HTTP when WebSocket ingress is intentionally unsupported.
+pub(crate) async fn responses_websocket_unavailable() -> Response {
+    let body = serde_json::json!({
+        "error": {
+            "type": "invalid_request_error",
+            "code": "websocket_unavailable",
+            "message": "Responses WebSocket ingress is unavailable; use the HTTP transport",
+        }
+    })
+    .to_string();
+    Response::builder()
+        .status(StatusCode::UPGRADE_REQUIRED)
+        .header(CONTENT_TYPE, "application/json")
+        .header(CACHE_CONTROL, "no-store")
+        .body(Body::from(body))
+        .expect("static upgrade-required response")
 }
 
 fn dialect_for_uri(uri: &Uri) -> ProtocolDialect {

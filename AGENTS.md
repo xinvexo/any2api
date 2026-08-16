@@ -27,7 +27,7 @@
 - 实现：
   - `GET /v1/models`
   - `POST /v1/responses`
-  - `GET /v1/responses`（仅 WebSocket Upgrade，OpenAI Responses WebSocket 入口）
+  - `GET /v1/responses`（仅返回 HTTP 426 `websocket_unavailable`，供客户端回退 HTTP；不是 WebSocket 入口）
   - `POST /v1/responses/compact`
   - `POST /v1/alpha/search`（Codex `web__run` 独立联网搜索，仅 Codex 上游，ADR-0152）
   - `POST /v1/chat/completions`
@@ -35,7 +35,7 @@
   - `POST /v1/images/edits`
   - `POST /v1/messages`
   - `POST /v1/messages/count_tokens`
-- 首版不实现 `/backend-api/codex/responses`、上游 WebSocket 传输和 Codex/Claude 双向跨协议路由；`/v1/responses` 的 OpenAI Responses WebSocket 入口属于当前范围（ADR-0151），上游仍走 HTTP JSON/SSE。
+- 首版不实现 `/backend-api/codex/responses`、上游或下游 WebSocket 传输和 Codex/Claude 双向跨协议路由；Responses 仅走 HTTP JSON/SSE（ADR-0161）。
 - 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions、Images → Images 和 Messages → Messages；不注册其他组合。
 - 公开模型名不强制 Provider 前缀，默认等于上游模型名；凭据模型条目可配置可选公开别名（ADR-0153），同一 Endpoint 内公开名与上游名映射必须双向一致。
 

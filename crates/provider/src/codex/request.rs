@@ -29,7 +29,7 @@ pub(crate) fn prepare(
     if context.upstream_operation != ProtocolOperation::Responses {
         return Ok(body);
     }
-    let body = cache_key::stabilize_memory_prompt_cache_key(context.upstream_model, body)?;
+    let body = cache_key::stabilize_memory_prompt_cache(context.upstream_model, body)?;
     if !context.oauth {
         return Ok(body);
     }
