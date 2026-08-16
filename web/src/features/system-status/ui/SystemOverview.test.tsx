@@ -43,7 +43,8 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(screen.getByText("系统内存")).toBeInTheDocument();
   expect(screen.getByText("活动上游")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
-  expect(screen.getByText("客户端池条目")).toBeInTheDocument();
+  expect(screen.getByText("Transport 客户端")).toBeInTheDocument();
+  expect(screen.getByText("RPM 用尽")).toBeInTheDocument();
   expect(screen.getByText("请求负载")).toBeInTheDocument();
   expect(screen.getByText("资源状态")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新系统总览" })).toBeInTheDocument();
@@ -71,6 +72,22 @@ test("keeps the last resource values visible when a refresh fails", () => {
   expect(screen.getByText("128 MiB")).toBeInTheDocument();
   expect(screen.getByText("资源刷新失败，仍显示最近一次采样。"))
     .toHaveAttribute("role", "status");
+});
+
+test("does not show an RPM warning when no limited credential is exhausted", () => {
+  const refetch = vi.fn(async () => ({ isSuccess: true }));
+  probes.runtime = runtimeQuery(refetch);
+  probes.runtime.data.totals.rateLimitedCredentialCount = 0;
+  probes.resources = resourcesQuery(refetch);
+  probes.usage = usageQuery(refetch);
+
+  render(
+    <MemoryRouter>
+      <SystemOverview />
+    </MemoryRouter>,
+  );
+
+  expect(screen.queryByText("RPM 用尽")).not.toBeInTheDocument();
 });
 
 interface RuntimeQuery {

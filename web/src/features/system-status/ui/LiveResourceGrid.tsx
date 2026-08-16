@@ -1,5 +1,4 @@
-import type { LucideIcon } from "lucide-react";
-import { Cpu, Gauge, HardDrive, MemoryStick } from "lucide-react";
+import { Cpu, Gauge, HardDrive, MemoryStick, type LucideIcon } from "lucide-react";
 
 import type { OverviewResources } from "../api/overview-resources-contracts";
 import {
@@ -7,15 +6,7 @@ import {
   formatResourcePercent,
   formatSystemMemory,
 } from "../model/overview-resources-presentation";
-
-type ResourceTone = "blue" | "violet" | "green" | "orange";
-
-const toneColors: Record<ResourceTone, string> = {
-  blue: "var(--chart-1)",
-  violet: "var(--chart-2)",
-  green: "var(--chart-6)",
-  orange: "var(--chart-5)",
-};
+import { OverviewMetricTile, type OverviewMetricTone } from "./OverviewMetricTile";
 
 export function LiveResourceGrid({ resources }: { resources: OverviewResources | undefined }) {
   const systemMemory = resources
@@ -90,9 +81,9 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
         ) : null}
       </div>
 
-      <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2">
+      <div className="mt-3 grid min-w-0 grid-cols-1 gap-2.5 min-[360px]:grid-cols-2">
         {metrics.map((metric) => (
-          <ResourceTile key={metric.label} {...metric} />
+          <OverviewMetricTile key={metric.label} {...metric} />
         ))}
       </div>
     </section>
@@ -104,65 +95,8 @@ interface ResourceMetric {
   value: string;
   note: string;
   progress: number | null;
-  tone: ResourceTone;
+  tone: OverviewMetricTone;
   icon: LucideIcon;
-}
-
-function ResourceTile({ label, value, note, progress, tone, icon: Icon }: ResourceMetric) {
-  const color = toneColors[tone];
-  return (
-    <div className="min-w-0 rounded-[8px] border border-subtle bg-surface/70 px-3.5 py-3.5 transition-colors hover:border-strong sm:px-4">
-      <div className="flex min-w-0 items-center gap-2">
-        <span
-          className="grid size-6 shrink-0 place-items-center rounded-[6px]"
-          style={{
-            backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
-            color,
-          }}
-          aria-hidden="true"
-        >
-          <Icon size={14} strokeWidth={2.1} />
-        </span>
-        <span className="truncate text-xs font-medium text-secondary">{label}</span>
-      </div>
-      <div className="mt-3 flex min-w-0 items-baseline gap-1.5">
-        <strong className="min-w-0 truncate text-[1.65rem] font-semibold leading-none tracking-tight tabular-nums">
-          {value}
-        </strong>
-      </div>
-      <ProgressBar value={progress} color={color} label={`${label} 使用率`} />
-      <p className="mt-2 truncate text-[11px] leading-4 text-tertiary" title={note}>
-        {note}
-      </p>
-    </div>
-  );
-}
-
-export function ProgressBar({
-  value,
-  color = "var(--accent)",
-  label,
-}: {
-  value: number | null;
-  color?: string;
-  label: string;
-}) {
-  const bounded = value === null ? 0 : Math.min(100, Math.max(0, value));
-  return (
-    <div
-      className="mt-3 h-1 overflow-hidden rounded-full bg-surface-muted"
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={value === null ? undefined : bounded}
-    >
-      <span
-        className="block h-full rounded-full transition-[width] duration-500"
-        style={{ backgroundColor: color, width: `${bounded}%` }}
-      />
-    </div>
-  );
 }
 
 function ratioPercent(used: number, total: number) {

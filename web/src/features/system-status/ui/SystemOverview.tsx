@@ -75,7 +75,7 @@ export function SystemOverview() {
         </IconButton>
       </header>
 
-      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.42fr)_minmax(19rem,0.86fr)] xl:items-start">
+      <div className="mt-5 grid min-w-0 gap-6 lg:grid-cols-2 lg:items-start">
         <LiveResourceGrid resources={resources.data} />
         <LiveLoadPanel runtime={runtime.data} />
       </div>
