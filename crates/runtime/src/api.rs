@@ -49,6 +49,7 @@ pub use crate::routing::{
 };
 pub use crate::routing::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub use crate::routing::{SelectAndReserveResult, select_and_try_reserve};
+pub use crate::system_metrics::{SystemMetricsError, SystemMetricsSnapshot};
 pub use any2api_protocol::api::{
     BridgeLimitation, BridgeRequestFieldBehavior, BridgeRequestFieldCapability,
     ProtocolBridgeCapabilities, ProtocolFidelity, SseDecoder, SseFrame, responses_websocket,

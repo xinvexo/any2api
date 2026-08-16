@@ -62,6 +62,7 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 sha2 = "0.10.9"
 socket2 = "0.6"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 subtle = "2.6.1"
 tempfile = "3.23.0"
 tar = "0.4"

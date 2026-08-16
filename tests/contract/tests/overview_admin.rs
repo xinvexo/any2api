@@ -97,6 +97,40 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
 }
 
 #[tokio::test]
+async fn overview_resources_exposes_current_process_and_system_load() {
+    let fixture = TestApplication::new().await;
+    let app = fixture.router();
+
+    let (status, headers, body) = request(app, "/api/admin/overview/resources").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers.get(CACHE_CONTROL).expect("no-store"), "no-store");
+    assert!(
+        body["sampled_at_ms"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+    );
+    assert!(body["process"]["resident_memory_bytes"].as_u64().is_some());
+    assert!(
+        body["process"]["cpu_usage_percent"]
+            .as_f64()
+            .is_some_and(|value| (0.0..=100.0).contains(&value))
+    );
+    let used = body["system"]["used_memory_bytes"]
+        .as_u64()
+        .expect("used memory");
+    let total = body["system"]["total_memory_bytes"]
+        .as_u64()
+        .expect("total memory");
+    assert!(total > 0);
+    assert!(used <= total);
+    assert!(
+        body["system"]["cpu_usage_percent"]
+            .as_f64()
+            .is_some_and(|value| (0.0..=100.0).contains(&value))
+    );
+}
+
+#[tokio::test]
 async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable() {
     let directory = tempdir().expect("temporary directory");
     let database_path = directory.path().join("any2api.sqlite3");

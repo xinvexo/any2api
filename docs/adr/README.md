@@ -18,7 +18,7 @@
 | Transport 与请求面 | [用途/模式隔离](0123-purpose-and-mode-transport-isolation.md)、[Header ownership](0125-credential-owned-request-headers.md)、[响应 Content-Encoding](0127-transport-response-content-coding.md)、[同方言 Accept-Encoding](0135-same-dialect-accept-encoding-pass-through.md)、[缓存连续性](0149-upstream-request-surface-and-cache-continuity.md) |
 | 调度、会话与重试 | [QueueTicket](0010-bounded-generation-queue.md)、[RPM](0037-single-optional-rpm-admission.md)、[会话绑定](0062-unified-session-affinity.md)、[RetrySafety](0093-evidence-based-precommit-retry-safety.md)、[预提交拒绝](0136-precontent-rejection-fidelity-and-overload-backoff.md) |
 | OAuth 与额度 | [额度持久化](0111-activity-driven-persistent-oauth-quota.md)、[刷新诊断](0116-typed-oauth-refresh-diagnostics.md)、[Credits/健康](0137-codex-credits-and-quota-health.md)、[费率卡](0145-configurable-codex-quota-rate-card.md)、[累计统计](0146-cumulative-codex-quota-statistics.md)、[手动刷新模型目录](0158-live-oauth-model-discovery.md) |
-| 日志与可观测 | [请求遥测](0015-bounded-request-telemetry.md)、[HTTP 系统日志](0051-complete-http-access-logging.md)、[原始交换详情](0081-raw-http-system-log-details.md)、[字节有界队列](0114-byte-bounded-telemetry-ownership.md)、[活动请求投影](0159-live-request-log-overlay.md) |
+| 日志与可观测 | [请求遥测](0015-bounded-request-telemetry.md)、[HTTP 系统日志](0051-complete-http-access-logging.md)、[原始交换详情](0081-raw-http-system-log-details.md)、[字节有界队列](0114-byte-bounded-telemetry-ownership.md)、[活动请求投影](0159-live-request-log-overlay.md)、[系统资源总览](0160-system-resource-overview.md) |
 | Web、部署与更新 | [浏览器 E2E](0022-browser-e2e-contract.md)、[内嵌资源](0027-embedded-web-assets.md)、[Web 错误边界](0085-web-error-recovery-boundaries.md)、[自更新回滚](0089-bounded-self-update-binary-rollback.md) |
 
 ## 完整当前清单
@@ -159,3 +159,4 @@
 | [0157](0157-standard-sk-gateway-key-prefix.md) | ADR-0157：GatewayApiKey 使用标准 `sk-` 前缀 |
 | [0158](0158-live-oauth-model-discovery.md) | ADR-0158：手动 OAuth 额度刷新附带上游模型目录 |
 | [0159](0159-live-request-log-overlay.md) | ADR-0159：请求日志使用进程内活动请求投影 |
+| [0160](0160-system-resource-overview.md) | ADR-0160：系统总览的实时资源与负载指标 |

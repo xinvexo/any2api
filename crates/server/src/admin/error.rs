@@ -132,6 +132,14 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn system_metrics_unavailable() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "system_metrics_unavailable",
+            "system resource metrics are unavailable",
+        )
+    }
+
     pub(crate) fn system_log_unavailable() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,

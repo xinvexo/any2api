@@ -171,7 +171,7 @@ export function OverviewTimeChart({
       <div role="group" aria-label={`按时间展示的 ${buckets.length} 个调用桶`}>
         <OverviewChart
           ariaLabel={`近 ${buckets.length} 个时间桶的总调用与失败调用曲线`}
-          className="h-72 w-full"
+          className="h-64 w-full"
           createConfiguration={createConfiguration}
         />
       </div>

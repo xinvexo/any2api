@@ -12,6 +12,7 @@ mod public_request;
 mod registry;
 mod request_telemetry;
 mod routing;
+mod system_metrics;
 
 #[cfg(test)]
 mod test_support;

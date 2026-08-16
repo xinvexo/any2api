@@ -1,71 +1,103 @@
 import { CheckCircle2, LoaderCircle, RefreshCw, ServerCrash } from "lucide-react";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
-import {
-  describeAffinityMetrics,
-  type AffinityMetricPresentation,
-  useAffinity,
-} from "@/features/affinity";
-import { useBalancingRuntime } from "@/features/balancing";
+import { useBalancingRuntime, type BalancingRuntime } from "@/features/balancing";
+import { isOverviewUsageRange, useOverviewUsage } from "@/features/overview-usage";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
-import { Button } from "@/shared/ui/Button";
+import { IconButton } from "@/shared/ui/IconButton";
+
+import { useOverviewResources } from "../model/use-overview-resources";
+import { LiveLoadPanel } from "./LiveLoadPanel";
+import { LiveResourceGrid } from "./LiveResourceGrid";
 
 type SystemStatus = "pending" | "error" | "ok" | "draining" | "forced";
 
 export function SystemOverview() {
+  const [searchParams] = useSearchParams();
+  const rangeParam = searchParams.get("range");
+  const range = isOverviewUsageRange(rangeParam) ? rangeParam : "24h";
   const runtime = useBalancingRuntime();
-  const affinity = useAffinity();
-  const affinityMetrics = describeAffinityMetrics(affinity.data);
+  const resources = useOverviewResources();
+  const usage = useOverviewUsage(range);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const status = resolveSystemStatus(
     runtime.isPending,
     runtime.isError,
     runtime.data?.process.shutdownPhase,
   );
-  const busy = runtime.isFetching || affinity.isFetching;
 
   async function refresh() {
-    const [runtimeResult, affinityResult] = await Promise.all([
-      runtime.refetch(),
-      affinity.refetch(),
-    ]);
-    if (runtimeResult.isSuccess && affinityResult.isSuccess) {
-      notify.success("系统状态已刷新");
+    if (manualRefreshing) return;
+    setManualRefreshing(true);
+    try {
+      const results = await Promise.all([
+        runtime.refetch(),
+        resources.refetch(),
+        usage.refetch(),
+      ]);
+      if (results.every((result) => result.isSuccess)) {
+        notify.success("系统总览已刷新");
+      }
+    } finally {
+      setManualRefreshing(false);
     }
   }
 
   return (
-    <section className="min-w-0" aria-busy={busy}>
-      <header className="flex items-center justify-between gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight">系统总览</h1>
-          <StatusBadge status={status} />
+    <section
+      className="min-w-0"
+      aria-busy={runtime.isFetching || resources.isFetching || usage.isFetching}
+    >
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+            <h1 className="text-[1.7rem] font-semibold leading-tight tracking-tight sm:text-2xl">
+              系统总览
+            </h1>
+            <StatusBadge status={status} />
+          </div>
+          <p className="mt-1.5 text-xs text-tertiary">进程、主机与调用质量</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={busy}>
-          <RefreshCw size={14} className={busy ? "animate-spin" : undefined} />
-          刷新
-        </Button>
+        <IconButton
+          label={manualRefreshing ? "刷新中" : "刷新系统总览"}
+          title={manualRefreshing ? "刷新中" : "刷新系统总览"}
+          onClick={() => void refresh()}
+          disabled={manualRefreshing}
+          className="mt-0.5"
+        >
+          <RefreshCw
+            size={16}
+            className={manualRefreshing ? "animate-spin" : undefined}
+            aria-hidden="true"
+          />
+        </IconButton>
       </header>
 
-      <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-        <MetricCard
-          label={affinityMetrics.active.label}
-          value={affinityMetrics.active.value}
-          note={affinityMetrics.active.note}
-        />
-        <MetricCard
-          label={affinityMetrics.creating.label}
-          value={affinityMetrics.creating.value}
-          note={affinityMetrics.creating.note}
-        />
-        <MetricCard
-          label="活动请求 / 后台任务"
-          value={
-            runtime.data
-              ? `${runtime.data.process.activeRequests} / ${runtime.data.process.backgroundTasks}`
-              : "—"
-          }
-        />
-      </dl>
+      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.42fr)_minmax(19rem,0.86fr)] xl:items-start">
+        <LiveResourceGrid resources={resources.data} />
+        <LiveLoadPanel runtime={runtime.data} />
+      </div>
+
+      {resources.isError ? (
+        <p
+          className="mt-4 border-l-2 border-warning pl-3 text-xs leading-5 text-secondary"
+          role={resources.data ? "status" : "alert"}
+        >
+          {resources.data
+            ? "资源刷新失败，仍显示最近一次采样。"
+            : "实时资源暂不可用，请稍后重试。"}
+        </p>
+      ) : null}
+
+      {runtime.isError && runtime.data ? (
+        <p className="mt-4 border-l-2 border-warning pl-3 text-xs leading-5 text-secondary" role="status">
+          调度负载刷新失败，仍显示最近一次快照。
+        </p>
+      ) : null}
+
+      {runtime.data?.providers.length ? <ProviderLoadSummary runtime={runtime.data} /> : null}
     </section>
   );
 }
@@ -114,18 +146,39 @@ function StatusBadge({ status }: { status: SystemStatus }) {
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  note,
-}: Pick<AffinityMetricPresentation, "label" | "value"> & { note?: string }) {
+function ProviderLoadSummary({ runtime }: { runtime: BalancingRuntime }) {
   return (
-    <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-4">
-      <dt className="text-xs font-medium text-secondary">{label}</dt>
-      <dd className="mt-2 truncate text-[1.75rem] font-semibold tracking-tight tabular-nums" title={value}>
-        {value}
-      </dd>
-      {note ? <p className="mt-1.5 text-[11px] leading-4 text-tertiary">{note}</p> : null}
-    </div>
+    <section className="mt-8 border-t border-subtle pt-5" aria-labelledby="provider-load-title">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 id="provider-load-title" className="text-sm font-semibold tracking-tight">
+          Provider 负载
+        </h2>
+        <p className="text-[11px] tabular-nums text-tertiary">近 60 秒</p>
+      </div>
+      <ul className="mt-3 grid min-w-0 gap-2 sm:grid-cols-2">
+        {runtime.providers.map((provider) => (
+          <li
+            key={provider.providerKind}
+            className="flex min-w-0 items-center justify-between gap-4 rounded-[8px] border border-subtle bg-surface/55 px-3.5 py-3"
+          >
+            <span className="truncate text-sm font-medium">{providerLabel(provider.providerKind)}</span>
+            <span className="shrink-0 text-right text-[11px] tabular-nums text-secondary">
+              {formatCount(provider.requestsInWindow)} 次 · {formatCount(provider.inFlight)} 活动
+              {provider.limitedCredentialCount > 0
+                ? ` · ${formatCount(provider.rateLimitedCredentialCount)}/${formatCount(provider.limitedCredentialCount)} RPM 用尽`
+                : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
+}
+
+function formatCount(value: number) {
+  return value.toLocaleString("zh-CN");
+}
+
+function providerLabel(provider: BalancingRuntime["providers"][number]["providerKind"]) {
+  return { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[provider];
 }

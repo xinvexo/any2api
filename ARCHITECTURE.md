@@ -52,7 +52,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的混合分页，只展示最近 3 天；相邻下一页使用 Keyset，任意跳页只允许用现有索引驱动、仅投影排序键的查询定位边界，禁止对完整日志行做 OFFSET 翻页。系统日志列表提供默认开启的“显示管理操作”查询开关；关闭时服务端从列表、精确总数和所有分页边界中统一排除 `/api/admin` 及其子路径、`/assets/*` 编译资源和管理 Web 的固定根资源，且筛选状态必须进入 Cursor 作用域。该开关与自动刷新一样是每个浏览器独立、使用带版本 `localStorage` key 持久化的非敏感界面偏好；两者都只改变查询或刷新视图，不改变日志采集、保留或清理。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
-24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
+24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、活动上游请求、排队、近 60 秒请求率、连接池客户端条目和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。scheduler epoch、遥测丢弃数、缓存命中等诊断字段保留在受认证 API 中但不得占据总览视觉空间。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
@@ -387,6 +387,7 @@ any2api/
 │  │     ├─ gateway_api_key/    # Gateway Key 生成与发布
 │  │     ├─ health/             # Credential/Model/Endpoint/Proxy 状态
 │  │     ├─ lifecycle/          # drain、TaskTracker、后台任务生命周期
+│  │     ├─ system_metrics/     # 进程与主机资源采样（仅内存态）
 │  │     ├─ oauth/              # login/import/quota/refresh 与共享账号发布协调
 │  │     ├─ proxy/              # 代理认证材料与连接探测
 │  │     ├─ public_request/     # 规划、选择、重试、上游执行与流式生命周期
@@ -2986,9 +2987,9 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.10 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览只返回当前配置 revision、全局与 Provider 级聚合的 `in_flight`、RPM、等待者、Transport Client 缓存活动、熔断状态计数、遥测队列压力与日志丢弃数，以及 shutdown phase。两者都读取 PublishedSnapshot 和现有进程内 Runtime/Transport/Telemetry 快照，不建立第二套采集服务或持久化运行指标。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览的调度负载读取受认证的 `GET /api/admin/balancing` 聚合快照，只把活动上游请求、排队、近 60 秒请求率、连接池客户端条目和受保护状态投影到首屏。进程/主机资源读取独立的受认证 `GET /api/admin/overview/resources`：返回 any2api 进程 RSS、进程 CPU（按逻辑 CPU 数归一化到 0..100）、系统已用/总内存和系统 CPU。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，使用生命周期追踪的 blocking 任务；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败返回稳定的 503 管理错误，禁止以零值伪装可用性。两类视图都只读取现有进程内快照，不建立第二套持久化运行指标。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；过滤计数按请求、凭据与原因去重，不表示排队轮询次数。这些计数不持久化、不恢复，也不通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级页面只投影该账号现有句柄的 RPM、`in_flight`、实际代理和有限状态 `ready|disabled|endpoint_disabled|authentication_expired|proxy_disabled|rate_limited`；这些状态分别表示账号自身停用、Endpoint 停用、OAuth 认证过期、所选代理停用和本地 RPM 窗口用尽，禁止用笼统“不可路由”掩盖已知原因。不返回逐模型健康、过滤计数、熔断细节或会话样本。RequestLog 历史统计仍由各自管理页面负责，总览不复制第二份账号目录。
 
@@ -3152,14 +3153,14 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.4 总览运行态
 
-- 页面在应用主 Surface 内使用标题、指标带和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行与会话指标也使用列表/分隔线，不使用卡片套卡片；
-- 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；
+- 页面在应用主 Surface 内使用标题、资源网格、请求负载面板、调用分析和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行使用紧凑列表，不使用卡片套卡片；
+- 首屏把四项资源（any2api RSS、any2api CPU、系统内存、系统 CPU）与请求负载面板并列展示，窄屏自然堆叠。请求负载面板固定包含近 60 秒请求率、活动上游请求、排队等待和连接池客户端条目；存在本地 RPM 限制时才增加 RPM 用尽行。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值；连接池客户端条目明确标注为共享客户端/池条目，不冒充底层 TCP socket 数；
+- 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、成功率、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；无请求时成功率显示为无数据而不是 0%；
 - 平均 RPM 固定等于所选时间段最终请求数除以该时间段完整分钟数，不按活跃分钟、成功请求或时间桶平均值另造口径；日志关闭、遥测丢弃或上游未返回 usage 时不得猜测缺失 Token；
 - 图表在宽屏固定左侧平滑时间曲线、右侧紧凑模型占比饼图，窄屏按相同顺序上下排列；时间曲线保留固定空桶并标出失败调用。饼图本体不得挤占主要趋势空间，最多展示八个扇区：按调用量取前七项，剩余项只在 Web 展示层守恒合并为“其余 N 个模型”，不改写管理 API 原始统计。两图直接并列展示，不增加时间/模型切换；图形必须使用语义 Token、清晰坐标和非颜色唯一的摘要，不能以大面积高饱和柱块压过数据内容；
-- 全局及 Codex、Claude、Grok 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
-- 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
-- 排队请求数、固定等待者和 scheduler epoch；
-- 当前策略下 TTL 内的普通显式活动会话数与正在建立数；会话粘性关闭时 API 均为 `0`，Web 显示“已关闭”状态而非两个零值；建立中只表示首次绑定提交前的瞬时状态，Continuation 索引不计入；
+- Provider 汇总只在存在 Provider 时显示滚动 60 秒请求数、当前 `in_flight` 和 RPM 用尽账号数；
+- 连接池客户端条目、熔断打开数和停机阶段只在它们能解释当前负载或保护状态时显示；遥测容量、丢弃数、固定等待者、scheduler epoch、累计选中次数等诊断字段不在首屏渲染；
+- 普通显式会话的活动/建立中计数留在受认证的 Affinity 管理 API；系统总览不把策略关闭时的两个零值渲染成独立指标，也不保留无入口的会话总览前端组件；
 - 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
 - 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 
@@ -3473,6 +3474,10 @@ Disallowed Model = Reject Before Affinity / RPM / Upstream + Filter From /v1/mod
 HttpAccessLog = Retained Axum Request + Full Client-Side URI / Headers / Bounded Bodies
 HttpAccessLog Completion = Body EOF / Error / Drop Exactly Once
 System Log Clear = Ordered Telemetry Command + Clear Before Ack
+
+Overview Load = Process/Host Resources + Active Upstream + Queue + 60s RPM + Pool Clients
+Overview Resource Sampling = In-Memory RuntimeRegistry + Lifecycle-Tracked Blocking Task + No Persistence
+Overview Resource API = Authenticated `/api/admin/overview/resources` + Stable 503 On Sampling Failure
 
 New Feature ──> New Module + Stable Interface + Contract Test
 No Giant Files / No Central Provider Match / No Cross-Layer Logic

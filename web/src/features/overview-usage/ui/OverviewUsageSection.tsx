@@ -1,6 +1,12 @@
-import { RefreshCw } from "lucide-react";
+import { Activity, CheckCircle2, Coins, Gauge, RefreshCw, type LucideIcon } from "lucide-react";
 import { Suspense, lazy } from "react";
 import { useSearchParams } from "react-router-dom";
+
+import { cn } from "@/shared/lib/cn";
+import { notify } from "@/shared/notifications";
+import { Button } from "@/shared/ui/Button";
+import { Skeleton } from "@/shared/ui/Skeleton";
+import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
 
 import {
   isOverviewUsageRange,
@@ -14,11 +20,6 @@ import {
   OVERVIEW_RANGE_OPTIONS,
 } from "../model/overview-usage-presentation";
 import { useOverviewUsage } from "../model/use-overview-usage";
-import { cn } from "@/shared/lib/cn";
-import { notify } from "@/shared/notifications";
-import { Button } from "@/shared/ui/Button";
-import { Skeleton } from "@/shared/ui/Skeleton";
-import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
 
 const OverviewCharts = lazy(() =>
   import("./OverviewCharts").then((module) => ({ default: module.OverviewCharts })),
@@ -51,15 +52,15 @@ export function OverviewUsageSection() {
 
   if (query.isPending && !query.data) {
     return (
-      <section className="text-sm text-secondary" aria-busy="true">
+      <section className="border-t border-subtle pt-8 text-sm text-secondary" aria-busy="true">
         正在汇总调用与 Token 记录
       </section>
     );
   }
   if (!query.data) {
     return (
-      <section role="alert">
-        <h2 className="text-base font-semibold tracking-tight">调用统计</h2>
+      <section className="border-t border-subtle pt-8" role="alert">
+        <h2 className="text-base font-semibold tracking-tight">调用分析</h2>
         <p className="mt-2 text-sm leading-6 text-secondary">
           {getOverviewUsageErrorMessage(query.error)}
         </p>
@@ -78,30 +79,32 @@ export function OverviewUsageSection() {
     overview.rangeStartedAtMs,
     overview.rangeEndedAtMs,
   );
+  const successRate = calculateSuccessRate(
+    overview.selected.successfulRequestCount,
+    overview.selected.requestCount,
+  );
 
   return (
-    <section className="min-w-0" aria-busy={query.isFetching}>
+    <section className="min-w-0 border-t border-subtle pt-8" aria-busy={query.isFetching}>
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight">调用统计</h2>
+          <div className="flex items-center gap-2">
+            <span
+              className="grid size-8 place-items-center rounded-[8px] bg-accent/10 text-accent"
+              aria-hidden="true"
+            >
+              <Activity size={17} strokeWidth={2.2} />
+            </span>
+            <h2 className="text-base font-semibold tracking-tight">调用分析</h2>
+          </div>
+          <p className="mt-2 text-xs text-tertiary">按时间范围查看请求质量与调用节奏</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <SegmentedControl
-            label="统计时间范围"
-            options={OVERVIEW_RANGE_OPTIONS}
-            selected={range}
-            onSelect={setRange}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void refreshUsage()}
-            disabled={query.isFetching}
-          >
-            <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
-            刷新
-          </Button>
-        </div>
+        <SegmentedControl
+          label="统计时间范围"
+          options={OVERVIEW_RANGE_OPTIONS}
+          selected={range}
+          onSelect={setRange}
+        />
       </header>
 
       {query.isError ? (
@@ -110,21 +113,38 @@ export function OverviewUsageSection() {
         </p>
       ) : null}
 
-      <dl className="mt-5 grid gap-3 sm:grid-cols-3">
+      <dl className="mt-6 grid min-w-0 divide-y divide-subtle border-y border-subtle sm:grid-cols-4 sm:divide-x sm:divide-y-0 sm:divide-subtle">
         <OverviewMetric
+          icon={Activity}
           label="请求数"
           value={formatOverviewInteger(overview.selected.requestCount)}
           note={`${formatOverviewInteger(overview.selected.successfulRequestCount)} 成功 · ${formatOverviewInteger(overview.selected.failedRequestCount)} 失败`}
+          tone="blue"
         />
         <OverviewMetric
+          icon={CheckCircle2}
+          label="成功率"
+          value={successRate === null ? "—" : formatOverviewPercent(successRate)}
+          note={
+            successRate === null
+              ? "暂无请求"
+              : `${formatOverviewInteger(overview.selected.successfulRequestCount)} / ${formatOverviewInteger(overview.selected.requestCount)} 次`
+          }
+          tone="green"
+        />
+        <OverviewMetric
+          icon={Coins}
           label="Token 总消耗"
           value={formatOverviewInteger(overview.selected.totalTokens)}
-          note={`usage 覆盖 ${formatOverviewInteger(overview.selected.tokenUsageRequestCount)} / ${formatOverviewInteger(overview.selected.requestCount)} 次`}
+          note={`usage 覆盖 ${formatOverviewInteger(overview.selected.tokenUsageRequestCount)} 次`}
+          tone="violet"
         />
         <OverviewMetric
+          icon={Gauge}
           label="平均 RPM"
           value={formatOverviewRpm(averageRpm)}
           note={`${formatOverviewInteger(overview.selected.requestCount)} 次 ÷ ${formatOverviewInteger(rangeMinutes)} 分钟`}
+          tone="orange"
         />
       </dl>
 
@@ -145,35 +165,56 @@ export function OverviewUsageSection() {
 export function OverviewChartsLoading() {
   return (
     <div
-      className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch lg:gap-8"
+      className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]"
       role="status"
       aria-label="正在加载调用图表"
       aria-live="polite"
     >
-      <section className="flex min-w-0 flex-col">
-        <Skeleton className="mb-3 h-4 w-48" />
-        <div className="h-80 rounded-[12px] bg-surface-muted/70 p-4">
-          <Skeleton className="h-full w-full rounded-[10px]" />
+      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+        <Skeleton className="h-4 w-48" />
+        <div className="mt-4 h-64">
+          <Skeleton className="h-full w-full rounded-[6px]" />
         </div>
       </section>
-      <section className="flex min-w-0 flex-col">
-        <Skeleton className="mb-3 h-4 w-28" />
-        <div className="h-80 rounded-[12px] bg-surface-muted/70 p-4">
-          <Skeleton className="h-full w-full rounded-[10px]" />
+      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+        <Skeleton className="h-4 w-28" />
+        <div className="mt-4 h-64">
+          <Skeleton className="h-full w-full rounded-[6px]" />
         </div>
       </section>
     </div>
   );
 }
 
-function OverviewMetric({ label, value, note }: { label: string; value: string; note: string }) {
+function OverviewMetric({
+  icon: Icon,
+  label,
+  value,
+  note,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  note: string;
+  tone: "blue" | "green" | "violet" | "orange";
+}) {
+  const color = {
+    blue: "var(--chart-1)",
+    green: "var(--chart-6)",
+    violet: "var(--chart-2)",
+    orange: "var(--chart-5)",
+  }[tone];
   return (
-    <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-4">
-      <dt className="text-xs font-medium text-secondary">{label}</dt>
-      <dd className="mt-2 truncate text-[1.75rem] font-semibold tracking-tight tabular-nums" title={value}>
+    <div className="min-w-0 py-4 first:pt-4 last:pb-4 sm:px-4 sm:first:pl-0 sm:last:pr-0">
+      <div className="flex items-center gap-2">
+        <Icon size={14} style={{ color }} aria-hidden="true" />
+        <dt className="truncate text-xs font-medium text-secondary">{label}</dt>
+      </div>
+      <dd className="mt-2 truncate text-[1.65rem] font-semibold leading-none tracking-tight tabular-nums" title={value}>
         {value}
       </dd>
-      <p className="mt-2 truncate text-xs leading-5 text-tertiary" title={note}>
+      <p className="mt-2 truncate text-[11px] leading-4 text-tertiary" title={note}>
         {note}
       </p>
     </div>
@@ -193,23 +234,21 @@ function SegmentedControl<T extends string>({
 }) {
   return (
     <div
-      className="relative isolate flex items-center rounded-[9px] bg-surface-muted p-0.5"
+      className="relative isolate flex w-fit items-center rounded-[8px] bg-surface-muted p-0.5"
       role="group"
       aria-label={label}
     >
       <SlidingSelectionIndicator
         selected={selected}
-        className="rounded-[7px] bg-surface shadow-hairline"
+        className="rounded-[6px] bg-surface shadow-hairline"
       />
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           className={cn(
-            "focus-ring relative z-10 inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium transition-colors",
-            selected === option.value
-              ? "text-primary"
-              : "text-secondary hover:text-primary",
+            "focus-ring relative z-10 inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium transition-colors",
+            selected === option.value ? "text-primary" : "text-secondary hover:text-primary",
           )}
           data-sliding-selection-item={option.value}
           aria-pressed={selected === option.value}
@@ -220,4 +259,12 @@ function SegmentedControl<T extends string>({
       ))}
     </div>
   );
+}
+
+function calculateSuccessRate(successful: number, total: number) {
+  return total > 0 ? (successful / total) * 100 : null;
+}
+
+function formatOverviewPercent(value: number) {
+  return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value)}%`;
 }

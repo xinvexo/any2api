@@ -19,6 +19,7 @@ use crate::{
         RouteTierCursorRegistry, RoutingCredentialSpec, RoutingCredentials, SchedulerEpoch,
         active_candidate_path_bases, balancing_snapshot,
     },
+    system_metrics::{SystemMetricsError, SystemMetricsSampler, SystemMetricsSnapshot},
 };
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ pub struct RuntimeRegistry {
     queue_coordinator: Arc<QueueCoordinator>,
     health: Arc<HealthRegistry>,
     lifecycle: ProcessLifecycle,
+    system_metrics: Arc<SystemMetricsSampler>,
 }
 
 impl Default for RuntimeRegistry {
@@ -53,6 +55,7 @@ impl RuntimeRegistry {
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
             health: Arc::new(HealthRegistry::new(Arc::clone(&scheduler_epoch))),
             lifecycle,
+            system_metrics: Arc::new(SystemMetricsSampler::new()),
         }
     }
 
@@ -241,6 +244,16 @@ impl RuntimeRegistry {
         published: &crate::configuration::PublishedSnapshot,
     ) -> BalancingRuntimeSnapshot {
         balancing_snapshot(self, published)
+    }
+
+    pub async fn system_metrics_snapshot(
+        &self,
+    ) -> Result<SystemMetricsSnapshot, SystemMetricsError> {
+        let sampler = Arc::clone(&self.system_metrics);
+        self.lifecycle
+            .spawn_blocking(move || sampler.sample())
+            .await
+            .map_err(SystemMetricsError::Task)?
     }
 }
 

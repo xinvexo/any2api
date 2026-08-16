@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::{admin::AdminApiError, state::AppState};
 
+use super::dto::OverviewResourcesResponse;
 use super::dto::OverviewUsageResponse;
 
 #[derive(Deserialize)]
@@ -31,6 +32,20 @@ pub(crate) async fn usage(
             AdminApiError::request_log_unavailable()
         })?;
     Ok(Json(overview.into()))
+}
+
+pub(crate) async fn resources(
+    State(state): State<AppState>,
+) -> Result<Json<OverviewResourcesResponse>, AdminApiError> {
+    let snapshot = state
+        .runtime()
+        .system_metrics_snapshot()
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "system resource sampling failed");
+            AdminApiError::system_metrics_unavailable()
+        })?;
+    Ok(Json(snapshot.into()))
 }
 
 fn parse_range(value: Option<&str>) -> Result<RequestLogOverviewRange, AdminApiError> {

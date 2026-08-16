@@ -1,5 +1,6 @@
 use any2api_runtime::api::{
-    RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewTotals,
+    RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel,
+    RequestLogOverviewTotals, SystemMetricsSnapshot,
 };
 use serde::Serialize;
 
@@ -15,6 +16,46 @@ pub(crate) struct OverviewUsageResponse {
     selected: OverviewUsageTotalsResponse,
     time_buckets: Vec<OverviewUsageTimeBucketResponse>,
     models: Vec<OverviewUsageModelResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+pub(crate) struct OverviewResourcesResponse {
+    sampled_at_ms: u64,
+    process: OverviewProcessResourcesResponse,
+    system: OverviewSystemResourcesResponse,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+struct OverviewProcessResourcesResponse {
+    resident_memory_bytes: u64,
+    cpu_usage_percent: f32,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+struct OverviewSystemResourcesResponse {
+    used_memory_bytes: u64,
+    total_memory_bytes: u64,
+    cpu_usage_percent: f32,
+}
+
+impl From<SystemMetricsSnapshot> for OverviewResourcesResponse {
+    fn from(value: SystemMetricsSnapshot) -> Self {
+        Self {
+            sampled_at_ms: value.sampled_at_ms,
+            process: OverviewProcessResourcesResponse {
+                resident_memory_bytes: value.process_resident_memory_bytes,
+                cpu_usage_percent: value.process_cpu_usage_percent,
+            },
+            system: OverviewSystemResourcesResponse {
+                used_memory_bytes: value.system_used_memory_bytes,
+                total_memory_bytes: value.system_total_memory_bytes,
+                cpu_usage_percent: value.system_cpu_usage_percent,
+            },
+        }
+    }
 }
 
 impl From<RequestLogOverview> for OverviewUsageResponse {
