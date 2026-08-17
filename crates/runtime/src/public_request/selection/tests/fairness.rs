@@ -67,6 +67,7 @@ fn select_with_cursor(
         GenerationSelection::TemporarilyUnavailable(_) => {
             panic!("healthy credentials are available")
         }
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
         GenerationSelection::NoCandidates => panic!("tier has candidates"),
     }
 }

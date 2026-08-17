@@ -161,3 +161,4 @@
 | [0161](0161-remove-responses-websocket-ingress.md) | ADR-0161：移除 OpenAI Responses WebSocket 入口 |
 | [0162](0162-realtime-cursor-log-feeds.md) | ADR-0162：日志使用 SSE 通知与游标连续流 |
 | [0163](0163-unified-admin-realtime-events.md) | ADR-0163：统一管理员实时事件与总览快照 |
+| [0164](0164-alternate-path-failure-recovery.md) | ADR-0164：分离重放证据与候选故障恢复 |

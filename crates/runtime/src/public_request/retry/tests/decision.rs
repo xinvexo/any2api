@@ -4,52 +4,55 @@ use any2api_domain::{
     RequestAttemptFailureScope, RetryAfterHint, RetrySafety, UpstreamErrorKind,
     UpstreamFailureAttribution,
 };
-use any2api_protocol::api::{StreamRejection, StreamRetryReason};
+use any2api_protocol::api::ProtocolRetryDelayBasis;
 use any2api_transport::api::{TransportError, TransportErrorStage, TransportFailureScope};
 
 use super::support::{
     attempted_budget, candidate, upstream_failure, upstream_failure_with_retry_after,
 };
-use crate::public_request::{
-    retry::decision::{RetryDecision, RetryExclusion, retry_decision, telemetry_failure_scope},
-    upstream::AttemptFailure,
+use crate::{
+    public_request::{
+        retry::decision::{RetryDecision, retry_decision, telemetry_failure_scope},
+        upstream::{AttemptFailure, UpstreamFailureOrigin},
+    },
+    routing::CandidateFailureScope,
 };
 
 #[test]
-fn unbound_retry_safe_upstream_failures_choose_their_exact_scope() {
+fn hard_upstream_failures_reselect_their_attributed_scope() {
     let candidate = candidate("bad-key");
     let cases = [
         (
             UpstreamFailureAttribution::Unattributed,
-            RetryExclusion::ExactCandidate,
+            CandidateFailureScope::ExactCandidate,
         ),
         (
             UpstreamFailureAttribution::Authentication,
-            RetryExclusion::Credential,
+            CandidateFailureScope::Credential,
         ),
         (
             UpstreamFailureAttribution::Credential,
-            RetryExclusion::Credential,
+            CandidateFailureScope::Credential,
         ),
         (
             UpstreamFailureAttribution::CredentialModel,
-            RetryExclusion::CredentialModel,
+            CandidateFailureScope::CredentialModel,
         ),
         (
             UpstreamFailureAttribution::RouteOperation,
-            RetryExclusion::RouteOperation,
+            CandidateFailureScope::RouteOperation,
         ),
         (
             UpstreamFailureAttribution::EgressPath,
-            RetryExclusion::EgressPath,
+            CandidateFailureScope::EgressPath,
         ),
         (
             UpstreamFailureAttribution::Endpoint,
-            RetryExclusion::Endpoint,
+            CandidateFailureScope::Endpoint,
         ),
     ];
 
-    for (attribution, expected) in cases {
+    for (attribution, scope) in cases {
         let failure = upstream_failure(
             candidate.clone(),
             false,
@@ -57,68 +60,64 @@ fn unbound_retry_safe_upstream_failures_choose_their_exact_scope() {
             RetrySafety::RejectedBeforeExecution,
             attribution,
         );
-        let budget = attempted_budget(candidate.credential_id);
+        let budget = attempted_budget(&candidate);
         assert_eq!(
-            retry_decision(&failure, &budget, candidate.credential_id, false),
-            RetryDecision::Reselect {
-                exclusion: expected,
-                delay: Duration::from_secs(1),
-            },
+            retry_decision(&failure, &budget, false),
+            RetryDecision::Reselect { scope },
             "attribution {attribution:?}",
         );
     }
 }
 
 #[test]
-fn transport_scope_drives_reselection_without_guessing_the_endpoint() {
+fn safe_transport_failures_reselect_without_waiting() {
     let candidate = candidate("transport");
-    for (scope, expected) in [
-        (TransportFailureScope::Endpoint, RetryExclusion::Endpoint),
-        (TransportFailureScope::Proxy, RetryExclusion::Proxy),
+    for (failure_scope, scope) in [
+        (
+            TransportFailureScope::Endpoint,
+            CandidateFailureScope::Endpoint,
+        ),
+        (TransportFailureScope::Proxy, CandidateFailureScope::Proxy),
         (
             TransportFailureScope::EgressPath,
-            RetryExclusion::EgressPath,
+            CandidateFailureScope::EgressPath,
         ),
         (
             TransportFailureScope::Unattributed,
-            RetryExclusion::ExactCandidate,
+            CandidateFailureScope::ExactCandidate,
         ),
     ] {
         let failure = AttemptFailure::Transport {
             error: Box::new(TransportError::new(
                 TransportErrorStage::Tcp,
-                scope,
+                failure_scope,
                 RetrySafety::DefinitelyNotSent,
                 "test failure",
             )),
             candidate: Box::new(candidate.clone()),
             bound: false,
         };
-        let budget = attempted_budget(candidate.credential_id);
+        let budget = attempted_budget(&candidate);
         assert_eq!(
-            retry_decision(&failure, &budget, candidate.credential_id, false),
-            RetryDecision::Reselect {
-                exclusion: expected,
-                delay: Duration::from_secs(1),
-            },
-            "scope {scope:?}",
+            retry_decision(&failure, &budget, false),
+            RetryDecision::Reselect { scope },
         );
     }
 }
 
 #[test]
-fn bound_requests_never_switch_credentials_or_targets() {
+fn bound_requests_never_switch_and_only_retry_safe_transient_failures_repeat() {
     let candidate = candidate("bound");
-    let deterministic = upstream_failure(
+    let hard = upstream_failure(
         candidate.clone(),
         true,
         UpstreamErrorKind::Authentication,
         RetrySafety::RejectedBeforeExecution,
         UpstreamFailureAttribution::Authentication,
     );
-    let budget = attempted_budget(candidate.credential_id);
+    let budget = attempted_budget(&candidate);
     assert_eq!(
-        retry_decision(&deterministic, &budget, candidate.credential_id, false),
+        retry_decision(&hard, &budget, false),
         RetryDecision::Terminal
     );
 
@@ -130,26 +129,27 @@ fn bound_requests_never_switch_credentials_or_targets() {
         UpstreamFailureAttribution::CredentialModel,
     );
     assert!(matches!(
-        retry_decision(&transient, &budget, candidate.credential_id, false),
+        retry_decision(&transient, &budget, false),
         RetryDecision::RetrySamePath(_)
     ));
 
-    let stream_rate_limit = stream_rejection(
+    let ambiguous = upstream_failure(
         candidate.clone(),
         true,
-        StreamRetryReason::RateLimited,
-        "rate_limit_error",
+        UpstreamErrorKind::Transient,
+        RetrySafety::Ambiguous,
+        UpstreamFailureAttribution::Unattributed,
     );
-    assert!(matches!(
-        retry_decision(&stream_rate_limit, &budget, candidate.credential_id, false),
-        RetryDecision::RetrySamePath(_)
-    ));
+    assert_eq!(
+        retry_decision(&ambiguous, &budget, false),
+        RetryDecision::Terminal
+    );
 }
 
 #[test]
-fn retry_after_is_the_same_minimum_for_reselect_and_same_path_retry() {
+fn retry_after_defers_only_the_failed_scope_for_unbound_requests() {
     let candidate = candidate("retry-after");
-    let budget = attempted_budget(candidate.credential_id);
+    let budget = attempted_budget(&candidate);
     let retry_after = Some(RetryAfterHint::Delay(Duration::from_secs(7)));
     let unbound = upstream_failure_with_retry_after(
         candidate.clone(),
@@ -160,10 +160,10 @@ fn retry_after_is_the_same_minimum_for_reselect_and_same_path_retry() {
         retry_after,
     );
     assert_eq!(
-        retry_decision(&unbound, &budget, candidate.credential_id, false),
-        RetryDecision::Reselect {
-            exclusion: RetryExclusion::CredentialModel,
-            delay: Duration::from_secs(7),
+        retry_decision(&unbound, &budget, false),
+        RetryDecision::PreferAlternate {
+            scope: CandidateFailureScope::CredentialModel,
+            retry_delay: Duration::from_secs(7),
         }
     );
 
@@ -176,14 +176,14 @@ fn retry_after_is_the_same_minimum_for_reselect_and_same_path_retry() {
         retry_after,
     );
     assert_eq!(
-        retry_decision(&bound, &budget, candidate.credential_id, false),
+        retry_decision(&bound, &budget, false),
         RetryDecision::RetrySamePath(Duration::from_secs(7))
     );
 }
 
 #[test]
-fn ambiguous_server_failure_is_terminal_even_for_an_unbound_request() {
-    let candidate = candidate("ambiguous");
+fn complete_ambiguous_upstream_failure_prefers_an_alternate_candidate() {
+    let candidate = candidate("ambiguous-complete");
     let failure = upstream_failure(
         candidate.clone(),
         false,
@@ -191,16 +191,41 @@ fn ambiguous_server_failure_is_terminal_even_for_an_unbound_request() {
         RetrySafety::Ambiguous,
         UpstreamFailureAttribution::Unattributed,
     );
-    let budget = attempted_budget(candidate.credential_id);
-
+    let budget = attempted_budget(&candidate);
     assert_eq!(
-        retry_decision(&failure, &budget, candidate.credential_id, false),
+        retry_decision(&failure, &budget, false),
+        RetryDecision::PreferAlternate {
+            scope: CandidateFailureScope::ExactCandidate,
+            retry_delay: Duration::from_secs(1),
+        }
+    );
+}
+
+#[test]
+fn incomplete_http_error_body_is_terminal() {
+    let candidate = candidate("incomplete-body");
+    let mut failure = upstream_failure(
+        candidate.clone(),
+        false,
+        UpstreamErrorKind::Transient,
+        RetrySafety::Ambiguous,
+        UpstreamFailureAttribution::Unattributed,
+    );
+    let AttemptFailure::Upstream { origin, .. } = &mut failure else {
+        unreachable!()
+    };
+    *origin = UpstreamFailureOrigin::HttpStatus {
+        error_body_complete: false,
+    };
+    let budget = attempted_budget(&candidate);
+    assert_eq!(
+        retry_decision(&failure, &budget, false),
         RetryDecision::Terminal
     );
 }
 
 #[test]
-fn oauth_authentication_gets_one_refresh_decision_before_reselection() {
+fn oauth_authentication_gets_one_refresh_decision_before_hard_reselection() {
     let mut candidate = candidate("oauth");
     let account_id = any2api_domain::OAuthAccountId::new();
     candidate.credential_id = any2api_domain::RoutingCredentialId::oauth_account(account_id);
@@ -211,67 +236,48 @@ fn oauth_authentication_gets_one_refresh_decision_before_reselection() {
         RetrySafety::RejectedBeforeExecution,
         UpstreamFailureAttribution::Authentication,
     );
-    let budget = attempted_budget(candidate.credential_id);
+    let budget = attempted_budget(&candidate);
 
     assert_eq!(
-        retry_decision(&failure, &budget, candidate.credential_id, true),
+        retry_decision(&failure, &budget, true),
         RetryDecision::OAuthRefresh {
             account_id,
             token_version: candidate.binding.generation().authentication_version(),
-            delay: Duration::from_secs(1),
         }
     );
     assert_eq!(
-        retry_decision(&failure, &budget, candidate.credential_id, false),
+        retry_decision(&failure, &budget, false),
         RetryDecision::Reselect {
-            exclusion: RetryExclusion::Credential,
-            delay: Duration::from_secs(1),
+            scope: CandidateFailureScope::Credential,
         }
     );
 }
 
 #[test]
-fn precontent_rate_limit_stream_reselects_by_credential_model() {
-    let candidate = candidate("rate-limited-stream");
-    let failure = stream_rejection(
-        candidate.clone(),
-        false,
-        StreamRetryReason::RateLimited,
-        "rate_limit_error",
-    );
-    let budget = attempted_budget(candidate.credential_id);
-
-    assert_eq!(
-        retry_decision(&failure, &budget, candidate.credential_id, false),
-        RetryDecision::Reselect {
-            exclusion: RetryExclusion::CredentialModel,
-            delay: Duration::from_secs(1),
-        }
-    );
-    assert_eq!(
-        telemetry_failure_scope(&failure),
-        Some(RequestAttemptFailureScope::CredentialModel)
-    );
-}
-
-#[test]
-fn precontent_overload_backoff_keeps_growing_after_a_credential_switch() {
-    let first = candidate("first-overloaded");
-    let second = candidate("second-overloaded");
-    let mut budget = attempted_budget(first.credential_id);
-    assert_eq!(budget.register_attempt(second.credential_id), Some(2));
-    let failure = stream_rejection(
+fn presemantic_stream_overload_uses_request_attempt_backoff() {
+    let first = candidate("first-overload");
+    let second = candidate("second-overload");
+    let mut budget = attempted_budget(&first);
+    assert_eq!(budget.register_attempt(&second), Some(2));
+    let mut failure = upstream_failure(
         second.clone(),
         false,
-        StreamRetryReason::Overloaded,
-        "server_is_overloaded",
+        UpstreamErrorKind::Transient,
+        RetrySafety::RejectedBeforeExecution,
+        UpstreamFailureAttribution::Unattributed,
     );
+    let AttemptFailure::Upstream { origin, .. } = &mut failure else {
+        unreachable!()
+    };
+    *origin = UpstreamFailureOrigin::PreSemanticStreamEnvelope {
+        retry_delay_basis: ProtocolRetryDelayBasis::RequestAttempts,
+    };
 
     assert_eq!(
-        retry_decision(&failure, &budget, second.credential_id, false),
-        RetryDecision::Reselect {
-            exclusion: RetryExclusion::ExactCandidate,
-            delay: Duration::from_secs(2),
+        retry_decision(&failure, &budget, false),
+        RetryDecision::PreferAlternate {
+            scope: CandidateFailureScope::ExactCandidate,
+            retry_delay: Duration::from_secs(2),
         }
     );
     assert_eq!(
@@ -280,18 +286,19 @@ fn precontent_overload_backoff_keeps_growing_after_a_credential_switch() {
     );
 }
 
-fn stream_rejection(
-    candidate: crate::routing::RouteCandidate,
-    bound: bool,
-    reason: StreamRetryReason,
-    code: &'static str,
-) -> AttemptFailure {
-    AttemptFailure::StreamRejected {
-        status: http::StatusCode::OK,
-        headers: Box::new(http::HeaderMap::new()),
-        body: bytes::Bytes::from_static(b"event: error\ndata: {}\n\n"),
-        candidate: Box::new(candidate),
-        bound,
-        rejection: StreamRejection::new(reason, code),
-    }
+#[test]
+fn invalid_request_is_never_retried() {
+    let candidate = candidate("invalid");
+    let failure = upstream_failure(
+        candidate.clone(),
+        false,
+        UpstreamErrorKind::InvalidRequest,
+        RetrySafety::RejectedBeforeExecution,
+        UpstreamFailureAttribution::RouteOperation,
+    );
+    let budget = attempted_budget(&candidate);
+    assert_eq!(
+        retry_decision(&failure, &budget, false),
+        RetryDecision::Terminal
+    );
 }

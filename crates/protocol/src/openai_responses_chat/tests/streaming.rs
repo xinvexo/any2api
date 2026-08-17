@@ -1,12 +1,12 @@
-use any2api_domain::ProtocolOperation;
+use any2api_domain::{ProtocolOperation, RetrySafety};
 use bytes::Bytes;
 use serde_json::{Value, json};
 
 use crate::{
     ProtocolError,
     api::{
-        BridgeContinuationState, MAX_BRIDGE_CONTINUATION_STATE_BYTES, SseFrame, StreamRetryReason,
-        StreamTermination,
+        BridgeContinuationState, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolRetryDelayBasis,
+        SseFrame, StreamTermination,
     },
 };
 
@@ -250,7 +250,18 @@ async fn streaming_bridge_maps_choice_less_error_chunks_to_responses_errors() {
     assert_eq!(events.len(), 1);
     let event = &events[0];
     assert_eq!(event.termination(), StreamTermination::Failed);
-    assert_eq!(event.retry_reason(), Some(StreamRetryReason::Overloaded));
+    let evidence = event
+        .upstream_failure()
+        .expect("bridged failure preserves upstream evidence");
+    assert_eq!(
+        evidence.retry_safety_override(),
+        Some(RetrySafety::RejectedBeforeExecution)
+    );
+    assert_eq!(
+        evidence.retry_delay_basis(),
+        ProtocolRetryDelayBasis::RequestAttempts
+    );
+    assert!(String::from_utf8_lossy(evidence.raw_json()).contains("server_is_overloaded"));
     let text = std::str::from_utf8(event.bytes()).expect("Responses error UTF-8");
     assert!(text.contains(r#""type":"error""#));
     assert!(text.contains(r#""code":"server_is_overloaded""#));

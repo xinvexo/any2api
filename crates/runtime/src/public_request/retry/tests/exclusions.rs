@@ -1,15 +1,13 @@
-use std::time::Duration;
-
 use any2api_domain::{ProxyProfileId, RetrySafety, UpstreamErrorKind, UpstreamFailureAttribution};
 use any2api_transport::api::{TransportError, TransportErrorStage, TransportFailureScope};
 
 use super::support::{attempted_budget, candidate, upstream_failure};
 use crate::{
     public_request::{
-        retry::decision::{RetryDecision, RetryExclusion, exclude_failed_path, retry_decision},
+        retry::decision::{RetryDecision, apply_candidate_recovery, retry_decision},
         upstream::AttemptFailure,
     },
-    routing::CandidateExclusions,
+    routing::{CandidateFailureScope, CandidateSelectionState},
 };
 
 #[test]
@@ -26,13 +24,20 @@ fn credential_model_exclusion_keeps_other_models_and_keys_available() {
         RetrySafety::RejectedBeforeExecution,
         UpstreamFailureAttribution::CredentialModel,
     );
-    let mut exclusions = CandidateExclusions::default();
+    let mut state = CandidateSelectionState::default();
 
-    exclude_failed_path(&mut exclusions, &failure, RetryExclusion::CredentialModel);
+    apply_candidate_recovery(
+        &mut state,
+        &failure,
+        RetryDecision::Reselect {
+            scope: CandidateFailureScope::CredentialModel,
+        },
+        tokio::time::Instant::now(),
+    );
 
-    assert!(!exclusions.allows(&failed));
-    assert!(exclusions.allows(&same_credential_other_model));
-    assert!(exclusions.allows(&other_credential));
+    assert!(!state.allows(&failed));
+    assert!(state.allows(&same_credential_other_model));
+    assert!(state.allows(&other_credential));
 }
 
 #[test]
@@ -50,22 +55,22 @@ fn bad_key_exclusion_keeps_another_key_on_the_same_endpoint_available() {
         RetrySafety::RejectedBeforeExecution,
         UpstreamFailureAttribution::Authentication,
     );
-    let budget = attempted_budget(failed.credential_id);
-    let decision = retry_decision(&failure, &budget, failed.credential_id, false);
-    let RetryDecision::Reselect {
-        exclusion: scope,
-        delay,
-    } = decision
-    else {
+    let budget = attempted_budget(&failed);
+    let decision = retry_decision(&failure, &budget, false);
+    let RetryDecision::Reselect { scope } = decision else {
         panic!("bad key must trigger safe reselection");
     };
-    assert_eq!(delay, Duration::from_secs(1));
-    let mut exclusions = CandidateExclusions::default();
+    let mut state = CandidateSelectionState::default();
 
-    exclude_failed_path(&mut exclusions, &failure, scope);
+    apply_candidate_recovery(
+        &mut state,
+        &failure,
+        RetryDecision::Reselect { scope },
+        tokio::time::Instant::now(),
+    );
 
-    assert!(!exclusions.allows(&failed));
-    assert!(exclusions.allows(&good));
+    assert!(!state.allows(&failed));
+    assert!(state.allows(&good));
 }
 
 #[test]
@@ -90,12 +95,19 @@ fn egress_exclusion_isolated_by_endpoint_proxy_pair_and_generation() {
         candidate: Box::new(failed.clone()),
         bound: false,
     };
-    let mut exclusions = CandidateExclusions::default();
+    let mut state = CandidateSelectionState::default();
 
-    exclude_failed_path(&mut exclusions, &failure, RetryExclusion::EgressPath);
+    apply_candidate_recovery(
+        &mut state,
+        &failure,
+        RetryDecision::Reselect {
+            scope: CandidateFailureScope::EgressPath,
+        },
+        tokio::time::Instant::now(),
+    );
 
-    assert!(!exclusions.allows(&failed));
-    assert!(exclusions.allows(&other_proxy));
-    assert!(exclusions.allows(&other_endpoint));
-    assert!(exclusions.allows(&new_proxy_generation));
+    assert!(!state.allows(&failed));
+    assert!(state.allows(&other_proxy));
+    assert!(state.allows(&other_endpoint));
+    assert!(state.allows(&new_proxy_generation));
 }

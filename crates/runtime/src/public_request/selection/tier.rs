@@ -1,3 +1,4 @@
+use any2api_domain::RoutingCredentialId;
 use tokio::time::Instant;
 
 use super::filter_recorder::RequestFilterRecorder;
@@ -5,7 +6,7 @@ use crate::{
     credential::{CredentialFilterKind, RateLimited},
     health::{HealthAcquireError, ReliabilityPolicy, TemporaryUnavailability},
     public_request::SelectedCandidate,
-    routing::{CandidateExclusions, CandidateHealthError, RouteCandidate},
+    routing::{CandidateHealthError, CandidateSelectionState, RouteCandidate},
 };
 
 pub(super) enum TierScan {
@@ -15,17 +16,22 @@ pub(super) enum TierScan {
     },
     RateLimited {
         retry_at: Option<Instant>,
+        outage_retry_at: Option<Instant>,
+        cooldown_retry_at: Option<Instant>,
+        deferred_retry_at: Option<Instant>,
     },
     Exhausted {
         outage_retry_at: Option<Instant>,
         cooldown_retry_at: Option<Instant>,
+        deferred_retry_at: Option<Instant>,
     },
 }
 
 pub(super) fn scan(
     policy: ReliabilityPolicy,
     candidates: &[RouteCandidate],
-    exclusions: &CandidateExclusions,
+    selection_state: &CandidateSelectionState,
+    credential_eligible: &(dyn Fn(RoutingCredentialId) -> bool + Sync),
     filters: &mut RequestFilterRecorder,
     tie_breaker: u64,
 ) -> TierScan {
@@ -33,6 +39,7 @@ pub(super) fn scan(
         return TierScan::Exhausted {
             outage_retry_at: None,
             cooldown_retry_at: None,
+            deferred_retry_at: None,
         };
     }
     let start = usize::try_from(tie_breaker % candidates.len() as u64)
@@ -40,13 +47,23 @@ pub(super) fn scan(
     let mut outage_retry_at = None;
     let mut cooldown_retry_at = None;
     let mut rate_retry_at = None;
+    let mut deferred_retry_at = None;
     let mut saw_rate_limit = false;
+    let now = Instant::now();
 
-    for preference in 0..CandidateExclusions::RETRY_PREFERENCE_LEVELS {
+    for preference in 0..CandidateSelectionState::RETRY_PREFERENCE_LEVELS {
         for offset in 0..candidates.len() {
             let candidate = &candidates[(start + offset) % candidates.len()];
-            if exclusions.retry_preference(candidate) != preference || !exclusions.allows(candidate)
+            if selection_state.retry_preference(candidate) != preference
+                || !selection_state.allows(candidate)
+                || !credential_eligible(candidate.credential_id)
             {
+                continue;
+            }
+            if let Some(not_before) = selection_state.deferred_until(candidate)
+                && not_before > now
+            {
+                deferred_retry_at = earliest_optional(deferred_retry_at, Some(not_before));
                 continue;
             }
             if let Err(error) = candidate.health_availability(&policy) {
@@ -96,11 +113,15 @@ pub(super) fn scan(
     if saw_rate_limit {
         TierScan::RateLimited {
             retry_at: rate_retry_at,
+            outage_retry_at,
+            cooldown_retry_at,
+            deferred_retry_at,
         }
     } else {
         TierScan::Exhausted {
             outage_retry_at,
             cooldown_retry_at,
+            deferred_retry_at,
         }
     }
 }

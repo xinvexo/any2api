@@ -5,7 +5,7 @@ use any2api_domain::{
 };
 use any2api_protocol::api::{
     BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-    ProtocolError, ProtocolExchange, UpstreamResponse,
+    ProtocolError, ProtocolExchange, ProtocolUpstreamFailureEvidence, UpstreamResponse,
 };
 use any2api_provider::api::{ProviderDriver, UpstreamResponseMeta};
 use any2api_transport::api::{
@@ -37,6 +37,16 @@ pub(in crate::public_request::upstream) struct AttemptInput<'a> {
     pub(in crate::public_request::upstream) target: AffinityTarget,
     pub(in crate::public_request::upstream) binding_lease: Option<BindingLease>,
     pub(in crate::public_request::upstream) bound: bool,
+}
+
+pub(in crate::public_request::upstream) struct PreparedStreamGuards {
+    pub(in crate::public_request::upstream) exchange: ProtocolExchange,
+    pub(in crate::public_request::upstream) permit: RequestPermit,
+    pub(in crate::public_request::upstream) health: Option<AttemptHealth>,
+    pub(in crate::public_request::upstream) attempt_recorder: AttemptRecorder,
+    pub(in crate::public_request::upstream) quota_activity: Option<OAuthQuotaActivityGuard>,
+    pub(in crate::public_request::upstream) driver: Arc<dyn ProviderDriver>,
+    pub(in crate::public_request::upstream) upstream_operation: ProtocolOperation,
 }
 
 pub(in crate::public_request::upstream) fn prepare_input<'a>(
@@ -79,7 +89,7 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
 }
 
 pub(in crate::public_request::upstream) struct PreparedAttempt<'a> {
-    pub(super) driver: &'a dyn ProviderDriver,
+    pub(super) driver: Arc<dyn ProviderDriver>,
     pub(super) proxy: TransportProxy<'a>,
     pub(in crate::public_request::upstream) ingress_operation: ProtocolOperation,
     pub(super) upstream_operation: ProtocolOperation,
@@ -127,6 +137,29 @@ impl PreparedAttempt<'_> {
             },
             &body[..body.len().min(MAX_UPSTREAM_ERROR_BODY_BYTES)],
         )
+    }
+
+    pub(in crate::public_request::upstream) fn classify_evidence(
+        &self,
+        status: http::StatusCode,
+        headers: &http::HeaderMap,
+        evidence: &ProtocolUpstreamFailureEvidence,
+    ) -> UpstreamError {
+        let classified = self.classify(status, headers, evidence.raw_json());
+        match evidence.retry_safety_override() {
+            Some(safety) => classified.with_retry_safety(safety),
+            None => classified,
+        }
+    }
+
+    pub(in crate::public_request::upstream) fn buffered_upstream_failure(
+        &self,
+        response: &UpstreamResponse,
+    ) -> Option<ProtocolUpstreamFailureEvidence> {
+        self.exchange
+            .as_ref()
+            .expect("prepared protocol exchange is present")
+            .buffered_upstream_failure(response)
     }
 
     pub(in crate::public_request::upstream) fn response_headers(
@@ -269,26 +302,22 @@ impl PreparedAttempt<'_> {
         self.permit.take();
     }
 
-    pub(in crate::public_request::upstream) fn take_guards(
-        &mut self,
-    ) -> (
-        ProtocolExchange,
-        RequestPermit,
-        Option<AttemptHealth>,
-        AttemptRecorder,
-        Option<OAuthQuotaActivityGuard>,
-    ) {
-        (
-            self.exchange
+    pub(in crate::public_request::upstream) fn take_guards(&mut self) -> PreparedStreamGuards {
+        PreparedStreamGuards {
+            exchange: self
+                .exchange
                 .take()
                 .expect("prepared protocol exchange is present"),
-            self.permit.take().expect("prepared permit is present"),
-            self.health.take(),
-            self.attempt_recorder
+            permit: self.permit.take().expect("prepared permit is present"),
+            health: self.health.take(),
+            attempt_recorder: self
+                .attempt_recorder
                 .take()
                 .expect("prepared attempt recorder is present"),
-            self.quota_activity_guard.take(),
-        )
+            quota_activity: self.quota_activity_guard.take(),
+            driver: Arc::clone(&self.driver),
+            upstream_operation: self.upstream_operation,
+        }
     }
 }
 

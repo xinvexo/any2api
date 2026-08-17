@@ -140,6 +140,7 @@ async fn fixed_health_wait_does_not_block_another_model_on_the_same_credential()
         GenerationSelection::Acquired(selected) => selected,
         GenerationSelection::RateLimited(_) => panic!("health wait must not reserve RPM"),
         GenerationSelection::TemporarilyUnavailable(_) => panic!("other model is healthy"),
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
         GenerationSelection::NoCandidates => panic!("other model exists"),
     };
     assert_eq!(

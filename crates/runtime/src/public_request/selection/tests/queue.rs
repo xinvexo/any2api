@@ -37,6 +37,35 @@ async fn reject_policy_does_not_enter_the_queue() {
     assert_eq!(coordinator.waiting_count(), 0);
 }
 
+#[tokio::test(start_paused = true)]
+async fn retry_deferred_uses_the_bounded_queue_even_under_reject_policy() {
+    let epoch = SchedulerEpoch::new();
+    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
+    let candidate = candidate("retry-deferred", 1, epoch, 0);
+    let retry_at = Instant::now() + Duration::from_secs(5);
+    let queued_candidate = candidate.clone();
+    let policy = policy(RateLimitAction::Reject, Duration::from_secs(10), 1);
+    let coordinator_for_task = Arc::clone(&coordinator);
+    let task = tokio::spawn(async move {
+        select_generation_candidate(&coordinator_for_task, policy, || {
+            if Instant::now() < retry_at {
+                Ok(GenerationSelection::RetryDeferred(retry_at))
+            } else {
+                try_reserve_candidate(&queued_candidate)
+            }
+        })
+        .await
+    });
+
+    wait_until_waiting(&coordinator, 1).await;
+    tokio::time::advance(Duration::from_secs(5)).await;
+    let selected = task.await.expect("queue task").expect("selected candidate");
+
+    assert_eq!(selected.candidate.credential_id, candidate.credential_id);
+    drop(selected);
+    assert_eq!(coordinator.waiting_count(), 0);
+}
+
 #[tokio::test]
 async fn queue_limit_rejects_an_additional_waiter() {
     let coordinator = QueueCoordinator::new(SchedulerEpoch::new());

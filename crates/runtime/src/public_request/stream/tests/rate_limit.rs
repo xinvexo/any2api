@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use any2api_domain::{ProtocolOperation, SettingsConfiguration};
-use any2api_protocol::{AnthropicMessagesAdapter, api::StreamRetryReason};
+use any2api_domain::{ProtocolOperation, RetrySafety, SettingsConfiguration, UpstreamErrorKind};
+use any2api_protocol::AnthropicMessagesAdapter;
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
@@ -36,11 +36,17 @@ async fn anthropic_rate_limit_before_content_reselects_the_credential_model() {
     .prime_attempt()
     .await
     {
-        Err(StreamPrimeFailure::Retryable(rejected)) => {
-            assert_eq!(rejected.rejection.reason(), StreamRetryReason::RateLimited);
-            assert_eq!(rejected.rejection.code(), "rate_limit_error");
+        Err(StreamPrimeFailure::Upstream(failure)) => {
             assert_eq!(
-                rejected.frame,
+                failure.error.classification().kind(),
+                UpstreamErrorKind::RateLimited
+            );
+            assert_eq!(
+                failure.error.classification().retry_safety(),
+                RetrySafety::RejectedBeforeExecution
+            );
+            assert_eq!(
+                failure.frame,
                 Bytes::from_static(
                     b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Concurrency limit exceeded for account\"}}\n\n"
                 )

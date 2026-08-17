@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use any2api_domain::{
     ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
+    RoutingCredentialId,
 };
 use any2api_protocol::api::{IngressAffinity, ProtocolContinuationState};
 use tokio::time::{Instant as TokioInstant, timeout_at};
@@ -9,12 +10,14 @@ use tokio::time::{Instant as TokioInstant, timeout_at};
 use super::{
     SelectedCandidate,
     response::{internal_error, public_error},
-    selection::{FixedSelectionError, select_candidate, select_fixed_candidate},
+    selection::{
+        FixedSelectionError, no_available_credentials, select_candidate, select_fixed_candidate,
+    },
 };
 use crate::{
     affinity::{AffinityError, AffinityTarget, BindingLease, ContinuationLookup},
     configuration::PublishedSnapshot,
-    routing::{CandidateExclusions, RouteCandidate},
+    routing::{CandidateSelectionState, RouteCandidate},
 };
 
 mod session;
@@ -37,7 +40,8 @@ pub(super) struct AffinitySelectionInput<'a> {
     pub(super) dialect: ProtocolDialect,
     pub(super) fallback_on_rate_limit: bool,
     pub(super) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
-    pub(super) exclusions: &'a CandidateExclusions,
+    pub(super) selection_state: &'a CandidateSelectionState,
+    pub(super) credential_eligible: &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
 }
 
 pub(super) async fn select(
@@ -116,6 +120,9 @@ async fn select_bound(
 ) -> Result<AffinitySelection, PublicError> {
     let candidate = find_candidate(&target, input.route_id, input.dialect, input.tiers)
         .ok_or_else(binding_lost)?;
+    if !(input.credential_eligible)(candidate.credential_id) {
+        return Err(no_available_credentials());
+    }
     let selected = select_fixed_candidate(
         input.snapshot,
         candidate,
@@ -142,7 +149,8 @@ async fn select_unbound(
         input.route_id,
         input.fallback_on_rate_limit,
         input.tiers,
-        input.exclusions,
+        input.selection_state,
+        input.credential_eligible,
     )
     .await?;
     Ok(finish_unbound(input, selected, binding_lease))

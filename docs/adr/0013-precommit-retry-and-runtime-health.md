@@ -8,6 +8,7 @@
 - 修订：ADR-0095 将认证错误与账号/路由健康拆成独立代际
 - 修订：2026-08-03 将指数退避限定为同一凭据的绑定重试，候选切换立即重选
 - 修订：2026-08-03 将上游错误 kind 的默认 RetrySafety 收敛为 Domain 唯一映射
+- 修订：ADR-0164 将 RetrySafety 限定为重放证据，并统一 HTTP 与 2xx 协议失败的候选恢复
 
 ## 背景
 
@@ -54,5 +55,5 @@
 
 - Domain 单元测试穷举全部 `UpstreamErrorKind` 的默认 RetrySafety，并断言 `Transient`/`Unknown` 默认 `Ambiguous` 且禁止自动重试；Provider 测试覆盖 Codex/Claude 错误 envelope、400/429 的结构化额度 code、普通 400 不误判、模型错误、Count Tokens 404、标准 Retry-After 两种形式，以及 Claude `retry-after-ms` 的精度、优先级、回落和上限。
 - Runtime 虚拟时间测试覆盖模型冷却、认证代际隔离、Endpoint/Proxy 熔断、HalfOpen 探测竞态、超大 Retry-After、成功后处理结算、重复 schedule 去重、更早/更晚 deadline 重排、多 slot 到期 epoch 唤醒、热更新代际隔离、同凭据指数退避以及候选切换零退避；并断言健康 worker 的后台任务数始终不超过一个。
-- Public request 契约覆盖提交前切换、已绑定请求不切换、Ambiguous 不重试、Retry-After、总 Attempt 预算、SSE 首帧提交边界，以及最终上游状态/正文/Header 不被内部分类改写。
+- Public request 契约覆盖提交前切换、已绑定请求不切换、Ambiguous 不做普通安全重试、完整上游失败的有界候选恢复、Retry-After 作用域、总 Attempt 预算、SSE 首帧提交边界，以及最终上游状态/正文/Header 不被内部分类改写。
 - Web 测试覆盖新增设置的契约解析、中文展示、保存具体覆盖值与无恢复默认入口。

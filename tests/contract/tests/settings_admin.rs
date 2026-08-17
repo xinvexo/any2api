@@ -77,6 +77,16 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(timeout["min_value"], 1);
     assert_eq!(timeout["max_value"], 86_400);
     assert_eq!(timeout["apply_mode"], "hot_reload");
+    let retry_budget = find_setting(&initial, "retry.precommit_total_budget");
+    assert_eq!(retry_budget["value_type"], "duration_secs");
+    assert_eq!(retry_budget["default_value"], 600);
+    assert!(
+        initial["items"]
+            .as_array()
+            .expect("setting items")
+            .iter()
+            .all(|item| item["key"] != "retry.max_total_attempts")
+    );
     let file_level = find_setting(&initial, "logs.file.level");
     assert_eq!(file_level["value_type"], "enum");
     assert_eq!(file_level["default_value"], "info");
@@ -133,6 +143,17 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(missing["error"]["code"], "setting_not_found");
+
+    let (status, removed) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/retry.max_total_attempts",
+        Some(json!({ "expected_revision": 2, "value": 3 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(removed["error"]["code"], "setting_not_found");
 
     let (status, reset) = request_json(
         app,

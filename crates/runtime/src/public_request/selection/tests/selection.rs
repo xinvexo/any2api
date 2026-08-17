@@ -39,6 +39,7 @@ fn fallback_only_skips_a_rate_limited_tier_when_enabled() {
         GenerationSelection::TemporarilyUnavailable(_) => {
             panic!("fallback candidate is healthy")
         }
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
     };
     assert_eq!(selected.candidate.credential_id, fallback.credential_id);
     assert_eq!(
@@ -82,6 +83,7 @@ async fn selection_skips_a_raced_half_open_probe_without_consuming_rpm_or_waking
         GenerationSelection::TemporarilyUnavailable(_) => {
             panic!("healthy candidate must be retried in the same tier")
         }
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
         GenerationSelection::NoCandidates => panic!("healthy candidate exists"),
     };
 
@@ -132,6 +134,7 @@ async fn open_circuit_tier_fails_over_to_the_next_tier() {
         GenerationSelection::TemporarilyUnavailable(_) => {
             panic!("the open primary tier must fail over to the healthy tier")
         }
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
     };
     assert_eq!(selected.candidate.credential_id, fallback.credential_id);
     drop(selected);
@@ -189,6 +192,7 @@ async fn rate_limit_cooldown_waits_unless_fallback_is_enabled() {
         GenerationSelection::TemporarilyUnavailable(_) => {
             panic!("fallback-on-rate-limit must spill the cooldown to the next tier")
         }
+        GenerationSelection::RetryDeferred(_) => panic!("no retry deferral exists"),
     };
     assert_eq!(selected.candidate.credential_id, fallback.credential_id);
     drop(selected);

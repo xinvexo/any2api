@@ -42,6 +42,6 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::SchedulerQueueTimeout
         | SettingKey::SchedulerMaxWaitingRequests
         | SettingKey::SchedulerFallbackOnRateLimit => scheduler::definition(key),
-        _ => reliability::definition(key),
+        SettingKey::RetryPrecommitTotalBudget => reliability::definition(key),
     }
 }

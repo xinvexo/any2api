@@ -12,8 +12,8 @@ use super::super::{
 };
 use super::{
     UpstreamServices,
-    failure::AttemptFailure,
-    prepared::{AttemptInput, continuation_committer, prepare_input},
+    failure::{AttemptFailure, UpstreamFailureOrigin},
+    prepared::{AttemptInput, PreparedStreamGuards, continuation_committer, prepare_input},
 };
 use crate::request_telemetry::{AttemptRecorder, public_error_class};
 
@@ -47,20 +47,24 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         }
     };
     let status = response.status;
-    let mut headers = response.headers;
+    let upstream_headers = response.headers;
     let read_timeout = execution_limits::read_timeout(
         prepared.ingress_operation,
         execution_profile,
         Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
     );
     if !status.is_success() {
-        let body = collect_error_body(response.body, read_timeout, services.attempt_deadline)
-            .await
-            .unwrap_or_default();
-        let safe_headers = prepared.response_headers(&headers);
-        let error = prepared.classify(status, &headers, &body);
+        let collected =
+            collect_error_body(response.body, read_timeout, services.attempt_deadline).await;
+        let safe_headers = prepared.response_headers(&upstream_headers);
+        let error = prepared.classify(status, &upstream_headers, collected.classification_bytes());
         prepared.upstream_failure(status.as_u16(), &error);
+        let error_body_complete = collected.is_complete();
+        let body = collected.into_response_body();
         return Err(AttemptFailure::upstream(
+            UpstreamFailureOrigin::HttpStatus {
+                error_body_complete,
+            },
             status,
             safe_headers,
             body,
@@ -69,7 +73,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             bound,
         ));
     }
-    headers = prepared.response_headers(&headers);
+    let mut headers = prepared.response_headers(&upstream_headers);
     sanitize_response_headers(&mut headers);
     headers.insert(
         header::CONTENT_TYPE,
@@ -86,7 +90,15 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         execution_profile,
         services.snapshot.settings().stream(),
     );
-    let (exchange, permit, health, attempt_recorder, quota_activity) = prepared.take_guards();
+    let PreparedStreamGuards {
+        exchange,
+        permit,
+        health,
+        attempt_recorder,
+        quota_activity,
+        driver,
+        upstream_operation,
+    } = prepared.take_guards();
     let body = GuardedBody::new(
         response.body,
         exchange,
@@ -98,6 +110,9 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             attempt_recorder,
             quota_activity,
             status_code: status.as_u16(),
+            driver,
+            upstream_operation,
+            upstream_headers,
             precommit_budget,
             postcommit_idle_timeout: execution_limits::stream_timeout(
                 prepared.ingress_operation,
@@ -114,14 +129,17 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     );
     let mut body = match body.prime_attempt().await {
         Ok(body) => body,
-        Err(super::super::stream::StreamPrimeFailure::Retryable(rejected)) => {
-            return Err(AttemptFailure::stream_rejected(
+        Err(super::super::stream::StreamPrimeFailure::Upstream(failure)) => {
+            return Err(AttemptFailure::upstream(
+                UpstreamFailureOrigin::PreSemanticStreamEnvelope {
+                    retry_delay_basis: failure.retry_delay_basis,
+                },
                 status,
                 headers,
-                rejected.frame,
+                failure.frame,
+                failure.error,
                 candidate,
                 bound,
-                rejected.rejection,
             ));
         }
         Err(super::super::stream::StreamPrimeFailure::Public(error)) => {

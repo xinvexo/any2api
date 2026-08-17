@@ -16,6 +16,7 @@ use super::{
     exchange::StartedProtocolBridge,
     execution_profile::RequestExecutionProfile,
     response::{DecodedUpstreamResponse, EgressResponse, UpstreamResponse},
+    upstream_failure::ProtocolUpstreamFailureEvidence,
 };
 pub use crate::raw_json::RawJsonPayload;
 pub use crate::sse::SseJsonData;
@@ -110,7 +111,7 @@ pub struct AdapterEvent {
     telemetry: ProtocolEventTelemetry,
     payload: SseEventPayload,
     termination: StreamTermination,
-    rejection: Option<StreamRejection>,
+    upstream_failure: Option<ProtocolUpstreamFailureEvidence>,
 }
 
 /// SSE `data:` payload classified once when the upstream frame is decoded,
@@ -135,35 +136,6 @@ pub struct ProtocolEventTelemetry {
     /// Lifecycle-only events may remain buffered while Runtime waits for the
     /// first semantic event or an explicit pre-content rejection.
     pub retry_transparent: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StreamRetryReason {
-    Overloaded,
-    RateLimited,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StreamRejection {
-    reason: StreamRetryReason,
-    code: &'static str,
-}
-
-impl StreamRejection {
-    #[must_use]
-    pub const fn new(reason: StreamRetryReason, code: &'static str) -> Self {
-        Self { reason, code }
-    }
-
-    #[must_use]
-    pub const fn reason(self) -> StreamRetryReason {
-        self.reason
-    }
-
-    #[must_use]
-    pub const fn code(self) -> &'static str {
-        self.code
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -196,7 +168,7 @@ impl AdapterEvent {
             telemetry,
             payload,
             termination: StreamTermination::None,
-            rejection: None,
+            upstream_failure: None,
         }
     }
 
@@ -207,8 +179,11 @@ impl AdapterEvent {
     }
 
     #[must_use]
-    pub fn with_rejection(mut self, rejection: Option<StreamRejection>) -> Self {
-        self.rejection = rejection;
+    pub fn with_upstream_failure(
+        mut self,
+        failure: Option<ProtocolUpstreamFailureEvidence>,
+    ) -> Self {
+        self.upstream_failure = failure;
         self
     }
 
@@ -238,16 +213,8 @@ impl AdapterEvent {
     }
 
     #[must_use]
-    pub const fn retry_reason(&self) -> Option<StreamRetryReason> {
-        match self.rejection {
-            Some(rejection) => Some(rejection.reason()),
-            None => None,
-        }
-    }
-
-    #[must_use]
-    pub const fn rejection(&self) -> Option<StreamRejection> {
-        self.rejection
+    pub fn upstream_failure(&self) -> Option<&ProtocolUpstreamFailureEvidence> {
+        self.upstream_failure.as_ref()
     }
 
     #[must_use]
@@ -272,7 +239,7 @@ impl fmt::Debug for AdapterEvent {
             .field("bytes", &self.bytes.len())
             .field("payload", &self.payload)
             .field("termination", &self.termination)
-            .field("rejection", &self.rejection)
+            .field("upstream_failure", &self.upstream_failure)
             .finish()
     }
 }
@@ -313,6 +280,13 @@ pub trait ProtocolAdapter: Send + Sync {
         &self,
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError>;
+
+    fn buffered_upstream_failure(
+        &self,
+        _response: &UpstreamResponse,
+    ) -> Option<ProtocolUpstreamFailureEvidence> {
+        None
+    }
 
     /// Decode a same-dialect buffered response. Adapters may retain validated
     /// wire bytes here; the default keeps custom adapters correct by falling

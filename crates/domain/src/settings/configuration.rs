@@ -263,17 +263,17 @@ mod tests {
     }
 
     #[test]
-    fn reliability_rejects_an_inverted_delay_range() {
-        let overrides = SettingOverrides::from_entries([
-            (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(2)),
-            (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),
-        ])
-        .expect("individual values are valid");
+    fn reliability_compiles_the_precommit_total_budget_override() {
+        let settings = SettingsConfiguration::from_overrides(
+            SettingOverrides::from_entries([(
+                SettingKey::RetryPrecommitTotalBudget,
+                SettingValue::DurationSecs(42),
+            )])
+            .expect("valid override"),
+        )
+        .expect("settings");
 
-        assert_eq!(
-            SettingsConfiguration::from_overrides(overrides),
-            Err(SettingsValidationError::InvalidCombination)
-        );
+        assert_eq!(settings.reliability().precommit_total_budget_secs(), 42);
     }
 
     #[test]

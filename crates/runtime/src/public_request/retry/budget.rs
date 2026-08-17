@@ -7,6 +7,7 @@ use any2api_domain::{ProtocolOperation, RetryAfterHint, RoutingCredentialId};
 use any2api_protocol::api::RequestExecutionProfile;
 use tokio::time::Instant;
 
+use crate::routing::{CandidateIdentity, RouteCandidate};
 use crate::{health::ReliabilityPolicy, public_request::execution_limits};
 
 pub(super) struct RetryBudget {
@@ -16,6 +17,7 @@ pub(super) struct RetryBudget {
     switches: u32,
     last_credential: Option<RoutingCredentialId>,
     pub(super) attempts_by_credential: HashMap<RoutingCredentialId, u32>,
+    attempts_by_candidate: HashMap<CandidateIdentity, u32>,
 }
 
 impl RetryBudget {
@@ -32,6 +34,7 @@ impl RetryBudget {
             switches: 0,
             last_credential: None,
             attempts_by_credential: HashMap::new(),
+            attempts_by_candidate: HashMap::new(),
         }
     }
 
@@ -43,7 +46,8 @@ impl RetryBudget {
         self.deadline
     }
 
-    pub(super) fn register_attempt(&mut self, credential_id: RoutingCredentialId) -> Option<u32> {
+    pub(super) fn register_attempt(&mut self, candidate: &RouteCandidate) -> Option<u32> {
+        let credential_id = candidate.credential_id;
         if !self.can_register_attempt(credential_id) {
             return None;
         }
@@ -59,6 +63,14 @@ impl RetryBudget {
             .copied()
             .unwrap_or(0);
         self.attempts_by_credential.insert(credential_id, prior + 1);
+        let identity = candidate.identity();
+        let candidate_attempts = self
+            .attempts_by_candidate
+            .get(&identity)
+            .copied()
+            .unwrap_or(0);
+        self.attempts_by_candidate
+            .insert(identity, candidate_attempts + 1);
         self.last_credential = Some(credential_id);
         self.attempts += 1;
         Some(self.attempts)
@@ -92,15 +104,15 @@ impl RetryBudget {
 
     pub(super) fn next_delay(
         &self,
-        credential_id: RoutingCredentialId,
+        candidate: &RouteCandidate,
         retry_after: Option<RetryAfterHint>,
     ) -> Duration {
-        let credential_attempts = self
-            .attempts_by_credential
-            .get(&credential_id)
+        let candidate_attempts = self
+            .attempts_by_candidate
+            .get(&candidate.identity())
             .copied()
-            .expect("retry delay follows a registered credential attempt");
-        self.delay_for_attempt_count(credential_attempts, retry_after)
+            .expect("retry delay follows a registered candidate attempt");
+        self.delay_for_attempt_count(candidate_attempts, retry_after)
     }
 
     pub(super) fn next_request_delay(&self, retry_after: Option<RetryAfterHint>) -> Duration {
@@ -144,7 +156,9 @@ fn jitter(delay: Duration, ratio: u32) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{CredentialId, SettingsConfiguration};
+    use any2api_domain::SettingsConfiguration;
+
+    use crate::public_request::retry::tests::support::candidate;
 
     use super::*;
 
@@ -164,17 +178,17 @@ mod tests {
             ProtocolOperation::Responses,
             RequestExecutionProfile::Standard,
         );
-        let first = CredentialId::new().into();
-        let second = CredentialId::new().into();
+        let first = candidate("first");
+        let second = candidate("second");
 
-        assert_eq!(budget.register_attempt(first), Some(1));
-        assert_eq!(budget.next_delay(first, None), Duration::from_secs(1));
+        assert_eq!(budget.register_attempt(&first), Some(1));
+        assert_eq!(budget.next_delay(&first, None), Duration::from_secs(1));
         assert_eq!(budget.next_request_delay(None), Duration::from_secs(1));
-        assert_eq!(budget.register_attempt(first), Some(2));
-        assert_eq!(budget.next_delay(first, None), Duration::from_secs(2));
+        assert_eq!(budget.register_attempt(&first), Some(2));
+        assert_eq!(budget.next_delay(&first, None), Duration::from_secs(2));
         assert_eq!(budget.next_request_delay(None), Duration::from_secs(2));
-        assert_eq!(budget.register_attempt(second), Some(3));
-        assert_eq!(budget.next_delay(second, None), Duration::from_secs(1));
+        assert_eq!(budget.register_attempt(&second), Some(3));
+        assert_eq!(budget.next_delay(&second, None), Duration::from_secs(1));
         assert_eq!(budget.next_request_delay(None), Duration::from_secs(4));
     }
 
@@ -191,12 +205,12 @@ mod tests {
             ProtocolOperation::Responses,
             RequestExecutionProfile::Standard,
         );
-        let credential = CredentialId::new().into();
-        assert_eq!(budget.register_attempt(credential), Some(1));
+        let candidate = candidate("retry-after");
+        assert_eq!(budget.register_attempt(&candidate), Some(1));
 
         assert_eq!(
             budget.next_delay(
-                credential,
+                &candidate,
                 Some(RetryAfterHint::Delay(Duration::from_secs(7)))
             ),
             Duration::from_secs(7)
@@ -219,12 +233,13 @@ mod tests {
             ProtocolOperation::Responses,
             RequestExecutionProfile::Standard,
         );
-        let credential = CredentialId::new().into();
+        let candidate = candidate("limited");
+        let credential = candidate.credential_id;
 
-        assert_eq!(budget.register_attempt(credential), Some(1));
-        assert_eq!(budget.register_attempt(credential), Some(2));
+        assert_eq!(budget.register_attempt(&candidate), Some(1));
+        assert_eq!(budget.register_attempt(&candidate), Some(2));
         assert!(!budget.can_register_attempt(credential));
-        assert_eq!(budget.register_attempt(credential), None);
+        assert_eq!(budget.register_attempt(&candidate), None);
         assert_eq!(budget.attempts, 2);
         assert_eq!(budget.attempts_by_credential[&credential], 2);
     }

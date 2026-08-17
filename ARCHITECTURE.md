@@ -1,8 +1,8 @@
 # any2api 架构基线
 
 > 状态：Current<br>
-> 版本：1.1<br>
-> 最后更新：2026-08-16<br>
+> 版本：1.2<br>
+> 最后更新：2026-08-17<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。专项决策见 [当前 ADR 索引](docs/adr/README.md)。
 
 ## 1. 项目定位
@@ -46,7 +46,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. 首版 TransportMode 只有 JSON 和 SSE，上游和公开入口均不使用 WebSocket。`GET /v1/responses` 对尝试 Upgrade 的客户端返回 HTTP 426，作为明确的 HTTP 回退信号；服务端不建立连接内状态、不持有长连接。完整边界见 `docs/adr/0161-remove-responses-websocket-ingress.md`。
 17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化；公开模型名默认等于上游模型名，凭据模型条目可配置可选公开别名（ADR-0153），同一 Endpoint 内公开名与上游名映射必须双向一致。OAuthAccount 的模型目录不得硬编码在 Provider 或 Runtime 代码中：登录成功时读取上游目录，之后只在管理面手动刷新额度时读取。Provider Driver 从当前 Token 导出非敏感的“目录身份”，共享目录快照按 `Provider + directory_scope` 存储，单次批量刷新中每个身份至多请求一次。Codex 以规范化套餐归类目录身份；其他 Provider 只在 Driver 能证明目录相同的订阅身份内共享，无法证明时必须退回更细身份。每组选择一个当前账号的 Token 与实际 OAuth 出口发起请求。排序去重后的安全模型名和抓取时间写入独立 SQLite 目录快照，既不自动改变已选模型，也不触发配置发布，更绝不附着到按活跃度触发的自动额度刷新。没有成功目录快照的账号只显示其已保存模型；新账号目录读取失败时不创建路由账号，导入账号则以空模型选择等待手动刷新。管理员可保存经确认的最新或手工模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
-18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
+18. 普通部署者确实需要按环境调整的 TTL、排队、上游读取、流式、总重试时限、停机和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。Attempt 次数、Credential 切换数、同号重试数、指数退避、抖动、冷却和 breaker 阈值属于 Runtime 内部可靠性策略，不再作为普通设置暴露。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
@@ -58,10 +58,10 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
-30. 流式上游在任何语义输出可见前以协议声明的精确准入拒绝（包括已审计的过载与 Anthropic `rate_limit_error`）拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。`rate_limit_error` 只有在完整的 Anthropic SSE `error` envelope 中出现且仍处于 Pending 时才具有该语义；它按 Credential + upstream model 归因，不能扩展为固定并发限制或跨会话绑定切换。每个拒绝 Attempt 必须保留协议层确认的精确稳定码和最终拒绝帧；重试最终不能继续时返回最后一次真实 SSE 拒绝及其原 HTTP 状态，禁止改写为 any2api 自造的通用 502。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。完整边界见 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md` 与 `docs/adr/0136-precontent-rejection-fidelity-and-overload-backoff.md`。
+30. 流式上游在任何非透明语义输出可见前返回协议精确识别的 `error`、`response.failed` 或等价失败终止事件时，Runtime 必须把它作为完整上游失败，而不是因 HTTP 200 记为成功或提前提交会话绑定。已审计的过载与 Anthropic `rate_limit_error` 保留 `RejectedBeforeExecution` 证据；通用或未知 failed envelope 保持 `Ambiguous`，但未绑定 Pending 请求仍可按 ADR-0164 执行有界候选恢复。自然语言匹配、正文/SSE 断流、非法帧、缺失终止事件、已经出现内容/工具调用等语义事件以及任何下游提交后的失败不得进入当前请求的换路路径。提交后的显式失败仍须更新 Candidate health 和最终 Attempt 结果，不能把 `HTTP 200 + failed event` 伪装为成功。重试最终不能继续时返回最后一次真实失败帧及其原 HTTP 状态，禁止改写为 any2api 自造的通用 502。完整边界见 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`、`docs/adr/0121-anthropic-precontent-rate-limit-retry.md`、`docs/adr/0136-precontent-rejection-fidelity-and-overload-backoff.md` 与 `docs/adr/0164-alternate-path-failure-recovery.md`。
 31. Provider 固定应用身份必须在各 Driver 的版本化 identity profile 中按 data/quota/token surface 集中定义，不得散落版本或伪造与实际构建目标不符的平台。Transport 默认只有一个显式版本的 generic gateway wire profile；没有经审计的 Provider 必需契约时，禁止按 Provider 随机化或模仿 TLS/HTTP2/TCP 特征。
 32. 上游响应的 HTTP Content-Encoding 由 Transport 在 Protocol 解码和 Provider 错误分类前统一拥有：线路 profile 只声明实际可增量解码的编码，普通与 pinned Client 必须共用同一实现，解码后同步删除失效的表示元数据。请求侧 `Accept-Encoding` 只有在入口与上游方言相同且全部编码均可由当前 Transport 解码时才按客户端原值、原顺序和多值结构透传；客户端未发送时保持缺失，跨协议转换不得透传，Transport 与 Provider 均不得强制补写固定值。未知、损坏或过深的响应编码链必须失败，禁止删除 Header 后把压缩字节交给 JSON/SSE decoder 或错误分类器。非成功响应继续透明返回解码后的原始内容字节与状态，不做 JSON 重序列化。完整决策见 `docs/adr/0135-same-dialect-accept-encoding-pass-through.md`。
-33. 所有自动 reattempt 动作必须服从同一请求级语义退避：同路径、重新选择 Credential/Endpoint/Proxy 以及 OAuth 刷新后的数据面重试，都使用指数 fallback 与明确 Retry-After 的较大值。普通失败的 fallback 继续按当前失败 Credential 计算；协议明确声明的 precontent overload 改按本逻辑请求已注册的总 Attempt 数计算，切换 Credential 不得把它重置为第一次失败。Retry-After 不得被 jitter 或 Credential switch 缩短；等待无法放入剩余 precommit budget 时必须终止并返回当前真实失败。随机抖动只用于既有的并发去同步，不能作为隐藏账号切换或 Transport 特征的手段。
+33. 自动 reattempt 的退避属于失败作用域，不属于整个逻辑请求。`Retry-After` 与指数 fallback 的较大值只决定失败 scope 再次可选的 not-before，或已绑定 `RetrySamePath` 的等待；其他健康 Credential/Endpoint/Proxy 必须可以立即选择。普通失败的 fallback 按当前失败 Credential 计算，协议明确声明的 precontent overload 按本逻辑请求已注册的总 Attempt 数计算。Retry-After 不得被 jitter 缩短；同一失败路径在 hint 到期前不得因 Credential switch 重新进入。所有等待仍服从同一 precommit deadline，无法放入预算时返回最后真实失败。
 34. 每个可配置协议对必须公开 `Direct` 或 `Translated` fidelity。Direct 只表示没有创建 ProtocolBridge，不承诺请求逐字节不变；Translated 必须由 Bridge 的单一版本化 capability table 声明 operation、可接受请求字段、字段处理方式、工具类型和已知限制，Bridge 校验与管理 capability API 共用该表。Web 必须在保存前展示所选路径的 fidelity 与转换限制，禁止只给出方言名称而掩盖 canonical reconstruction、合成本地状态或字段降级。
 35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定 TLS ClientHello 的稳定字段集合与真实顺序策略、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得由 any2api 另加随机化来隐藏差异。
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
@@ -649,7 +649,8 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - ProtocolAdapter 覆盖与最终 Body 一致的 Content-Type、Accept 等协议 Header
    - 最后只注入选中 ProviderCredential 或 OAuthAccount 的认证与账号 Header
    - TransportManager 执行请求
-   - 根据 RetrySafety、预算和 CommitState 决定是否重试
+   - 先把 HTTP 状态、完整 2xx 错误 envelope、预语义 SSE 失败、Transport 与本地错误归一为强类型 Attempt outcome
+   - 根据失败来源、UpstreamError 分类、RetrySafety、绑定状态、预算和 CommitState 决定同路径重试、候选恢复或终止
 
 8. HeaderFilter
    - 在 Pending 阶段缓冲初始响应头
@@ -2212,10 +2213,13 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 | 408/425 | `RejectedBeforeExecution`，Pending 且预算允许时重试 | 短暂错误计数 |
 | 409/413/422 | 否；作为 `InvalidRequest + Ambiguous` 透明返回 | 不惩罚 Credential、Endpoint 或 Proxy |
 | 429 | 未绑定请求可切换；已绑定请求不切换 | 状态码基线只冷却 Exact AttemptPath；明确模型/账号证据才扩大并尊重 Retry-After |
-| 500/502/503/504 | 仅在 RetrySafety 允许时重试 | 普通 5xx 为 Ambiguous 且只计 Exact AttemptPath；明确整体故障才影响 Endpoint |
+| 500/502/503/504 | 未绑定 Pending 请求可有界优先其他候选；已绑定请求不因 Ambiguous 结果切换 | 普通 5xx 保持 Ambiguous 且只计 Exact AttemptPath；明确整体故障才影响 Endpoint |
+| 完整 2xx JSON 错误 envelope | 按 Provider 分类；未绑定 Pending 请求除 InvalidRequest 外可候选恢复 | 使用同一 attribution 与 health，不得按 HTTP 200 记成功 |
+| 预语义 SSE failed/error | 按 Provider 分类；未绑定 Pending 请求可候选恢复 | 已审计准入拒绝可为 RejectedBeforeExecution，通用失败保持 Ambiguous |
+| 2xx Body/SSE 断流、超时、非法帧或缺失 terminal | 仅 RetrySafety 明确允许时重试；Ambiguous 不切换 | 使用 Transport/InvalidResponse outcome，不伪装成完整上游失败 |
 | 代理连接错误 | 未绑定请求可切换；已绑定请求不切换 | Proxy Runtime 短暂降级，不回退 DIRECT |
 | 客户端取消 | 否 | 不惩罚 Credential |
-| 流式响应提交后错误 | 否 | 以 Body 错误终止连接，不生成协议事件 |
+| 流式响应提交后错误 | 否 | 以 Body 错误终止连接；显式上游失败仍更新 Candidate health 与 Attempt 最终结果 |
 
 HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求的 `403`，只有 Provider Driver 在声明的结构化字段中识别到明确账号限制码时才能报告账号受限；区域/IP 出口拒绝必须使用独立错误，未知响应保持中性上游失败，不得触发账号停用、删除或永久认证健康状态。
 
@@ -2231,22 +2235,19 @@ HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求�
 
 可靠性实现固定以下边界：
 
-- `ProviderDriver::classify_error` 返回强类型 `UpstreamError`：其中的 `UpstreamErrorClassification` 包含上游错误种类、`RetrySafety` 与可选 `Retry-After`，可选管理日志消息只来自当前 Provider 已声明的结构化错误 envelope；禁止让 Provider Driver 返回代理、DNS、取消或 Runtime 内部错误，也禁止用分类结果生成客户端错误正文；
+- `ProtocolAdapter` 只识别完整 2xx buffered JSON 与 SSE 中协议声明的失败 envelope，并携带原始有界 JSON 证据；`ProviderDriver::classify_error` 对非 2xx HTTP 和这些协议证据返回同一种强类型 `UpstreamError`。`UpstreamErrorClassification` 包含错误种类、`RetrySafety`、可选 `Retry-After` 与 attribution；可选管理日志消息只来自当前 Provider 已声明的结构化错误 envelope。Protocol/Provider 都不得把正文断流、非法帧、代理、DNS、取消或 Runtime 内部错误伪装成上游失败，也不得用分类结果改写客户端错误正文；
 - `UpstreamErrorKind` 在 Domain 中维护唯一默认重试安全性表：认证、权限、额度、限流、模型和操作拒绝默认为 `RejectedBeforeExecution`，请求错误、临时错误和未知错误默认为 `Ambiguous`。Provider 不得复制该表；共享 HTTP 状态分类器只有在状态本身提供更强执行证据时才能覆盖默认值，Provider 正文做相容 kind 细化时采用新 kind 的领域默认安全性，否则保留已有 HTTP 状态证据；
 - HTTP 状态先建立不可矛盾的分类基线，Provider 正文只能做相容细化：401 固定为认证错误；5xx、408、425 固定为临时上游错误，但只有标准明确表示请求未执行的 408/425 使用 `RejectedBeforeExecution`，5xx 保持 `Ambiguous`；409、413、422 固定为 `InvalidRequest + Ambiguous`，不因官方 SDK 的宽松重试策略自动重放非幂等生成请求，其中 409 需要调用方解决资源状态冲突，413/422 分别表示内容过大和语义不可处理；429 可以细分为限流或已确认额度耗尽；400 默认仍是普通请求错误，但 Provider 在已声明 envelope 字段中识别出的精确额度 code/type 可以细化为 `QuotaExhausted`，因为这仍表示上游在执行前拒绝当前 Credential。421 对非幂等方法的标准重试要求不同连接，当前池化 Transport 无法提供该证明，因此保持 `Unknown + Ambiguous`。禁止按自然语言消息、任意嵌套字段或模糊子串猜测额度，正文也不得把其他固定状态改写成不同健康作用域；
 - `TransportError` 的失败阶段与健康归因正交；`TransportFailureScope` 允许 `Endpoint / Proxy / EgressPath / Unattributed`。代理地址连接、认证和 407 归 Proxy；代理后的 CONNECT/SOCKS/目标 TLS 与无法进一步拆分的代理到目标故障归 EgressPath；DIRECT 目标故障归 Endpoint；只有完全无法证明组合路径时才使用 Unattributed；
-- 标准 `Retry-After` 同时支持 delta-seconds 与 HTTP-date；Claude 还按官方 SDK 语义优先读取毫秒级 `retry-after-ms`，该扩展缺失或非法时才回落标准 Header。两者都规范化为同一个有界 `RetryAfterHint`，异常大值最多产生 30 天冷却；最终 Attempt 仍可按 Provider 响应白名单透明返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header。非 2xx 正文使用独立收集路径，在读取阶段即受 64 KiB 上限约束，完整取得时作为不透明字节返回客户端并把声明 envelope 中的原始 `message` 写入有界管理日志。正文超限、超时或中途断开时以空正文执行 HTTP 状态基线分类，但不得生成固定消息、覆盖已经收到的状态与 Header，或把该响应改写成本地错误；被重试掉的 Header、消息与正文全部丢弃；
+- 标准 `Retry-After` 同时支持 delta-seconds 与 HTTP-date；Claude 还按官方 SDK 语义优先读取毫秒级 `retry-after-ms`，该扩展缺失或非法时才回落标准 Header。两者都规范化为同一个有界 `RetryAfterHint`，异常大值最多产生 30 天冷却；最终 Attempt 仍可按 Provider 响应白名单透明返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header。非 2xx 正文使用独立收集结果保留 Complete/Incomplete 事实，并在读取阶段受 64 KiB 上限约束；只有完整正文参与 Provider 结构化细化并作为不透明字节返回客户端。正文超限、超时或中途断开时以空正文执行 HTTP 状态基线分类，但不得生成固定消息、覆盖已经收到的状态与 Header，或把该响应改写成本地错误；被恢复掉的 Header、消息与正文全部丢弃；
 - 429 与确认的模型错误只更新当前 Credential `routing_generation` 下的 Credential + upstream model 冷却；401 只把当前 `authentication_version` 标记为 `auth_error`；402/权限类错误使用 routing-generation-scoped Credential 冷却；
-- 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
+- 未声明 attribution 的完整 HTTP/JSON/SSE 上游失败只更新 Exact CandidatePath；只有 Provider 的结构化证据明确声明 Endpoint、Credential、CredentialModel、RouteOperation 或 EgressPath 时才扩大作用域。代理连接/握手错误只更新 Proxy config generation，DIRECT 的 DNS/TCP 错误归入 Endpoint；禁止把 Provider 429/5xx 或 2xx failed envelope 误判为代理故障。流已经提交后的显式失败同样结算 health，但不得触发当前请求换路；
 - Endpoint 与 Proxy 使用独立的滑动失败窗口和 `Closed / Open / HalfOpen` 熔断器。HalfOpen 探测 Permit 与上游 Attempt 同生命周期，取消或 Drop 必须归还探测名额；
 - 冷却或熔断到期由 `SchedulerEpoch` 的单个 keyed-slot worker 合并并推进统一 `scheduler_epoch`；同一健康状态重排 deadline 不增加任务，等待请求仍直接监听本轮最早 `retry_at` 并使用同一个有界 QueueTicket，不创建健康模块私有队列；
 - 健康预检查与 HalfOpen Guard 获取之间发生竞态时，必须在任何上游 I/O 前按唯一令牌原子回滚本次 RPM 预留、精确释放 Credential `in_flight` Guard、移除当前候选并继续选择同 tier 其他候选，并在确实删除窗口记录后推进统一 epoch；回滚与预留使用同一个 Credential 窗口 Mutex，不能删除其他 Attempt 的名额或并发超发。只有该 tier 确实没有可执行候选时才等待或返回临时不可用；健康 Guard 一旦成功取得，后续失败不再归还 RPM；
 - 每个请求在第一次上游 Attempt 前固定当前 PublishedSnapshot 的重试、冷却与熔断策略；热更新只影响之后开始的请求和之后记录的失败；
-- 同一个失败路径在当前请求内会被精确排除。已证明 Credential、Proxy、EgressPath 或 Endpoint 责任时排除
-  对应作用域；证据不足时只排除 Exact AttemptPath。安全重试在同一 tier 内优先选择 Credential 与
-  EgressPath 都未尝试的候选，再选择新 Credential、新 EgressPath 和其他未尝试候选，避免有限预算连续
-  撞击同一未知坏路径；
-- 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应，以及 ADR-0118/ADR-0121 定义的“任何语义事件前、精确协议代码/错误类型声明的准入拒绝”才能使用 `RejectedBeforeExecution`。后者只排除当前请求中的失败凭据（Anthropic `rate_limit_error` 进一步按 Credential + upstream model 排除）并对 Endpoint/Proxy 保持 neutral，不能扩张为自然语言匹配、一般 5xx 或内容出现后的 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md`、`docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md` 与 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md`；
+- 每个逻辑请求使用同一个 CandidateSelectionState 保存硬排除、exact Candidate/Credential/Egress 尝试历史和按 attribution scope 的 retry-not-before。已证明不可恢复的 Credential、Proxy、EgressPath、Endpoint、CredentialModel 或 RouteOperation 责任时硬排除对应作用域；临时、限流、未知或仅能归因当前组合路径的完整上游失败软延迟该作用域。选择时先过滤未到期 scope 和 RetryBudget 资格，再按未尝试 exact Candidate、新 Credential/Egress 组合、tier 与稳定轮询排序，最后才原子预留 RPM 和 health Guard；禁止预留后才发现 Attempt/切换预算不允许；
+- 5xx、通用 2xx failed envelope、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果都保持 `Ambiguous`，但只有完整非 2xx 状态或协议精确识别的完整失败 envelope 具有 alternate-path recovery 证据。未绑定 Pending 请求可以对这类完整上游失败接受有界 at-least-once 候选恢复；正文断流、非法帧、缺失 terminal、未知 Transport 丢失结果、已绑定请求和任何已提交响应不使用该能力。408、425 以及 ADR-0118/ADR-0121 定义的精确预语义准入拒绝仍可使用 `RejectedBeforeExecution`；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md`、`docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`、`docs/adr/0121-anthropic-precontent-rate-limit-retry.md` 与 `docs/adr/0164-alternate-path-failure-recovery.md`；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
 - 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential 运行态 Guard，最后返回本地错误；
 - RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的 RPM 窗口、`in_flight`、队列、粘性或健康状态恢复。
@@ -2262,7 +2263,10 @@ Idempotent                 # 协议提供并复用了可靠幂等键
 Ambiguous                  # 可能已经执行，只是响应丢失
 ```
 
-只自动重试前三类。`Ambiguous` 不重试，系统不提供 at-least-once 开关。
+`RetrySafety` 只回答“是否有证据证明同一次逻辑执行可以安全重放”，前三类允许普通自动重试，
+`Ambiguous` 不允许同路径安全重试。ADR-0164 另行允许未绑定 Pending 请求对“已经完整收到上游失败事实”的
+Attempt 做有界 alternate-path recovery；这是固定的路由恢复语义，不改变 safety，也不适用于响应丢失、
+正文断流、已绑定或已提交请求。
 
 阶段参考：
 
@@ -2275,11 +2279,12 @@ Ambiguous                  # 可能已经执行，只是响应丢失
 | 上游返回 408/425 | RejectedBeforeExecution |
 | 上游返回 5xx | Ambiguous |
 | 上游返回其他可分类的拒绝响应 | 由 Driver 判断 |
-| 成功响应头后、语义事件前收到协议精确声明的过载/准入拒绝 | RejectedBeforeExecution（仅 ADR-0118/0121 窄化项） |
+| 完整 2xx buffered 错误 envelope | 由 Driver 分类；通用/未知失败保持 Ambiguous |
+| 成功响应头后、语义事件前收到协议精确失败 envelope | 由 Driver 分类；ADR-0118/0121 的准入拒绝为 RejectedBeforeExecution |
 | 成功响应头后的 buffered body 或首个 SSE 事件读取失败 | Ambiguous |
 | 已向下游发送响应头或任意字节 | 禁止重试或切换 |
 
-所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须结束上一 Credential 的 `in_flight` Guard，上一 Attempt 的 RPM 名额不会归还。任何可自动重试的失败都先计算一次 request-local retry-not-before：普通失败的 fallback 指数由当前失败 Credential 在本请求中已注册的 Attempt 数计算；只有协议明确声明的 precontent overload 使用本逻辑请求已注册的总 Attempt 数，使换号后的连续过载继续增长而不是每个账号重新从第一次失败开始。第一次失败使用 `base_delay`，之后按二的幂增长并受 `max_delay` 限制，再应用既有 jitter；若上游分类携带 Retry-After，则最终等待取 jitter 后 fallback 与该 hint 从当前时刻换算出的延迟较大值，禁止对 hint 向下抖动。未绑定请求先排除已证明的失败 Credential/Endpoint/Proxy，再等待并重新选择；新 Credential 不继承旧 Credential 的健康冷却，precontent overload 也仍只排除 ExactCandidate 且对 Endpoint/Proxy 保持 neutral，但同一个逻辑请求必须遵守上述 retry-not-before。已绑定请求只允许同路径等待。OAuth 认证刷新可以在等待窗口内执行，刷新耗时抵扣等待，下一数据面 Attempt 仍不得早于同一 retry-not-before。所需等待大于等于剩余总预算时不再重试，直接返回当前真实上游/Transport 失败，不把它改写成预算超时。完整决策见 `docs/adr/0128-reselect-retry-after-backoff.md` 与 `docs/adr/0136-precontent-rejection-fidelity-and-overload-backoff.md`。
+所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须结束上一 Credential 的 `in_flight` Guard，上一 Attempt 的 RPM 名额不会归还。可恢复失败计算 request-local retry-not-before：普通失败的 fallback 指数按当前 Candidate 路径在本请求中的 Attempt 数计算；协议明确声明的 precontent overload 按逻辑请求总 Attempt 数计算。第一次失败使用固定 `base_delay`，之后指数增长并受固定 `max_delay` 限制，再应用固定 jitter；上游 `Retry-After` 是不得向下抖动的下限。未绑定请求先立即扫描不受该 not-before 约束的其他健康 Candidate；只有不存在立即候选且至少一个失败 scope 将在 deadline 前到期时，才通过统一有界 QueueTicket 等待最早到期或 scheduler epoch 后重扫，且不读取 `on_rate_limited` 的 wait/reject 策略。QueueTicket 已满或最早到期无法放入剩余预算时返回最后真实失败，不改写为本地排队/预算错误。已绑定请求只允许同路径等待。OAuth 刷新可在原路径等待窗口内执行，刷新耗时抵扣等待。完整决策见 `docs/adr/0128-reselect-retry-after-backoff.md`、`docs/adr/0136-precontent-rejection-fidelity-and-overload-backoff.md` 与 `docs/adr/0164-alternate-path-failure-recovery.md`。
 
 ### 14.2 Attempt 记录
 
@@ -2549,32 +2554,29 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 
 `network.trusted_proxy_cidrs` 是热更新设置，也是可信代理列表的唯一运行时来源，不再读取 `ANY2API_TRUSTED_PROXY_CIDRS`。每个请求在最外层只捕获一个 PublishedSnapshot，并只使用该 revision 的可信代理列表解析一次来源；快照、规范 TCP peer 与 `Result<ClientConnection, ClientAddressError>` 一起进入请求扩展。管理鉴权、Gateway Key 鉴权、登录/Setup、RequestLog 与 HttpAccessLog 只能复用这份上下文，同一请求不得重新解析或混用两个 revision。TCP 对端及转发链地址在 CIDR 判断前统一规范化，避免双栈 socket 的 IPv4-mapped IPv6 绕开 IPv4 信任或 loopback 语义。可信 TCP 对端完全缺少 XFF 时使用规范化 TCP 对端，完全缺少 XFP 时按非安全 HTTP 处理；多行 XFF 按收到顺序合并为一条逻辑链。空值/非法 XFF 与重复/非法 XFP 继续 Fail-Closed；系统日志可在该失败结果旁使用规范 TCP peer 审计，但鉴权不得把日志 fallback 当成成功解析。完整决策见 `docs/adr/0072-trusted-proxy-setting-and-remote-default.md`、`docs/adr/0088-direct-loopback-admin-boundary.md` 与 `docs/adr/0096-tolerant-missing-strict-invalid-forwarded-headers.md`。
 
-#### 重试、冷却与熔断默认值
+#### 重试总时限与内部可靠性策略
 
-| 设置 | 类型 | 默认值 |
-|---|---|---:|
-| `retry.max_total_attempts` | integer | `3` |
-| `retry.max_credential_switches` | integer | `2` |
-| `retry.max_same_credential_retries` | integer | `1` |
-| `retry.precommit_total_budget` | duration_secs | `600` |
-| `retry.base_delay` | duration_secs | `1` |
-| `retry.max_delay` | duration_secs | `2` |
-| `retry.jitter_ratio` | integer percentage | `20` |
-| `cooldown.rate_limit_fallback` | duration_secs | `60`，优先服从 `Retry-After` |
-| `cooldown.model_unsupported` | duration_secs | `3_600` |
-| `cooldown.permission_denied` | duration_secs | `900` |
-| `cooldown.transient_endpoint` | duration_secs | `15` |
-| `breaker.endpoint.failure_threshold` | integer | `3` |
-| `breaker.endpoint.failure_window` | duration_secs | `30` |
-| `breaker.endpoint.open_duration` | duration_secs | `15` |
-| `breaker.proxy.failure_threshold` | integer | `3` |
-| `breaker.proxy.failure_window` | duration_secs | `30` |
-| `breaker.proxy.open_duration` | duration_secs | `30` |
-| `breaker.half_open_max_probes` | integer | `1` |
+| 设置 | 类型 | 默认值 | 允许范围 |
+|---|---|---:|---:|
+| `retry.precommit_total_budget` | duration_secs | `600` | `1..=86_400` |
+
+普通设置只暴露逻辑请求从候选选择到下游提交前可用于排队、绑定等待、候选恢复和上游 Attempt 的总时限。
+以下值是 Runtime 中集中定义、随版本发布的内部可靠性策略，不进入 SettingRegistry，也不在 Web 中展示：
+
+| 内部策略 | 固定值 |
+|---|---:|
+| 最大总 Attempt | `3` |
+| 最大 Credential 切换 | `2` |
+| 单 Credential 额外重试 | `1` |
+| fallback base / max / jitter | `1s / 2s / 20%` |
+| rate-limit / model / permission / transient cooldown | `60s / 3600s / 900s / 15s` |
+| Endpoint breaker threshold / window / open | `3 / 30s / 15s` |
+| Proxy breaker threshold / window / open | `3 / 30s / 30s` |
+| HalfOpen 最大探测 | `1` |
 
 API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到管理员修改 Key、重新启用或手动测试成功。
 
-`retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。显式 `base_delay=0` 只关闭没有上游 hint 时的 fallback，任何非零 Retry-After 仍必须由同路径重试与候选切换共同遵守。jitter 只作用于指数 fallback，不能缩短 Retry-After。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并允许写入覆盖值；Web 不提供恢复默认入口。
+固定 jitter 只作用于指数 fallback，不能缩短 Retry-After。既有数据库如果保存了被移除的 17 个内部调优 override，Migration 0035 必须在任何删除或忽略前拒绝迁移，要求管理员先用旧版本显式处理；禁止静默丢弃配置值。`retry.precommit_total_budget` 继续通过统一 SettingRegistry 显示默认值、覆盖值和生效值。
 
 #### 流式响应默认值
 
@@ -3453,7 +3455,8 @@ Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque T
 Bridge Continuation Memory ──> 16 MiB Per Entry + 64 MiB Total Hard Cap
 All Session State ──> Memory Only
 
-Retry = Pending + RetrySafety Allows
+Safe Retry = Pending + RetrySafety Allows
+Alternate Candidate Recovery = Pending + Unbound + Complete UpstreamFailure + Non-InvalidRequest + Budget
 Any Downstream Header/Byte ──> Must Not Switch Upstream
 
 Provider Accepted Protocol = Required

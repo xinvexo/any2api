@@ -16,6 +16,32 @@ mod final_failure;
 
 pub(super) const MAX_UPSTREAM_ERROR_BODY_BYTES: usize = 64 * 1024;
 
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum CollectedErrorBody {
+    Complete(Bytes),
+    Incomplete,
+}
+
+impl CollectedErrorBody {
+    pub(super) fn classification_bytes(&self) -> &[u8] {
+        match self {
+            Self::Complete(body) => body,
+            Self::Incomplete => &[],
+        }
+    }
+
+    pub(super) fn is_complete(&self) -> bool {
+        matches!(self, Self::Complete(_))
+    }
+
+    pub(super) fn into_response_body(self) -> Bytes {
+        match self {
+            Self::Complete(body) => body,
+            Self::Incomplete => Bytes::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum CollectBodyError {
     Transport(TransportError),
@@ -69,19 +95,21 @@ pub(super) async fn collect_error_body(
     mut body: BoxByteStream,
     read_timeout: Duration,
     attempt_deadline: Instant,
-) -> Option<Bytes> {
+) -> CollectedErrorBody {
     let mut collected = BytesMut::new();
     loop {
         let idle_deadline = Instant::now() + read_timeout;
-        let next = timeout_at(idle_deadline.min(attempt_deadline), body.next())
-            .await
-            .ok()?;
-        let Some(chunk) = next else {
-            return Some(collected.freeze());
+        let Ok(next) = timeout_at(idle_deadline.min(attempt_deadline), body.next()).await else {
+            return CollectedErrorBody::Incomplete;
         };
-        let chunk = chunk.ok()?;
+        let Some(chunk) = next else {
+            return CollectedErrorBody::Complete(collected.freeze());
+        };
+        let Ok(chunk) = chunk else {
+            return CollectedErrorBody::Incomplete;
+        };
         if collected.len().saturating_add(chunk.len()) > MAX_UPSTREAM_ERROR_BODY_BYTES {
-            return None;
+            return CollectedErrorBody::Incomplete;
         }
         collected.extend_from_slice(&chunk);
     }
@@ -189,8 +217,9 @@ mod tests {
     use http::{HeaderMap, HeaderValue, header};
 
     use super::{
-        CollectBodyError, MAX_UPSTREAM_ERROR_BODY_BYTES, collect_body, collect_error_body,
-        payload_buffer_error, sanitize_response_headers, sanitize_upstream_error_response_headers,
+        CollectBodyError, CollectedErrorBody, MAX_UPSTREAM_ERROR_BODY_BYTES, collect_body,
+        collect_error_body, payload_buffer_error, sanitize_response_headers,
+        sanitize_upstream_error_response_headers,
     };
 
     #[tokio::test]
@@ -203,7 +232,7 @@ mod tests {
                 tokio::time::Instant::now() + Duration::from_secs(1),
             )
             .await,
-            Some(Bytes::from_static(b"complete"))
+            CollectedErrorBody::Complete(Bytes::from_static(b"complete"))
         );
 
         let oversized: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from(vec![
@@ -218,7 +247,7 @@ mod tests {
                 tokio::time::Instant::now() + Duration::from_secs(1),
             )
             .await,
-            None
+            CollectedErrorBody::Incomplete
         );
 
         let read_error = TransportError::new(
@@ -238,7 +267,7 @@ mod tests {
                 tokio::time::Instant::now() + Duration::from_secs(1),
             )
             .await,
-            None
+            CollectedErrorBody::Incomplete
         );
     }
 
@@ -254,7 +283,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(collected, None);
+        assert_eq!(collected, CollectedErrorBody::Incomplete);
     }
 
     #[tokio::test]

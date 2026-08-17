@@ -238,6 +238,14 @@ impl UpstreamError {
     }
 
     #[must_use]
+    /// Applies protocol-audited execution evidence without changing the
+    /// Provider's error kind, attribution, retry hint, or official message.
+    pub fn with_retry_safety(mut self, retry_safety: RetrySafety) -> Self {
+        self.classification.retry_safety = retry_safety;
+        self
+    }
+
+    #[must_use]
     pub fn official_message(&self) -> Option<&str> {
         self.official_message.as_deref()
     }
@@ -343,6 +351,25 @@ mod tests {
         assert_eq!(error.classification(), classification());
         assert_eq!(error.official_message(), Some("official provider detail"));
         assert!(!format!("{error:?}").contains("official provider detail"));
+    }
+
+    #[test]
+    fn protocol_evidence_can_override_only_retry_safety() {
+        let error = UpstreamError::new(
+            classification().with_attribution(UpstreamFailureAttribution::Endpoint),
+            Some("official provider detail".to_owned()),
+        )
+        .with_retry_safety(RetrySafety::RejectedBeforeExecution);
+
+        assert_eq!(
+            error.classification().retry_safety(),
+            RetrySafety::RejectedBeforeExecution
+        );
+        assert_eq!(
+            error.classification().attribution(),
+            UpstreamFailureAttribution::Endpoint
+        );
+        assert_eq!(error.official_message(), Some("official provider detail"));
     }
 
     #[test]

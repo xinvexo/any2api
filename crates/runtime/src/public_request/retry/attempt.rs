@@ -1,6 +1,4 @@
-use any2api_domain::{
-    RequestAttemptFailureScope, RequestAttemptRetryDecision, RoutingCredentialId,
-};
+use any2api_domain::{RequestAttemptFailureScope, RequestAttemptRetryDecision};
 use tokio::time::timeout;
 
 use super::{RetryExecution, budget_exhausted, within_attempt_budget};
@@ -12,14 +10,12 @@ use crate::public_request::{
 
 pub(super) struct RegisteredAttempt {
     affinity: affinity::AffinitySelection,
-    credential_id: RoutingCredentialId,
     attempt_no: u32,
     allow_credential_bound_headers: bool,
 }
 
 pub(super) struct CompletedAttempt {
     pub(super) attempt_no: u32,
-    pub(super) credential_id: RoutingCredentialId,
     pub(super) result: Result<PublicResponse, AttemptFailure>,
 }
 
@@ -29,26 +25,35 @@ impl RetryExecution<'_> {
         if remaining.is_zero() {
             return Err(self.previous_or(|| budget_exhausted().into()));
         }
-        let selection = timeout(
-            remaining,
-            affinity::select(affinity::AffinitySelectionInput {
-                snapshot: self.snapshot.as_ref(),
-                operation: self.plan.decoded.operation,
-                affinity: &self.plan.decoded.affinity,
-                route_id: self.plan.route_id,
-                dialect: self.plan.dialect,
-                fallback_on_rate_limit: self.plan.fallback_on_rate_limit,
-                tiers: &self.plan.tiers,
-                exclusions: &self.exclusions,
-            }),
-        )
-        .await;
+        let selection = {
+            let credential_eligible =
+                |credential_id| self.budget.can_register_attempt(credential_id);
+            timeout(
+                remaining,
+                affinity::select(affinity::AffinitySelectionInput {
+                    snapshot: self.snapshot.as_ref(),
+                    operation: self.plan.decoded.operation,
+                    affinity: &self.plan.decoded.affinity,
+                    route_id: self.plan.route_id,
+                    dialect: self.plan.dialect,
+                    fallback_on_rate_limit: self.plan.fallback_on_rate_limit,
+                    tiers: &self.plan.tiers,
+                    selection_state: &self.selection_state,
+                    credential_eligible: &credential_eligible,
+                }),
+            )
+            .await
+        };
         let affinity = match selection {
             Ok(Ok(selection)) => selection,
             Ok(Err(error)) => return Err(self.previous_or(|| error.into())),
             Err(_) => return Err(self.previous_or(|| budget_exhausted().into())),
         };
         let credential_id = affinity.selected.candidate.credential_id;
+        let Some(attempt_no) = self.budget.register_attempt(&affinity.selected.candidate) else {
+            affinity.selected.rollback_before_attempt();
+            return Err(self.previous_or(|| budget_exhausted().into()));
+        };
         let allow_credential_bound_headers = match self.credential_bound_header_owner {
             Some(owner) => owner == credential_id,
             None => {
@@ -56,24 +61,19 @@ impl RetryExecution<'_> {
                 true
             }
         };
-        let Some(attempt_no) = self.budget.register_attempt(credential_id) else {
-            return Err(self.previous_or(|| budget_exhausted().into()));
-        };
         Ok(RegisteredAttempt {
             affinity,
-            credential_id,
             attempt_no,
             allow_credential_bound_headers,
         })
     }
 
     pub(super) async fn execute_attempt(
-        &self,
+        &mut self,
         registered: RegisteredAttempt,
     ) -> Result<CompletedAttempt, FinalFailure> {
         let RegisteredAttempt {
             affinity,
-            credential_id,
             attempt_no,
             allow_credential_bound_headers,
         } = registered;
@@ -130,17 +130,82 @@ impl RetryExecution<'_> {
                     Some(RequestAttemptFailureScope::Unattributed),
                     RequestAttemptRetryDecision::Terminal,
                 );
-                return Err(error);
+                return Err(self.previous_or(|| error));
             }
         };
-        Ok(CompletedAttempt {
-            attempt_no,
-            credential_id,
-            result,
-        })
+        Ok(CompletedAttempt { attempt_no, result })
     }
 
     fn previous_or(&mut self, fallback: impl FnOnce() -> FinalFailure) -> FinalFailure {
-        self.previous_error.take().unwrap_or_else(fallback)
+        take_previous_or(&mut self.previous_error, fallback)
+    }
+}
+
+fn take_previous_or(
+    previous: &mut Option<FinalFailure>,
+    fallback: impl FnOnce() -> FinalFailure,
+) -> FinalFailure {
+    previous.take().unwrap_or_else(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{
+        ErrorClass, PublicErrorCode, RetrySafety, UpstreamError, UpstreamErrorClassification,
+        UpstreamErrorKind,
+    };
+    use bytes::Bytes;
+    use http::{HeaderMap, HeaderValue, StatusCode};
+
+    use super::{super::budget_exhausted, take_previous_or};
+    use crate::public_request::response::FinalFailure;
+
+    #[test]
+    fn previous_upstream_failure_wins_over_a_later_local_timeout() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-upstream-attempt", HeaderValue::from_static("first"));
+        let upstream = UpstreamError::new(
+            UpstreamErrorClassification::new(
+                UpstreamErrorKind::Transient,
+                RetrySafety::Ambiguous,
+                None,
+            ),
+            Some("first upstream failed".to_owned()),
+        );
+        let mut previous = Some(FinalFailure::upstream(
+            headers,
+            StatusCode::SERVICE_UNAVAILABLE,
+            Bytes::from_static(br#"{"error":"first"}"#),
+            &upstream,
+        ));
+
+        let selected = take_previous_or(&mut previous, || {
+            panic!("a later local timeout must not replace a real upstream response")
+        });
+        let FinalFailure::Upstream {
+            response,
+            error_class,
+            error_message,
+        } = selected
+        else {
+            panic!("the previous upstream failure must be returned")
+        };
+        assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers["x-upstream-attempt"], "first");
+        assert_eq!(response.body, br#"{"error":"first"}"#.as_slice());
+        assert_eq!(error_class, ErrorClass::Upstream);
+        assert_eq!(error_message.as_deref(), Some("first upstream failed"));
+        assert!(previous.is_none());
+    }
+
+    #[test]
+    fn local_timeout_is_preserved_when_no_upstream_failure_exists() {
+        let mut previous = None;
+        let selected = take_previous_or(&mut previous, || budget_exhausted().into());
+
+        let FinalFailure::Local { error } = selected else {
+            panic!("the local timeout must remain the final failure")
+        };
+        assert_eq!(error.code(), PublicErrorCode::GatewayTimeout);
     }
 }

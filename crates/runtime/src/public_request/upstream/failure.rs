@@ -2,7 +2,7 @@ use any2api_domain::{
     OAuthAccountId, PublicError, RetryAfterHint, RetrySafety, UpstreamError,
     UpstreamErrorClassification, UpstreamErrorKind,
 };
-use any2api_protocol::api::StreamRejection;
+use any2api_protocol::api::ProtocolRetryDelayBasis;
 use any2api_transport::api::TransportError;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -18,6 +18,7 @@ pub(in crate::public_request) enum AttemptFailure {
         bound: bool,
     },
     Upstream {
+        origin: UpstreamFailureOrigin,
         status: StatusCode,
         headers: Box<HeaderMap>,
         body: Bytes,
@@ -25,15 +26,29 @@ pub(in crate::public_request) enum AttemptFailure {
         candidate: Box<RouteCandidate>,
         bound: bool,
     },
-    StreamRejected {
-        status: StatusCode,
-        headers: Box<HeaderMap>,
-        body: Bytes,
-        candidate: Box<RouteCandidate>,
-        bound: bool,
-        rejection: StreamRejection,
-    },
     Public(PublicError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::public_request) enum UpstreamFailureOrigin {
+    HttpStatus {
+        error_body_complete: bool,
+    },
+    BufferedEnvelope,
+    PreSemanticStreamEnvelope {
+        retry_delay_basis: ProtocolRetryDelayBasis,
+    },
+}
+
+impl UpstreamFailureOrigin {
+    pub(in crate::public_request) const fn retry_delay_basis(self) -> ProtocolRetryDelayBasis {
+        match self {
+            Self::PreSemanticStreamEnvelope { retry_delay_basis } => retry_delay_basis,
+            Self::HttpStatus { .. } | Self::BufferedEnvelope => {
+                ProtocolRetryDelayBasis::CandidateAttempts
+            }
+        }
+    }
 }
 
 impl AttemptFailure {
@@ -46,6 +61,7 @@ impl AttemptFailure {
     }
 
     pub(super) fn upstream(
+        origin: UpstreamFailureOrigin,
         status: StatusCode,
         headers: HeaderMap,
         body: Bytes,
@@ -54,30 +70,13 @@ impl AttemptFailure {
         bound: bool,
     ) -> Self {
         Self::Upstream {
+            origin,
             status,
             headers: Box::new(headers),
             body,
             error: Box::new(error),
             candidate: Box::new(candidate),
             bound,
-        }
-    }
-
-    pub(super) fn stream_rejected(
-        status: StatusCode,
-        headers: HeaderMap,
-        body: Bytes,
-        candidate: RouteCandidate,
-        bound: bool,
-        rejection: StreamRejection,
-    ) -> Self {
-        Self::StreamRejected {
-            status,
-            headers: Box::new(headers),
-            body,
-            candidate: Box::new(candidate),
-            bound,
-            rejection,
         }
     }
 
@@ -95,18 +94,6 @@ impl AttemptFailure {
                 error,
                 ..
             } => FinalFailure::upstream(headers.as_ref().clone(), *status, body.clone(), error),
-            Self::StreamRejected {
-                status,
-                headers,
-                body,
-                rejection,
-                ..
-            } => FinalFailure::stream_rejection(
-                headers.as_ref().clone(),
-                *status,
-                body.clone(),
-                *rejection,
-            ),
             Self::Public(error) => error.clone().into(),
         }
     }
@@ -115,7 +102,6 @@ impl AttemptFailure {
         match self {
             Self::Transport { error, .. } => error.retry_safety,
             Self::Upstream { error, .. } => error.classification().retry_safety(),
-            Self::StreamRejected { .. } => RetrySafety::RejectedBeforeExecution,
             Self::Public(_) => RetrySafety::Ambiguous,
         }
     }
@@ -123,33 +109,30 @@ impl AttemptFailure {
     pub(in crate::public_request) fn retry_after(&self) -> Option<RetryAfterHint> {
         match self {
             Self::Upstream { error, .. } => error.classification().retry_after(),
-            Self::Transport { .. } | Self::StreamRejected { .. } | Self::Public(_) => None,
-        }
-    }
-
-    pub(in crate::public_request) fn is_retry_candidate(&self) -> bool {
-        match self {
-            Self::Transport { .. } | Self::StreamRejected { .. } => true,
-            Self::Upstream { error, .. } => error.classification().kind().is_retry_candidate(),
-            Self::Public(_) => false,
+            Self::Transport { .. } | Self::Public(_) => None,
         }
     }
 
     pub(in crate::public_request) fn candidate(&self) -> Option<&RouteCandidate> {
         match self {
-            Self::Transport { candidate, .. }
-            | Self::Upstream { candidate, .. }
-            | Self::StreamRejected { candidate, .. } => Some(candidate.as_ref()),
+            Self::Transport { candidate, .. } | Self::Upstream { candidate, .. } => {
+                Some(candidate.as_ref())
+            }
             Self::Public(_) => None,
         }
     }
 
     pub(in crate::public_request) fn bound(&self) -> bool {
         match self {
-            Self::Transport { bound, .. }
-            | Self::Upstream { bound, .. }
-            | Self::StreamRejected { bound, .. } => *bound,
+            Self::Transport { bound, .. } | Self::Upstream { bound, .. } => *bound,
             Self::Public(_) => true,
+        }
+    }
+
+    pub(in crate::public_request) fn upstream_origin(&self) -> Option<UpstreamFailureOrigin> {
+        match self {
+            Self::Upstream { origin, .. } => Some(*origin),
+            Self::Transport { .. } | Self::Public(_) => None,
         }
     }
 

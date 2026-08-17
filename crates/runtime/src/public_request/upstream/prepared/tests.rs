@@ -6,7 +6,7 @@ use any2api_domain::{
     PublicErrorCode,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, api::ProtocolRegistry};
-use any2api_provider::{CodexDriver, api::ProviderDriver};
+use any2api_provider::CodexDriver;
 use any2api_transport::api::TransportProxy;
 
 use super::PreparedAttempt;
@@ -59,7 +59,6 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         None,
         policy,
     );
-    let driver = CodexDriver::new();
     let proxy = ProxyProfile::direct();
     let mut protocols = ProtocolRegistry::new();
     protocols
@@ -73,7 +72,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         )
         .expect("direct Responses exchange");
     let mut prepared = PreparedAttempt {
-        driver: &driver as &dyn ProviderDriver,
+        driver: Arc::new(CodexDriver::new()),
         proxy: TransportProxy::new(&proxy, None),
         ingress_operation: ProtocolOperation::Responses,
         upstream_operation: ProtocolOperation::Responses,

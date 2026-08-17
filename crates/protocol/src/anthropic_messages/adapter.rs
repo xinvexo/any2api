@@ -88,10 +88,21 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         let payload = parse_event_payload(&frame.0);
         let telemetry = telemetry::event(&payload);
         let termination = termination::classify(&payload);
-        let rejection = crate::stream_rejection::anthropic(&payload);
+        let upstream_failure = crate::upstream_failure::anthropic_stream(&payload, termination);
         Ok(AdapterEvent::new(frame.0, telemetry, payload)
             .with_termination(termination)
-            .with_rejection(rejection))
+            .with_upstream_failure(upstream_failure))
+    }
+
+    fn buffered_upstream_failure(
+        &self,
+        response: &UpstreamResponse,
+    ) -> Option<crate::api::ProtocolUpstreamFailureEvidence> {
+        response
+            .status
+            .is_success()
+            .then(|| crate::upstream_failure::anthropic_buffered(&response.body))
+            .flatten()
     }
 
     fn encode_egress_response(
@@ -186,14 +197,14 @@ fn insert_retry_after(headers: &mut HeaderMap, seconds: Option<u64>) {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
+    use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode, RetrySafety};
     use bytes::Bytes;
     use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use serde_json::{Value, json};
 
     use super::AnthropicMessagesAdapter;
     use crate::api::{
-        IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy, StreamRetryReason,
+        IngressRequest, ProtocolAdapter, ProtocolRetryDelayBasis, SseFrame, StreamCompletionPolicy,
         StreamTermination,
     };
 
@@ -335,23 +346,28 @@ mod tests {
                 .termination(),
             StreamTermination::Completed
         );
+        let overload = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
+                b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+            )))
+            .expect("error event");
+        assert_eq!(overload.termination(), StreamTermination::Failed);
+        assert!(overload.upstream_failure().is_some());
+        let rate_limit = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
+                b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
+            )))
+            .expect("rate limit event");
+        let evidence = rate_limit
+            .upstream_failure()
+            .expect("rate limit failure evidence");
         assert_eq!(
-            adapter
-                .decode_upstream_event(SseFrame(Bytes::from_static(
-                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
-                )))
-                .expect("error event")
-                .termination(),
-            StreamTermination::Failed
+            evidence.retry_safety_override(),
+            Some(RetrySafety::RejectedBeforeExecution)
         );
         assert_eq!(
-            adapter
-                .decode_upstream_event(SseFrame(Bytes::from_static(
-                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
-                )))
-                .expect("rate limit event")
-                .retry_reason(),
-            Some(StreamRetryReason::RateLimited)
+            evidence.retry_delay_basis(),
+            ProtocolRetryDelayBasis::CandidateAttempts
         );
         assert_eq!(
             adapter

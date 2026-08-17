@@ -19,5 +19,6 @@ use crate::routing::RouteCandidate;
 #[cfg(test)]
 use selector::{
     select_generation_candidate, try_select_fixed_candidate_for_test,
-    try_select_generation_candidate_for_test, wait_for_generation_candidate,
+    try_select_generation_candidate_for_test, try_select_generation_candidate_with_state_for_test,
+    wait_for_generation_candidate,
 };

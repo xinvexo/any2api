@@ -8,10 +8,10 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::{ProtocolOperation, PublicErrorCode, RetrySafety, SettingsConfiguration};
+use any2api_domain::{ProtocolOperation, PublicErrorCode, RetrySafety, UpstreamErrorKind};
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    api::{ProtocolAdapter, StreamRetryReason},
+    api::ProtocolAdapter,
 };
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
@@ -21,10 +21,7 @@ use futures_util::{StreamExt, stream};
 use tokio::time::timeout;
 
 use super::super::StreamPrimeFailure;
-use super::core::{
-    generation_permit, guarded_body, guarded_body_for_adapter, guarded_body_for_adapter_with_health,
-};
-use crate::health::{AttemptHealth, ReliabilityPolicy};
+use super::core::{generation_permit, guarded_body, guarded_body_for_adapter};
 
 const COMPACTION_ITEM: &[u8] = b"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction_summary\",\"encrypted_content\":\"opaque\",\"future_extension\":{\"kept\":true}}}\n\n";
 const COMPLETED: &[u8] = b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_compact\"},\"future_terminal_field\":true}\n\n";
@@ -65,7 +62,7 @@ async fn terminal_frame_ends_a_held_upstream_after_preserving_compaction_events(
             .expect("terminal bytes"),
         COMPLETED
     );
-    assert_eq!(binding.in_flight(), 1);
+    assert_eq!(binding.in_flight(), 0);
     assert!(upstream_dropped.load(Ordering::Acquire));
     let end = timeout(Duration::from_millis(100), body.next())
         .await
@@ -130,7 +127,7 @@ async fn transport_error_after_a_terminal_frame_is_ignored() {
             .expect("terminal bytes"),
         COMPLETED
     );
-    assert_eq!(binding.in_flight(), 1);
+    assert_eq!(binding.in_flight(), 0);
     assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
 }
@@ -145,8 +142,8 @@ async fn lifecycle_only_eof_fails_before_committing_a_responses_stream() {
         Err(StreamPrimeFailure::Public(error)) => {
             assert_eq!(error.code(), PublicErrorCode::UpstreamError);
         }
-        Err(StreamPrimeFailure::Retryable(reason)) => {
-            panic!("truncated lifecycle stream must not be retryable: {reason:?}")
+        Err(StreamPrimeFailure::Upstream(failure)) => {
+            panic!("truncated lifecycle stream must not be retryable: {failure:?}")
         }
         Ok(_) => panic!("truncated lifecycle stream must fail before commit"),
     }
@@ -200,7 +197,7 @@ async fn terminal_frame_without_a_trailing_blank_line_finishes_on_eof() {
             .expect("terminal bytes"),
         terminal.as_slice()
     );
-    assert_eq!(binding.in_flight(), 1);
+    assert_eq!(binding.in_flight(), 0);
     assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
 }
@@ -255,7 +252,7 @@ async fn every_streaming_protocol_rejects_eof_before_its_terminal_event() {
 }
 
 #[tokio::test]
-async fn protocol_failure_events_are_forwarded_before_error_settlement() {
+async fn protocol_failure_events_before_semantic_output_remain_uncommitted() {
     let cases: Vec<ProtocolStreamCase> = vec![
         (
             "Messages",
@@ -281,21 +278,18 @@ async fn protocol_failure_events_are_forwarded_before_error_settlement() {
         let (binding, permit) = generation_permit();
         let upstream: BoxByteStream =
             Box::pin(stream::iter([Ok(Bytes::from_static(failure))]).chain(stream::pending()));
-        let mut body = guarded_body_for_adapter(upstream, permit, adapter, operation)
-            .prime()
+        match guarded_body_for_adapter(upstream, permit, adapter, operation)
+            .prime_attempt()
             .await
-            .unwrap_or_else(|error| panic!("{name} failure event must be forwarded: {error:?}"))
-            .into_stream();
-
-        assert_eq!(
-            body.next()
-                .await
-                .unwrap_or_else(|| panic!("{name} failure frame"))
-                .expect("failure event bytes"),
-            failure,
-            "{name}"
-        );
-        assert!(body.next().await.is_none(), "{name}");
+        {
+            Err(StreamPrimeFailure::Upstream(failed)) => {
+                assert_eq!(failed.frame, failure, "{name}");
+            }
+            Err(StreamPrimeFailure::Public(error)) => {
+                panic!("{name} structured failure must retain upstream evidence: {error:?}")
+            }
+            Ok(_) => panic!("{name} failure must not commit the stream"),
+        }
         assert_eq!(binding.in_flight(), 0, "{name}");
     }
 }
@@ -308,11 +302,17 @@ async fn lifecycle_frames_then_exact_overload_remain_uncommitted_for_retry() {
     ))]));
 
     match guarded_body(upstream, permit).prime_attempt().await {
-        Err(StreamPrimeFailure::Retryable(rejected)) => {
-            assert_eq!(rejected.rejection.reason(), StreamRetryReason::Overloaded);
-            assert_eq!(rejected.rejection.code(), "server_is_overloaded");
+        Err(StreamPrimeFailure::Upstream(failure)) => {
             assert_eq!(
-                rejected.frame,
+                failure.error.classification().kind(),
+                UpstreamErrorKind::Transient
+            );
+            assert_eq!(
+                failure.error.classification().retry_safety(),
+                RetrySafety::RejectedBeforeExecution
+            );
+            assert_eq!(
+                failure.frame,
                 Bytes::from_static(
                     b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n"
                 )
@@ -324,96 +324,4 @@ async fn lifecycle_frames_then_exact_overload_remain_uncommitted_for_retry() {
         }
     }
     assert_eq!(binding.in_flight(), 0);
-}
-
-#[tokio::test]
-async fn exact_overload_after_semantic_output_is_forwarded_without_retry() {
-    let (binding, permit) = generation_permit();
-    let content = b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n";
-    let failure = b"event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n";
-    let mut bytes = Vec::from(content);
-    bytes.extend_from_slice(failure);
-    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from(bytes))]));
-    let mut body = guarded_body(upstream, permit)
-        .prime_attempt()
-        .await
-        .expect("semantic output commits the attempt")
-        .into_stream();
-
-    assert_eq!(
-        body.next().await.expect("content").expect("bytes"),
-        content.as_slice()
-    );
-    assert_eq!(
-        body.next().await.expect("failure").expect("bytes"),
-        failure.as_slice()
-    );
-    assert!(body.next().await.is_none());
-    assert_eq!(binding.in_flight(), 0);
-}
-
-#[tokio::test]
-async fn stream_health_succeeds_only_after_a_successful_terminal_event() {
-    const DELTA: &[u8] = b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n";
-    const FAILED: &[u8] =
-        b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n";
-    const COMPLETED: &[u8] = b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
-
-    for (name, terminal, should_clear_health) in
-        [("failed", FAILED, false), ("completed", COMPLETED, true)]
-    {
-        let (binding, permit) = generation_permit();
-        binding
-            .generation()
-            .health()
-            .record_quota_exhaustion(Duration::from_secs(60), None, None);
-        let health = AttemptHealth::new(
-            Arc::clone(binding.generation()),
-            "upstream".into(),
-            None,
-            None,
-            ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability()),
-        );
-        let mut bytes = Vec::from(DELTA);
-        bytes.extend_from_slice(terminal);
-        let upstream: BoxByteStream =
-            Box::pin(stream::iter([Ok(Bytes::from(bytes))]).chain(stream::pending()));
-        let mut body = guarded_body_for_adapter_with_health(
-            upstream,
-            permit,
-            Arc::new(AnthropicMessagesAdapter::new()),
-            ProtocolOperation::Messages,
-            health,
-        )
-        .prime()
-        .await
-        .unwrap_or_else(|error| panic!("{name} stream must prime: {error:?}"))
-        .into_stream();
-
-        assert!(
-            binding.generation().health().quota_exhaustion().is_some(),
-            "the first ordinary event must not settle health"
-        );
-        assert_eq!(
-            body.next()
-                .await
-                .expect("content event")
-                .expect("content bytes"),
-            DELTA
-        );
-        assert_eq!(
-            body.next()
-                .await
-                .expect("terminal event")
-                .expect("terminal bytes"),
-            terminal
-        );
-        assert!(body.next().await.is_none());
-        assert_eq!(
-            binding.generation().health().quota_exhaustion().is_none(),
-            should_clear_health,
-            "{name} stream health settlement"
-        );
-        assert_eq!(binding.in_flight(), 0);
-    }
 }

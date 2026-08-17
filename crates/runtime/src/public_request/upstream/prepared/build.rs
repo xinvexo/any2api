@@ -30,7 +30,7 @@ use crate::{
 };
 
 struct BuiltRequest<'a> {
-    driver: &'a dyn ProviderDriver,
+    driver: std::sync::Arc<dyn ProviderDriver>,
     proxy: TransportProxy<'a>,
     ingress_operation: ProtocolOperation,
     upstream_operation: ProtocolOperation,
@@ -127,10 +127,11 @@ fn build_request<'a>(
     header_policy: AttemptHeaderPolicy,
 ) -> Result<BuiltRequest<'a>, PublicError> {
     let candidate = &selected.candidate;
-    let driver = providers
-        .get(candidate.provider_kind)
-        .ok_or_else(internal_error)?
-        .as_ref();
+    let driver = std::sync::Arc::clone(
+        providers
+            .get(candidate.provider_kind)
+            .ok_or_else(internal_error)?,
+    );
     let proxy = snapshot
         .transport_proxy(candidate.proxy_id)
         .filter(|proxy| proxy.profile().enabled())
@@ -206,7 +207,7 @@ fn build_request<'a>(
     }
     let credential_headers = selected
         .permit
-        .credential_headers(driver, &candidate.base_url, &headers)
+        .credential_headers(driver.as_ref(), &candidate.base_url, &headers)
         .map_err(|_| internal_error())?;
     headers.extend(credential_headers.headers);
     pass_through_accept_encoding(

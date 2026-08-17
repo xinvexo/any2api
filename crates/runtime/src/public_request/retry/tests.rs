@@ -1,4 +1,4 @@
 mod decision;
 mod exclusions;
-mod support;
+pub(crate) mod support;
 mod timeout;

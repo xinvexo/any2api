@@ -5,7 +5,9 @@ use any2api_protocol::api::{
 };
 use bytes::Bytes;
 
-use super::{GuardedBody, PendingFrame, pending_failure::PendingStreamError};
+use super::{
+    GuardedBody, PendingFrame, PrecommitUpstreamFailure, pending_failure::PendingStreamError,
+};
 use crate::affinity::AffinityError;
 
 impl GuardedBody {
@@ -137,7 +139,13 @@ impl GuardedBody {
         }
         let telemetry = event.telemetry();
         let termination = event.termination();
-        let rejection = event.rejection();
+        let allow_retry_safety_override = check_deadline && !self.precommit_commit_ready;
+        let upstream_failure = event.upstream_failure().map(|evidence| {
+            (
+                self.classify_upstream_failure(evidence, allow_retry_safety_override),
+                evidence.retry_delay_basis(),
+            )
+        });
         let continuation_id = self
             .exchange
             .continuation_id_from_event(self.continuation_binding.operation(), &event)
@@ -173,27 +181,35 @@ impl GuardedBody {
             self.request_recorder
                 .observe_token_usage(telemetry.token_usage);
         }
+        let frame = frame.0;
+        if check_deadline
+            && termination == StreamTermination::Failed
+            && !self.precommit_commit_ready
+            && let Some((error, retry_delay_basis)) = upstream_failure.as_ref()
+        {
+            self.precommit_upstream_failure = Some(PrecommitUpstreamFailure {
+                error: error.clone(),
+                frame: frame.clone(),
+                retry_delay_basis: *retry_delay_basis,
+            });
+        }
         self.pending.push_back(PendingFrame {
-            bytes: frame.0,
+            bytes: frame,
             has_content_delta: telemetry.has_content_delta,
             termination,
             token_usage: telemetry.token_usage,
             continuation_id,
             continuation_state,
+            upstream_error: upstream_failure.map(|(error, _)| error),
         });
         self.terminal_seen |= termination.is_terminal();
-        if check_deadline {
-            if termination == StreamTermination::Failed
-                && rejection.is_some()
-                && !self.precommit_commit_ready
-            {
-                self.precommit_retry = rejection;
-            } else if telemetry.has_content_delta
+        if check_deadline
+            && self.precommit_upstream_failure.is_none()
+            && (telemetry.has_content_delta
                 || !telemetry.retry_transparent
-                || termination.is_terminal()
-            {
-                self.precommit_commit_ready = true;
-            }
+                || termination.is_terminal())
+        {
+            self.precommit_commit_ready = true;
         }
         Ok(())
     }

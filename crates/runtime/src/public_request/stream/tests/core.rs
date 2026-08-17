@@ -1,25 +1,27 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelRouteId, ProtocolOperation,
-    ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
-    PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId, SettingsConfiguration,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelRouteId, ProtocolDialect,
+    ProtocolOperation, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId,
+    ProxyProfileId, PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId,
 };
 use any2api_protocol::{
     OpenAiResponsesAdapter,
     api::{ProtocolAdapter, ProtocolRegistry},
 };
+use any2api_provider::{ClaudeDriver, CodexDriver, api::ProviderDriver};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
+use http::HeaderMap;
 
 use super::super::{CommitState, GuardedBody, GuardedBodyParts, PrecommitBudget};
 use crate::{
     affinity::{AffinityRegistry, AffinityTarget, ContinuationBindingCommitter},
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle, RoutingPermit},
-    health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
+    health::AttemptHealth,
     request_telemetry::AttemptRecorder,
     routing::SchedulerEpoch,
 };
@@ -50,8 +52,8 @@ async fn guarded_body_primes_rewrites_and_releases_on_terminal_event() {
     assert!(String::from_utf8_lossy(&first).contains(r#""model":"public""#));
     assert_eq!(binding.in_flight(), 1);
     assert!(body.next().await.expect("terminal frame").is_ok());
-    assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
+    assert!(body.next().await.is_none());
     assert_eq!(binding.rate_snapshot().requests_in_window(), 1);
 }
 
@@ -132,118 +134,6 @@ async fn transport_error_before_the_first_frame_releases_without_commit() {
 }
 
 #[tokio::test]
-async fn oversized_first_event_exhausts_the_precommit_byte_budget() {
-    let (binding, permit) = generation_permit();
-    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-        b"data: {\"model\":\"upstream\"}\n\n",
-    ))]));
-    let result = guarded_body_with_budget(
-        upstream,
-        permit,
-        PrecommitBudget::new(16, Duration::from_secs(5)),
-    )
-    .prime()
-    .await;
-
-    let error = match result {
-        Ok(_) => panic!("oversized first event must fail before commit"),
-        Err(error) => error,
-    };
-    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
-    assert_eq!(binding.in_flight(), 0);
-}
-
-#[tokio::test]
-async fn encoded_event_budget_failure_is_reported_as_upstream_error() {
-    let (binding, permit) = generation_permit();
-    let epoch = SchedulerEpoch::new();
-    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
-    let mut policy =
-        ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability());
-    policy.endpoint_failure_threshold = 1;
-    let health = AttemptHealth::new(
-        binding.generation().clone(),
-        "upstream".into(),
-        Some(endpoint.try_acquire(&policy).expect("endpoint permit")),
-        None,
-        policy,
-    );
-    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-        b"data: {\"model\":\"u\"}\n\n",
-    ))]));
-    let result = guarded_body_with_budget_and_health(
-        upstream,
-        permit,
-        PrecommitBudget::new(24, Duration::from_secs(5)),
-        Some(health),
-    )
-    .prime()
-    .await;
-
-    let error = match result {
-        Ok(_) => panic!("encoded output over budget must fail before commit"),
-        Err(error) => error,
-    };
-    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
-    assert_eq!(binding.in_flight(), 0);
-    assert_eq!(endpoint.availability(&policy), Ok(()));
-}
-
-#[tokio::test]
-async fn complete_event_precedes_a_later_same_chunk_frame_error() {
-    let (binding, permit) = generation_permit();
-    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-        b"data: {\"model\":\"upstream\"}\n\ndata: this-frame-is-deliberately-longer-than-the-configured-sixty-four-byte-limit-for-this-test\n\n",
-    ))]));
-    let mut body = guarded_body_with_budget(
-        upstream,
-        permit,
-        PrecommitBudget::new(64, Duration::from_secs(5)),
-    )
-    .prime()
-    .await
-    .expect("first complete event must commit")
-    .into_stream();
-
-    let first = body
-        .next()
-        .await
-        .expect("first frame")
-        .expect("first frame bytes");
-    assert!(String::from_utf8_lossy(&first).contains(r#""model":"public""#));
-    assert_eq!(binding.in_flight(), 1);
-    assert!(body.next().await.expect("later frame error").is_err());
-    assert_eq!(binding.in_flight(), 0);
-    assert!(body.next().await.is_none());
-}
-
-#[tokio::test]
-async fn prime_buffers_only_the_first_complete_event_from_a_chunk() {
-    let (binding, permit) = generation_permit();
-    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-        b"data: {\"model\":\"upstream\",\"index\":1}\n\ndata: {\"model\":\"upstream\",\"index\":2}\n\ndata: {\"model\":\"upstream\",\"index\":3}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n",
-    ))]));
-    let guarded = guarded_body(upstream, permit)
-        .prime()
-        .await
-        .expect("first event");
-    assert_eq!(guarded.pending_frame_count(), 1);
-    let mut body = guarded.into_stream();
-
-    for index in 1..=3 {
-        let frame = body
-            .next()
-            .await
-            .expect("stream frame")
-            .expect("stream bytes");
-        assert!(String::from_utf8_lossy(&frame).contains(&format!(r#""index":{index}"#)));
-    }
-    assert!(body.next().await.expect("terminal frame").is_ok());
-    assert!(body.next().await.is_none());
-    assert_eq!(binding.in_flight(), 0);
-}
-
-#[tokio::test]
 async fn post_commit_error_releases_without_emitting_another_upstream() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([
@@ -285,7 +175,7 @@ pub(super) fn guarded_body_with_budget(
     guarded_body_with_budget_and_health(upstream, permit, precommit_budget, None)
 }
 
-fn guarded_body_with_budget_and_health(
+pub(super) fn guarded_body_with_budget_and_health(
     upstream: BoxByteStream,
     permit: RoutingPermit,
     precommit_budget: PrecommitBudget,
@@ -384,6 +274,10 @@ fn guarded_body_with_adapter(
     let exchange = protocols
         .exchange(dialect, dialect, operation)
         .expect("direct protocol exchange");
+    let driver: Arc<dyn ProviderDriver> = match dialect {
+        ProtocolDialect::AnthropicMessages => Arc::new(ClaudeDriver::new()),
+        _ => Arc::new(CodexDriver::new()),
+    };
     GuardedBody::new(
         upstream,
         exchange,
@@ -395,6 +289,9 @@ fn guarded_body_with_adapter(
             attempt_recorder: AttemptRecorder::disabled(),
             quota_activity: None,
             status_code: 200,
+            driver,
+            upstream_operation: operation,
+            upstream_headers: HeaderMap::new(),
             precommit_budget,
             postcommit_idle_timeout,
         },

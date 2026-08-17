@@ -3,6 +3,8 @@
 - 状态：Accepted
 - 日期：2026-08-03
 - 决策者：maintainer
+- 修订：ADR-0164 保留 5xx 和通用 2xx failed envelope 的 `Ambiguous` 证据，但允许未绑定 Pending
+  请求以独立的 `PreferAlternate` 路由动作执行有界故障恢复
 
 ## 背景
 

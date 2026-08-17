@@ -38,17 +38,27 @@ mod tests {
     #[test]
     fn distinguishes_successful_and_failed_terminal_events() {
         for kind in ["response.completed", "response.incomplete"] {
+            let event = decode(kind);
             assert_eq!(
-                decode(kind).termination(),
+                event.termination(),
                 StreamTermination::Completed,
                 "{kind} must terminate the stream successfully"
             );
+            assert!(
+                event.upstream_failure().is_none(),
+                "{kind} is a successful terminal result"
+            );
         }
         for kind in ["response.failed", "error"] {
+            let event = decode(kind);
             assert_eq!(
-                decode(kind).termination(),
+                event.termination(),
                 StreamTermination::Failed,
                 "{kind} must terminate the stream as a failure"
+            );
+            assert!(
+                event.upstream_failure().is_some(),
+                "{kind} must carry complete upstream failure evidence"
             );
         }
         for kind in [

@@ -29,6 +29,7 @@ mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod provider_kind_kimi;
 mod query_indexes;
+mod removed_reliability_setting_overrides;
 mod request_attempt_routing_diagnostics;
 mod request_attempt_transport_stream_diagnostics;
 mod request_log_alpha_search;
@@ -108,6 +109,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (32, "add alpha search operation".to_owned()),
             (33, "add credential public model alias".to_owned()),
             (34, "persist oauth model catalog snapshots".to_owned()),
+            (
+                35,
+                "reject removed reliability setting overrides".to_owned()
+            ),
         ]
     );
 

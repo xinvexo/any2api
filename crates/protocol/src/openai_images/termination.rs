@@ -40,7 +40,7 @@ mod tests {
     use crate::{
         OpenAiImagesAdapter,
         api::{
-            ProtocolAdapter, SseEventPayload, SseJsonData, StreamCompletionPolicy,
+            ProtocolAdapter, SseEventPayload, SseFrame, SseJsonData, StreamCompletionPolicy,
             StreamTermination,
         },
     };
@@ -71,6 +71,12 @@ mod tests {
             )),
             StreamTermination::Failed
         );
+        let failure = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
+                b"event: error\ndata: {\"error\":{\"message\":\"generation failed\"}}\n\n",
+            )))
+            .expect("image error event");
+        assert!(failure.upstream_failure().is_some());
         assert_eq!(
             classify(&json_payload(
                 Some("image_generation.partial_image"),

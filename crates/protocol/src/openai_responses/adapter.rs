@@ -92,10 +92,21 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         let payload = parse_event_payload(&frame.0);
         let telemetry = telemetry::event(&payload);
         let termination = termination::classify(&payload);
-        let rejection = crate::stream_rejection::openai(&payload);
+        let upstream_failure = crate::upstream_failure::openai_stream(&payload, termination);
         Ok(AdapterEvent::new(frame.0, telemetry, payload)
             .with_termination(termination)
-            .with_rejection(rejection))
+            .with_upstream_failure(upstream_failure))
+    }
+
+    fn buffered_upstream_failure(
+        &self,
+        response: &UpstreamResponse,
+    ) -> Option<crate::api::ProtocolUpstreamFailureEvidence> {
+        response
+            .status
+            .is_success()
+            .then(|| crate::upstream_failure::responses_buffered(&response.body))
+            .flatten()
     }
 
     fn encode_egress_response(

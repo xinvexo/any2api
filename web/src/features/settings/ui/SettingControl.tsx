@@ -110,8 +110,5 @@ function unitLabel(item: SettingItem) {
   if (item.key === "logs.file.max_total_size" || item.key === "logs.http_access.max_exchange_bytes") {
     return "字节";
   }
-  if (item.key === "retry.jitter_ratio") {
-    return "%";
-  }
   return "数量";
 }

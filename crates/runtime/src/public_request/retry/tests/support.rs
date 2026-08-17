@@ -3,9 +3,8 @@ use std::sync::Arc;
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProtocolOperation,
     ProviderBaseUrl, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RetryAfterHint, RetrySafety, RouteTargetId, RoutingCredentialId,
-    SettingsConfiguration, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
-    UpstreamFailureAttribution,
+    ProxyProfileId, RetryAfterHint, RetrySafety, RouteTargetId, SettingsConfiguration,
+    UpstreamError, UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
 };
 use any2api_protocol::api::RequestExecutionProfile;
 use bytes::Bytes;
@@ -14,6 +13,7 @@ use http::{HeaderMap, StatusCode};
 use crate::{
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle},
     health::EndpointHealthRuntime,
+    public_request::upstream::UpstreamFailureOrigin,
     public_request::{retry::budget::RetryBudget, upstream::AttemptFailure},
     routing::{RouteCandidate, SchedulerEpoch},
 };
@@ -37,6 +37,9 @@ pub(super) fn upstream_failure_with_retry_after(
     retry_after: Option<RetryAfterHint>,
 ) -> AttemptFailure {
     AttemptFailure::Upstream {
+        origin: UpstreamFailureOrigin::HttpStatus {
+            error_body_complete: true,
+        },
         status: StatusCode::UNAUTHORIZED,
         headers: Box::new(HeaderMap::new()),
         body: Bytes::new(),
@@ -50,7 +53,7 @@ pub(super) fn upstream_failure_with_retry_after(
     }
 }
 
-pub(super) fn attempted_budget(credential_id: RoutingCredentialId) -> RetryBudget {
+pub(super) fn attempted_budget(candidate: &RouteCandidate) -> RetryBudget {
     let mut policy = crate::health::ReliabilityPolicy::from_settings(
         SettingsConfiguration::defaults().reliability(),
     );
@@ -61,11 +64,11 @@ pub(super) fn attempted_budget(credential_id: RoutingCredentialId) -> RetryBudge
         ProtocolOperation::Responses,
         RequestExecutionProfile::Standard,
     );
-    assert_eq!(budget.register_attempt(credential_id), Some(1));
+    assert_eq!(budget.register_attempt(candidate), Some(1));
     budget
 }
 
-pub(super) fn candidate(label: &str) -> RouteCandidate {
+pub(crate) fn candidate(label: &str) -> RouteCandidate {
     let scheduler_epoch = SchedulerEpoch::new();
     let credential = ProviderCredential::create(
         CredentialId::new(),

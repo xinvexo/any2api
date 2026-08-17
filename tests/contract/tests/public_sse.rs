@@ -271,6 +271,62 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
 }
 
 #[tokio::test]
+async fn buffered_status_and_200_envelope_failures_recover_across_candidates() {
+    let (upstream_address, upstream_requests) = mixed_failures_then_success_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex mixed upstream failures",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    for (label, secret) in [
+        ("mixed-first", "sk-mixed-first"),
+        ("mixed-second", "sk-mixed-second"),
+        ("mixed-third", "sk-mixed-third"),
+    ] {
+        revision += 1;
+        create_credential(&app, remote, revision, &endpoint, label, secret).await;
+    }
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("mixed recovery response")
+            .to_bytes(),
+    )
+    .expect("mixed recovery JSON");
+    assert_eq!(body["id"], "resp_after_mixed_failures");
+
+    let requests = upstream_requests.await.expect("three upstream attempts");
+    assert_eq!(requests.len(), 3);
+    let authorizations = requests
+        .iter()
+        .map(|request| request.headers["authorization"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(authorizations.len(), 3);
+}
+
+#[tokio::test]
 async fn buffered_retry_after_switches_credentials_and_physical_connections() {
     let (upstream_address, mut attempts, upstream_task) = retry_after_probe_server().await;
     let (_directory, app, mut revision) = test_app().await;
@@ -333,8 +389,8 @@ async fn buffered_retry_after_switches_credentials_and_physical_connections() {
     let second = attempts.recv().await.expect("second upstream attempt");
     assert_ne!(first.authorization, second.authorization);
     assert!(
-        second.received_after.saturating_sub(first.received_after) >= Duration::from_secs(1),
-        "Retry-After was shortened during Credential switch"
+        second.received_after.saturating_sub(first.received_after) < Duration::from_secs(1),
+        "one candidate's Retry-After delayed a healthy alternate credential"
     );
     upstream_task.abort();
 }
@@ -466,6 +522,26 @@ async fn terminal_precontent_overload_returns_the_real_upstream_rejection_frame(
     )
     .await;
     revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-overloaded",
+        "sk-second-overloaded",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "third-overloaded",
+        "sk-third-overloaded",
+    )
+    .await;
+    revision += 1;
     select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
 
     let response = request(
@@ -488,8 +564,15 @@ async fn terminal_precontent_overload_returns_the_real_upstream_rejection_frame(
     assert_eq!(body.as_ref(), OPENAI_OVERLOAD_FRAME);
     assert!(!String::from_utf8_lossy(&body).contains("resp_rejected"));
 
-    let request = upstream_request.await.expect("overloaded upstream request");
-    assert_eq!(request.body["model"], "gpt-upstream");
+    let requests = upstream_request
+        .await
+        .expect("overloaded upstream requests");
+    assert_eq!(requests.len(), 3);
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.body["model"] == "gpt-upstream")
+    );
 }
 
 #[tokio::test]
@@ -2171,33 +2254,39 @@ async fn overload_then_success_sse_server() -> (SocketAddr, oneshot::Receiver<Ve
     (address, request_receiver)
 }
 
-async fn overload_only_sse_server() -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
+async fn overload_only_sse_server() -> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("upstream listener");
     let address = listener.local_addr().expect("upstream address");
     let (request_sender, request_receiver) = oneshot::channel();
     tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.expect("upstream accept");
-        let (path, request) = read_upstream_request(&mut stream).await;
-        assert_eq!(path, "/v1/responses");
-        request_sender.send(request).expect("send upstream request");
-        stream
-            .write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+        let mut requests = Vec::with_capacity(3);
+        for _ in 0..3 {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/responses");
+            requests.push(request);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("upstream response headers");
+            write_chunk(
+                &mut stream,
+                b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\n",
             )
-            .await
-            .expect("upstream response headers");
-        write_chunk(
-            &mut stream,
-            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\n",
-        )
-        .await;
-        write_chunk(&mut stream, OPENAI_OVERLOAD_FRAME).await;
-        stream
-            .write_all(b"0\r\n\r\n")
-            .await
-            .expect("finish upstream stream");
+            .await;
+            write_chunk(&mut stream, OPENAI_OVERLOAD_FRAME).await;
+            stream
+                .write_all(b"0\r\n\r\n")
+                .await
+                .expect("finish upstream stream");
+        }
+        request_sender
+            .send(requests)
+            .expect("send upstream requests");
     });
     (address, request_receiver)
 }
@@ -2265,6 +2354,52 @@ async fn invalid_key_then_success_server() -> (SocketAddr, oneshot::Receiver<Vec
                     r#"{"id":"resp_good_key","model":"gpt-upstream","output":[]}"#,
                 )
             };
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("upstream response");
+        }
+        request_sender
+            .send(requests)
+            .expect("send upstream attempts");
+    });
+    (address, request_receiver)
+}
+
+async fn mixed_failures_then_success_server()
+-> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let responses = [
+            (
+                "503 Service Unavailable",
+                r#"{"error":{"type":"server_error","message":"temporarily unavailable"}}"#,
+            ),
+            (
+                "200 OK",
+                r#"{"id":"resp_failed","status":"failed","error":{"code":"future_provider_failure","message":"explicit protocol failure"}}"#,
+            ),
+            (
+                "200 OK",
+                r#"{"id":"resp_after_mixed_failures","model":"gpt-upstream","status":"completed","output":[]}"#,
+            ),
+        ];
+        let mut requests = Vec::with_capacity(responses.len());
+        for (status, body) in responses {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/responses");
+            requests.push(request);
             stream
                 .write_all(
                     format!(

@@ -5,7 +5,8 @@ use any2api_domain::ProtocolOperation;
 use super::{
     AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
     EncodedUpstreamRequest, ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession,
-    ProtocolContinuationState, SseFrame, StreamCompletionPolicy, UpstreamResponse,
+    ProtocolContinuationState, ProtocolUpstreamFailureEvidence, SseFrame, StreamCompletionPolicy,
+    UpstreamResponse,
 };
 use crate::ProtocolError;
 
@@ -148,6 +149,14 @@ impl ProtocolExchange {
         }
     }
 
+    #[must_use]
+    pub fn buffered_upstream_failure(
+        &self,
+        response: &UpstreamResponse,
+    ) -> Option<ProtocolUpstreamFailureEvidence> {
+        self.upstream.buffered_upstream_failure(response)
+    }
+
     pub fn decode_upstream_event(
         &mut self,
         frame: SseFrame,
@@ -228,6 +237,7 @@ mod tests {
 
     use super::ProtocolExchange;
     use crate::{
+        AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
         OpenAiResponsesAdapter,
         api::{DecodedResponsePayload, ProtocolAdapter, UpstreamResponse},
     };
@@ -282,6 +292,87 @@ mod tests {
                     body: Bytes::from_static(br#"{"output":"unterminated}"#),
                 })
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn exchange_exposes_only_exact_buffered_failures_before_decode_or_bridge() {
+        type FailureCase = (
+            Arc<dyn ProtocolAdapter>,
+            ProtocolOperation,
+            &'static [u8],
+            bool,
+        );
+        let cases: Vec<FailureCase> = vec![
+            (
+                Arc::new(OpenAiResponsesAdapter::new()),
+                ProtocolOperation::Responses,
+                br#"{"status":"failed","error":{"code":"server_error"}}"#,
+                true,
+            ),
+            (
+                Arc::new(OpenAiResponsesAdapter::new()),
+                ProtocolOperation::Responses,
+                br#"{"status":"incomplete","error":{"code":"server_error"}}"#,
+                false,
+            ),
+            (
+                Arc::new(OpenAiChatCompletionsAdapter::new()),
+                ProtocolOperation::ChatCompletions,
+                br#"{"error":{"code":"server_error"}}"#,
+                true,
+            ),
+            (
+                Arc::new(OpenAiImagesAdapter::new()),
+                ProtocolOperation::ImagesGenerations,
+                br#"{"error":{"code":"server_error"}}"#,
+                true,
+            ),
+            (
+                Arc::new(AnthropicMessagesAdapter::new()),
+                ProtocolOperation::Messages,
+                br#"{"type":"error","error":{"type":"api_error"}}"#,
+                true,
+            ),
+            (
+                Arc::new(AnthropicMessagesAdapter::new()),
+                ProtocolOperation::Messages,
+                br#"{"type":"message","error":{"type":"api_error"}}"#,
+                false,
+            ),
+        ];
+
+        for (adapter, operation, bytes, expected) in cases {
+            let exchange = ProtocolExchange::direct(adapter, operation);
+            let body = Bytes::from_static(bytes);
+            let response = UpstreamResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: body.clone(),
+            };
+            let evidence = exchange.buffered_upstream_failure(&response);
+            assert_eq!(evidence.is_some(), expected, "body={body:?}");
+            if let Some(evidence) = evidence {
+                assert_eq!(evidence.raw_json().as_ptr(), body.as_ptr());
+                assert_eq!(evidence.retry_safety_override(), None);
+            }
+        }
+
+        let exchange = ProtocolExchange::direct(
+            Arc::new(OpenAiResponsesAdapter::new()),
+            ProtocolOperation::Responses,
+        );
+        assert!(
+            exchange
+                .buffered_upstream_failure(&UpstreamResponse {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(
+                        br#"{"status":"failed","error":{"code":"server_error"}}"#,
+                    ),
+                })
+                .is_none(),
+            "buffered protocol evidence is reserved for successful HTTP statuses"
         );
     }
 }

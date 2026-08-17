@@ -9,7 +9,13 @@ use crate::api::UpstreamResponseMeta;
 
 #[derive(Deserialize)]
 struct ErrorEnvelope {
-    error: ErrorDetails,
+    error: Option<ErrorDetails>,
+    response: Option<ResponseEnvelope>,
+}
+
+#[derive(Deserialize)]
+struct ResponseEnvelope {
+    error: Option<ErrorDetails>,
 }
 
 #[derive(Deserialize)]
@@ -22,20 +28,35 @@ struct ErrorDetails {
 
 pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> UpstreamError {
     let parsed = serde_json::from_slice::<ErrorEnvelope>(bounded_body).ok();
-    let provider_kind = parsed.as_ref().and_then(|envelope| {
-        classify_code(
-            envelope.error.code.as_deref(),
-            envelope.error.kind.as_deref(),
-        )
-    });
+    let provider_kind = parsed
+        .as_ref()
+        .and_then(ErrorEnvelope::details)
+        .and_then(|details| classify_code(details.code.as_deref(), details.kind.as_deref()));
     let baseline = classify_status(meta, UpstreamErrorKind::OperationUnavailable);
     let kind = refine_kind(baseline.kind(), provider_kind);
     let safety = retry_safety_after_refinement(baseline, kind);
     let classification =
         UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers))
             .with_attribution(declared_attribution(provider_kind, kind));
-    let message = parsed.and_then(|envelope| envelope.error.message);
+    let message = parsed
+        .and_then(ErrorEnvelope::into_details)
+        .and_then(|details| details.message);
     UpstreamError::new(classification, message)
+}
+
+impl ErrorEnvelope {
+    fn details(&self) -> Option<&ErrorDetails> {
+        self.error.as_ref().or_else(|| {
+            self.response
+                .as_ref()
+                .and_then(|response| response.error.as_ref())
+        })
+    }
+
+    fn into_details(self) -> Option<ErrorDetails> {
+        self.error
+            .or_else(|| self.response.and_then(|response| response.error))
+    }
 }
 
 fn classify_code(code: Option<&str>, kind: Option<&str>) -> Option<UpstreamErrorKind> {
@@ -51,6 +72,9 @@ fn classify_code(code: Option<&str>, kind: Option<&str>) -> Option<UpstreamError
             | "quota_exceeded"
             | "billing_hard_limit_reached" => Some(UpstreamErrorKind::QuotaExhausted),
             "rate_limit_error" | "rate_limit_exceeded" => Some(UpstreamErrorKind::RateLimited),
+            "server_is_overloaded" | "server_error" | "api_error" | "service_unavailable_error" => {
+                Some(UpstreamErrorKind::Transient)
+            }
             "model_not_found" | "model_not_available" | "unsupported_model" => {
                 Some(UpstreamErrorKind::ModelUnavailable)
             }
@@ -112,6 +136,61 @@ mod tests {
         );
         assert_eq!(
             transient.classification().retry_safety(),
+            RetrySafety::Ambiguous
+        );
+    }
+
+    #[test]
+    fn classifies_complete_status_200_error_envelopes_without_prose_matching() {
+        for code in [
+            "server_is_overloaded",
+            "server_error",
+            "api_error",
+            "service_unavailable_error",
+        ] {
+            let body = format!(r#"{{"error":{{"code":"{code}","message":"official failure"}}}}"#);
+            let classified = classify(
+                &UpstreamResponseMeta {
+                    status: StatusCode::OK,
+                    headers: HeaderMap::new(),
+                },
+                body.as_bytes(),
+            );
+            assert_eq!(
+                classified.classification().kind(),
+                UpstreamErrorKind::Transient,
+                "structured transient code {code}"
+            );
+            assert_eq!(
+                classified.classification().retry_safety(),
+                RetrySafety::Ambiguous,
+                "provider classification must not invent pre-execution evidence"
+            );
+        }
+
+        let nested = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+            },
+            br#"{"response":{"error":{"type":"server_error","message":"nested detail"}}}"#,
+        );
+        assert_eq!(nested.classification().kind(), UpstreamErrorKind::Transient);
+        assert_eq!(nested.official_message(), Some("nested detail"));
+
+        let prose_only = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+            },
+            br#"{"error":{"code":"future_error","message":"server is overloaded"}}"#,
+        );
+        assert_eq!(
+            prose_only.classification().kind(),
+            UpstreamErrorKind::Unknown
+        );
+        assert_eq!(
+            prose_only.classification().retry_safety(),
             RetrySafety::Ambiguous
         );
     }

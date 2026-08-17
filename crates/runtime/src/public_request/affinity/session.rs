@@ -30,7 +30,8 @@ pub(super) async fn select_session(
         input.route_id,
         input.fallback_on_rate_limit,
         input.tiers,
-        input.exclusions,
+        input.selection_state,
+        input.credential_eligible,
     );
     let mut lease = None;
     let mut wait = None;
@@ -143,6 +144,33 @@ pub(super) async fn select_session(
                 if queue_policy.on_rate_limited() == RateLimitAction::Reject {
                     return Err(error);
                 }
+                let released_epoch = release_selecting(&mut lease)?;
+                let deadline =
+                    absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+                ensure_queue_wait(
+                    &mut wait,
+                    snapshot.queue_coordinator(),
+                    queue_policy.max_waiting_requests(),
+                )?;
+                if release_observed_external_change(
+                    wait.as_mut().expect("queue wait exists"),
+                    observed_epoch,
+                    released_epoch,
+                ) {
+                    continue;
+                }
+                wait_for_candidate(
+                    wait.as_mut().expect("queue wait exists"),
+                    deadline,
+                    Some(retry_at),
+                )
+                .await?;
+            }
+            GenerationSelection::RetryDeferred(retry_at) => {
+                let error = temporarily_unavailable(retry_at);
                 let released_epoch = release_selecting(&mut lease)?;
                 let deadline =
                     absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());

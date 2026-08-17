@@ -1,10 +1,8 @@
 use std::time::Instant;
 
 use any2api_domain::{
-    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode, RetrySafety,
-    UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode, UpstreamError,
 };
-use any2api_protocol::api::{StreamRejection, StreamRetryReason};
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use super::{
@@ -29,14 +27,27 @@ impl GuardedBody {
         {
             recorder.observe_stream_cancel();
         }
-        if let Some(health) = self.health.take()
-            && matches!(&outcome, StreamOutcome::Success)
-        {
-            health.success();
+        if let Some(health) = self.health.take() {
+            match &outcome {
+                StreamOutcome::Success => health.success(),
+                StreamOutcome::UpstreamFailure(error) => {
+                    health.upstream_failure(error.classification());
+                }
+                StreamOutcome::Error { .. } | StreamOutcome::Cancelled => {}
+            }
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match &outcome {
                 StreamOutcome::Success => recorder.success(self.status_code),
+                StreamOutcome::UpstreamFailure(error) => {
+                    let classification = error.classification();
+                    recorder.upstream_error(
+                        self.status_code,
+                        classification.retry_safety(),
+                        classification.kind().error_class(),
+                        error.official_message(),
+                    );
+                }
                 StreamOutcome::Error { class, message } => {
                     recorder.stream_error(*class, self.status_code, message);
                 }
@@ -46,6 +57,19 @@ impl GuardedBody {
         if self.owns_request_completion {
             match outcome {
                 StreamOutcome::Success => self.request_recorder.finish(self.status_code, None),
+                StreamOutcome::UpstreamFailure(error) => {
+                    let classification = error.classification();
+                    self.request_recorder.finish_with_message(
+                        self.status_code,
+                        Some(classification.kind().error_class()),
+                        Some(
+                            error
+                                .official_message()
+                                .unwrap_or("upstream response stream reported a failure event")
+                                .to_owned(),
+                        ),
+                    );
+                }
                 StreamOutcome::Error { class, message } => {
                     self.request_recorder.finish_with_message(
                         self.status_code,
@@ -165,31 +189,18 @@ impl GuardedBody {
         }
     }
 
-    pub(super) fn finish_precommit_rejection(&mut self, rejection: StreamRejection) {
-        let reason = rejection.reason();
+    pub(super) fn finish_precommit_upstream_failure(&mut self, error: &UpstreamError) {
+        let classification = error.classification();
         if let Some(health) = self.health.take() {
-            match reason {
-                StreamRetryReason::Overloaded => health.stream_rejected(),
-                StreamRetryReason::RateLimited => {
-                    health.upstream_failure(rate_limited_stream_classification());
-                }
-            }
+            health.upstream_failure(classification);
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            match reason {
-                StreamRetryReason::Overloaded => recorder.upstream_error(
-                    self.status_code,
-                    RetrySafety::RejectedBeforeExecution,
-                    ErrorClass::Upstream,
-                    Some(rejection.code()),
-                ),
-                StreamRetryReason::RateLimited => recorder.upstream_error(
-                    self.status_code,
-                    RetrySafety::RejectedBeforeExecution,
-                    ErrorClass::RateLimited,
-                    Some(rejection.code()),
-                ),
-            }
+            recorder.upstream_error(
+                self.status_code,
+                classification.retry_safety(),
+                classification.kind().error_class(),
+                error.official_message(),
+            );
         }
         self.release_guards();
     }
@@ -211,13 +222,4 @@ impl GuardedBody {
     pub(super) fn set_postcommit_idle_timeout_error(&mut self) {
         self.set_pending_error(PendingStreamError::postcommit_idle_timeout());
     }
-}
-
-fn rate_limited_stream_classification() -> UpstreamErrorClassification {
-    UpstreamErrorClassification::new(
-        UpstreamErrorKind::RateLimited,
-        RetrySafety::RejectedBeforeExecution,
-        None,
-    )
-    .with_attribution(UpstreamFailureAttribution::CredentialModel)
 }

@@ -32,11 +32,6 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
     label: "运行保护",
     webGroups: [
       "重试预算",
-      "重试退避",
-      "冷却",
-      "Endpoint 熔断",
-      "代理熔断",
-      "熔断探测",
       "上游网络",
       "OAuth 刷新",
       "流式预提交",
@@ -44,7 +39,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
       "优雅停机",
     ],
     featuredKeys: [
-      "retry.max_total_attempts",
+      "retry.precommit_total_budget",
       "upstream.read_timeout",
       "upstream.strict_ssrf",
     ],

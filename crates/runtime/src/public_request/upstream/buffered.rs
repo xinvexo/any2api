@@ -16,7 +16,7 @@ use super::super::{
 };
 use super::{
     UpstreamServices,
-    failure::AttemptFailure,
+    failure::{AttemptFailure, UpstreamFailureOrigin},
     prepared::{AttemptInput, continuation_committer, prepare_input},
 };
 use crate::request_telemetry::AttemptRecorder;
@@ -62,13 +62,17 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
     );
     if !status.is_success() {
-        let body = collect_error_body(response.body, read_timeout, services.attempt_deadline)
-            .await
-            .unwrap_or_default();
+        let collected =
+            collect_error_body(response.body, read_timeout, services.attempt_deadline).await;
         let safe_headers = prepared.response_headers(&headers);
-        let error = prepared.classify(status, &headers, &body);
+        let error = prepared.classify(status, &headers, collected.classification_bytes());
         prepared.upstream_failure(status.as_u16(), &error);
+        let error_body_complete = collected.is_complete();
+        let body = collected.into_response_body();
         return Err(AttemptFailure::upstream(
+            UpstreamFailureOrigin::HttpStatus {
+                error_body_complete,
+            },
             status,
             safe_headers,
             body,
@@ -96,12 +100,27 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             return Err(AttemptFailure::Public(error));
         }
     };
-    let safe_headers = prepared.response_headers(&headers);
-    let decoded = match prepared.decode_upstream_response(UpstreamResponse {
+    let upstream = UpstreamResponse {
         status,
         headers,
         body,
-    }) {
+    };
+    if let Some(evidence) = prepared.buffered_upstream_failure(&upstream) {
+        let safe_headers = prepared.response_headers(&upstream.headers);
+        let error = prepared.classify_evidence(status, &upstream.headers, &evidence);
+        prepared.upstream_failure(status.as_u16(), &error);
+        return Err(AttemptFailure::upstream(
+            UpstreamFailureOrigin::BufferedEnvelope,
+            status,
+            safe_headers,
+            upstream.body,
+            error,
+            candidate,
+            bound,
+        ));
+    }
+    let safe_headers = prepared.response_headers(&upstream.headers);
+    let decoded = match prepared.decode_upstream_response(upstream) {
         Ok(decoded) => decoded,
         Err(_) => {
             prepared.invalid_response(Some(status.as_u16()), "upstream response was invalid");

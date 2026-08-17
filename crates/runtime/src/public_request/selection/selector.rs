@@ -3,7 +3,9 @@ use std::{collections::BTreeMap, time::Duration};
 #[cfg(test)]
 use std::sync::Arc;
 
-use any2api_domain::{ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode};
+use any2api_domain::{
+    ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode, RoutingCredentialId,
+};
 use tokio::time::Instant;
 
 use super::super::{
@@ -16,13 +18,14 @@ use super::{fixed, generation};
 use crate::routing::{QueueCoordinator, QueuePolicy};
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{CandidateExclusions, RouteCandidate},
+    routing::{CandidateSelectionState, RouteCandidate},
 };
 
 pub(in crate::public_request) enum GenerationSelection {
     Acquired(Box<SelectedCandidate>),
     RateLimited(Option<Instant>),
     TemporarilyUnavailable(Instant),
+    RetryDeferred(Instant),
     NoCandidates,
 }
 
@@ -31,7 +34,8 @@ pub(in crate::public_request) struct CandidateSelector<'a> {
     route_id: ModelRouteId,
     fallback_on_rate_limit: bool,
     tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
-    exclusions: &'a CandidateExclusions,
+    selection_state: &'a CandidateSelectionState,
+    credential_eligible: &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
     filters: RequestFilterRecorder,
 }
 
@@ -41,14 +45,16 @@ impl<'a> CandidateSelector<'a> {
         route_id: ModelRouteId,
         fallback_on_rate_limit: bool,
         tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
-        exclusions: &'a CandidateExclusions,
+        selection_state: &'a CandidateSelectionState,
+        credential_eligible: &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
     ) -> Self {
         Self {
             snapshot,
             route_id,
             fallback_on_rate_limit,
             tiers,
-            exclusions,
+            selection_state,
+            credential_eligible,
             filters: RequestFilterRecorder::default(),
         }
     }
@@ -61,7 +67,8 @@ impl<'a> CandidateSelector<'a> {
             self.route_id,
             self.fallback_on_rate_limit,
             self.tiers,
-            self.exclusions,
+            self.selection_state,
+            self.credential_eligible,
             &mut self.filters,
         )
     }
@@ -95,14 +102,16 @@ pub(in crate::public_request) async fn select_candidate(
     route_id: ModelRouteId,
     fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    exclusions: &CandidateExclusions,
+    selection_state: &CandidateSelectionState,
+    credential_eligible: &(dyn Fn(RoutingCredentialId) -> bool + Sync),
 ) -> Result<SelectedCandidate, PublicError> {
     let mut selector = CandidateSelector::new(
         snapshot,
         route_id,
         fallback_on_rate_limit,
         tiers,
-        exclusions,
+        selection_state,
+        credential_eligible,
     );
     generation::select_with_queue(
         snapshot.queue_coordinator(),
@@ -145,6 +154,23 @@ pub(super) fn try_select_generation_candidate_for_test(
     tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
     generation::try_select_for_test(fallback_on_rate_limit, tiers, tie_breaker)
+}
+
+#[cfg(test)]
+pub(super) fn try_select_generation_candidate_with_state_for_test(
+    fallback_on_rate_limit: bool,
+    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    selection_state: &CandidateSelectionState,
+    credential_eligible: &(dyn Fn(RoutingCredentialId) -> bool + Sync),
+    tie_breaker: impl FnMut(u16) -> Option<u64>,
+) -> Result<GenerationSelection, PublicError> {
+    generation::try_select_for_test_with_state(
+        fallback_on_rate_limit,
+        tiers,
+        selection_state,
+        credential_eligible,
+        tie_breaker,
+    )
 }
 
 #[cfg(test)]

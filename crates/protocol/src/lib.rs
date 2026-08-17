@@ -12,8 +12,8 @@ mod openai_responses_chat;
 mod raw_json;
 mod registry;
 mod sse;
-mod stream_rejection;
 mod telemetry;
+mod upstream_failure;
 
 pub use anthropic_messages::AnthropicMessagesAdapter;
 pub(crate) use error::ProtocolError;

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{UpstreamErrorClassification, UpstreamFailureAttribution};
+use any2api_domain::{UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution};
 use any2api_transport::api::TransportFailureScope;
 use tokio::time::Instant;
 
@@ -101,26 +101,13 @@ impl AttemptHealth {
             UpstreamFailureAttribution::Unattributed => {
                 neutral(&mut self.endpoint);
                 neutral(&mut self.egress_path);
-                if classification.kind().is_retry_candidate() {
+                if classification.kind() != UpstreamErrorKind::InvalidRequest {
                     failure(&mut self.candidate_path, &self.policy);
                 } else {
                     neutral(&mut self.candidate_path);
                 }
             }
         }
-        if let Some(proxy) = self.proxy.take() {
-            proxy.success();
-        }
-        self.completed = true;
-    }
-
-    /// A protocol-level pre-content rejection proves the network path worked,
-    /// but does not justify poisoning a shared endpoint or clearing existing
-    /// credential health evidence.
-    pub(crate) fn stream_rejected(mut self) {
-        neutral(&mut self.endpoint);
-        success(&mut self.egress_path, self.started_at);
-        failure(&mut self.candidate_path, &self.policy);
         if let Some(proxy) = self.proxy.take() {
             proxy.success();
         }

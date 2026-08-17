@@ -11,15 +11,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use any2api_domain::{ErrorClass, PublicError, TokenUsage};
+use any2api_domain::{ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError};
 use any2api_protocol::api::{
-    BridgeContinuationState, ProtocolContinuationState, ProtocolExchange, SseDecoder,
-    StreamRejection, StreamTermination,
+    BridgeContinuationState, ProtocolContinuationState, ProtocolExchange, ProtocolRetryDelayBasis,
+    SseDecoder, StreamTermination,
 };
+use any2api_provider::api::ProviderDriver;
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
-use futures_util::{Stream, StreamExt};
-use tokio::time::{Sleep, timeout};
+use futures_util::Stream;
+use http::HeaderMap;
+use tokio::time::Sleep;
 
 use super::super::{PublicResponseStream, RequestPermit};
 use super::{PrecommitBudget, pending_failure::PendingStreamError};
@@ -64,6 +66,9 @@ pub(in crate::public_request) struct GuardedBodyParts {
     pub(in crate::public_request) attempt_recorder: AttemptRecorder,
     pub(in crate::public_request) quota_activity: Option<OAuthQuotaActivityGuard>,
     pub(in crate::public_request) status_code: u16,
+    pub(in crate::public_request) driver: Arc<dyn ProviderDriver>,
+    pub(in crate::public_request) upstream_operation: ProtocolOperation,
+    pub(in crate::public_request) upstream_headers: HeaderMap,
     pub(in crate::public_request) precommit_budget: PrecommitBudget,
     pub(in crate::public_request) postcommit_idle_timeout: Duration,
 }
@@ -76,7 +81,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) buffered_chunk: Option<Bytes>,
     pub(super) pending: VecDeque<PendingFrame>,
     pub(super) pending_error: Option<PendingStreamError>,
-    pub(super) precommit_retry: Option<StreamRejection>,
+    pub(super) precommit_upstream_failure: Option<PrecommitUpstreamFailure>,
     pub(super) precommit_commit_ready: bool,
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
@@ -90,10 +95,14 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) decoder_finished: bool,
     pub(super) terminal_seen: bool,
     pub(super) pending_termination: StreamTermination,
+    pub(super) pending_upstream_error: Option<UpstreamError>,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
     pub(super) quota_activity: Option<OAuthQuotaActivityGuard>,
     pub(super) request_recorder: RequestRecorder,
     pub(super) status_code: u16,
+    pub(super) driver: Arc<dyn ProviderDriver>,
+    pub(super) upstream_operation: ProtocolOperation,
+    pub(super) upstream_headers: HeaderMap,
     pub(super) owns_request_completion: bool,
     pub(super) precommit_budget: PrecommitBudget,
     pub(super) precommit_deadline: Option<Instant>,
@@ -108,17 +117,19 @@ pub(super) struct PendingFrame {
     pub(super) token_usage: TokenUsage,
     pub(super) continuation_id: Option<String>,
     pub(super) continuation_state: BridgeContinuationState,
+    pub(super) upstream_error: Option<UpstreamError>,
 }
 
 #[derive(Debug)]
-pub(in crate::public_request) struct PrecommitStreamRejection {
-    pub(in crate::public_request) rejection: StreamRejection,
+pub(in crate::public_request) struct PrecommitUpstreamFailure {
+    pub(in crate::public_request) error: UpstreamError,
     pub(in crate::public_request) frame: Bytes,
+    pub(in crate::public_request) retry_delay_basis: ProtocolRetryDelayBasis,
 }
 
 #[derive(Debug)]
 pub(in crate::public_request) enum StreamPrimeFailure {
-    Retryable(PrecommitStreamRejection),
+    Upstream(PrecommitUpstreamFailure),
     Public(PublicError),
 }
 
@@ -136,6 +147,9 @@ impl GuardedBody {
             attempt_recorder,
             quota_activity,
             status_code,
+            driver,
+            upstream_operation,
+            upstream_headers,
             precommit_budget,
             postcommit_idle_timeout,
         } = parts;
@@ -149,7 +163,7 @@ impl GuardedBody {
             buffered_chunk: None,
             pending: VecDeque::new(),
             pending_error: None,
-            precommit_retry: None,
+            precommit_upstream_failure: None,
             precommit_commit_ready: false,
             permit: Some(permit),
             health,
@@ -163,90 +177,20 @@ impl GuardedBody {
             decoder_finished: false,
             terminal_seen: false,
             pending_termination: StreamTermination::None,
+            pending_upstream_error: None,
             attempt_recorder: Some(attempt_recorder),
             quota_activity,
             request_recorder,
             status_code,
+            driver,
+            upstream_operation,
+            upstream_headers,
             owns_request_completion: false,
             precommit_budget,
             precommit_deadline: None,
             postcommit_idle_timeout,
             idle_timer: None,
         }
-    }
-
-    #[cfg(test)]
-    pub(super) async fn prime(self) -> Result<Self, PublicError> {
-        let mut body = self
-            .prime_attempt()
-            .await
-            .map_err(StreamPrimeFailure::into_public)?;
-        body.commit_precommit_continuation(None)?;
-        Ok(body)
-    }
-
-    pub(in crate::public_request) async fn prime_attempt(
-        mut self,
-    ) -> Result<Self, StreamPrimeFailure> {
-        let deadline = Instant::now() + self.precommit_budget.max_duration();
-        self.precommit_deadline = Some(deadline);
-        loop {
-            if self.precommit_commit_ready
-                || self.precommit_retry.is_some()
-                || self.pending_error.is_some()
-            {
-                break;
-            }
-            if self.process_buffered_frame(Some(deadline)) {
-                continue;
-            }
-            if self.upstream_done {
-                self.finish_decoder(Some(deadline));
-                if self.precommit_commit_ready
-                    || self.precommit_retry.is_some()
-                    || self.pending_error.is_some()
-                {
-                    continue;
-                }
-                break;
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                self.set_timeout_error();
-                break;
-            }
-            match timeout(remaining, self.upstream.next()).await {
-                Ok(Some(Ok(chunk))) => self.process_chunk(chunk, Some(deadline)),
-                Ok(Some(Err(error))) => {
-                    self.set_transport_error(&error);
-                }
-                Ok(None) => self.process_eof(Some(deadline)),
-                Err(_) => self.set_timeout_error(),
-            }
-        }
-        if let Some(rejection) = self.precommit_retry.take() {
-            let frame = self
-                .pending
-                .back()
-                .map(|frame| frame.bytes.clone())
-                .expect("precommit rejection has an encoded terminal frame");
-            self.finish_precommit_rejection(rejection);
-            return Err(StreamPrimeFailure::Retryable(PrecommitStreamRejection {
-                rejection,
-                frame,
-            }));
-        }
-        if self.pending_error.is_some() && !self.precommit_commit_ready {
-            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
-        }
-        if self.pending.is_empty() {
-            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
-        }
-        if let Err(error) = self.commit_precommit_frames(Some(deadline)) {
-            self.set_pending_error(error);
-            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
-        }
-        Ok(self)
     }
 
     pub(in crate::public_request) fn fail_before_handoff(
@@ -303,14 +247,7 @@ impl Stream for GuardedBody {
                 return Poll::Ready(None);
             }
             if this.pending_termination.is_terminal() {
-                match std::mem::take(&mut this.pending_termination) {
-                    StreamTermination::None => unreachable!("terminal state was checked"),
-                    StreamTermination::Completed => this.finish(StreamOutcome::Success),
-                    StreamTermination::Failed => this.finish(StreamOutcome::Error {
-                        class: ErrorClass::Upstream,
-                        message: "upstream response stream reported a failure event".to_owned(),
-                    }),
-                }
+                this.finish_pending_termination();
                 return Poll::Ready(None);
             }
             if let Some(frame) = this.pending.pop_front() {
@@ -326,7 +263,9 @@ impl Stream for GuardedBody {
                 if frame.termination.is_terminal() {
                     this.upstream = Box::pin(futures_util::stream::empty());
                     this.pending_termination = frame.termination;
+                    this.pending_upstream_error = frame.upstream_error;
                     this.idle_timer = None;
+                    this.finish_pending_termination();
                 } else {
                     this.start_idle_timer();
                 }
@@ -377,6 +316,23 @@ impl Stream for GuardedBody {
 }
 
 impl GuardedBody {
+    fn finish_pending_termination(&mut self) {
+        match std::mem::take(&mut self.pending_termination) {
+            StreamTermination::None => unreachable!("terminal state was checked"),
+            StreamTermination::Completed => self.finish(StreamOutcome::Success),
+            StreamTermination::Failed => {
+                if let Some(error) = self.pending_upstream_error.take() {
+                    self.finish(StreamOutcome::UpstreamFailure(error));
+                } else {
+                    self.finish(StreamOutcome::Error {
+                        class: ErrorClass::Upstream,
+                        message: "upstream response stream reported a failure event".to_owned(),
+                    });
+                }
+            }
+        }
+    }
+
     fn start_idle_timer(&mut self) {
         if self.idle_timer.is_none() {
             self.reset_idle_timer();
@@ -407,19 +363,7 @@ impl Drop for GuardedBody {
 
 pub(super) enum StreamOutcome {
     Success,
+    UpstreamFailure(UpstreamError),
     Error { class: ErrorClass, message: String },
     Cancelled,
-}
-
-#[cfg(test)]
-impl StreamPrimeFailure {
-    fn into_public(self) -> PublicError {
-        match self {
-            Self::Public(error) => error,
-            Self::Retryable(rejected) => super::super::response::public_error(
-                any2api_domain::PublicErrorCode::UpstreamError,
-                rejected.rejection.code(),
-            ),
-        }
-    }
 }

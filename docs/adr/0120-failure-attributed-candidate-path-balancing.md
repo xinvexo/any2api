@@ -4,6 +4,7 @@
 - 日期：2026-08-06
 - 决策者：maintainer
 - 修订：ADR-0033、ADR-0093、ADR-0095、ADR-0118
+- 修订：ADR-0164 增加作用域化软降权与 `PreferAlternate`，不再让 `Ambiguous` 独占路由恢复开关
 
 ## 背景
 

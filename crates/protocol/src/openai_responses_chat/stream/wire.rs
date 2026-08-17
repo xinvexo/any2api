@@ -3,8 +3,8 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::api::{
-    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamRejection,
-    StreamTermination,
+    AdapterEvent, ProtocolEventTelemetry, ProtocolUpstreamFailureEvidence, SseEventPayload,
+    SseJsonData, StreamTermination,
 };
 
 pub(super) struct SynthesizedEvent {
@@ -12,7 +12,7 @@ pub(super) struct SynthesizedEvent {
     data: Value,
     telemetry: ProtocolEventTelemetry,
     termination: StreamTermination,
-    rejection: Option<StreamRejection>,
+    upstream_failure: Option<ProtocolUpstreamFailureEvidence>,
 }
 
 impl SynthesizedEvent {
@@ -20,8 +20,11 @@ impl SynthesizedEvent {
         &mut self.data
     }
 
-    pub(super) fn with_rejection(mut self, rejection: Option<StreamRejection>) -> Self {
-        self.rejection = rejection;
+    pub(super) fn with_upstream_failure(
+        mut self,
+        failure: Option<ProtocolUpstreamFailureEvidence>,
+    ) -> Self {
+        self.upstream_failure = failure;
         self
     }
 }
@@ -40,7 +43,7 @@ pub(super) fn event(
         data,
         telemetry,
         termination: StreamTermination::None,
-        rejection: None,
+        upstream_failure: None,
     }
 }
 
@@ -55,7 +58,7 @@ pub(super) fn terminal_event(
         data,
         telemetry,
         termination,
-        rejection: None,
+        upstream_failure: None,
     }
 }
 
@@ -67,7 +70,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
         data,
         telemetry,
         termination,
-        rejection,
+        upstream_failure,
     } = event;
     let encoded = serde_json::to_string(&data).expect("JSON value encodes");
     let prefix = "event: ".len() + kind.len() + "\ndata: ".len();
@@ -78,7 +81,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
     ));
     AdapterEvent::new(bytes, telemetry, payload)
         .with_termination(termination)
-        .with_rejection(rejection)
+        .with_upstream_failure(upstream_failure)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {

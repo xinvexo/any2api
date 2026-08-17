@@ -1,13 +1,11 @@
 use std::time::Duration;
 
-use any2api_domain::{
-    OAuthAccountId, RequestAttemptFailureScope, RequestAttemptRetryDecision, RoutingCredentialId,
-};
+use any2api_domain::{OAuthAccountId, RequestAttemptFailureScope, RequestAttemptRetryDecision};
 use tokio::time::{Instant, timeout};
 
 use super::{
     RetryExecution,
-    decision::{RetryDecision, exclude_failed_path, retry_decision, telemetry_failure_scope},
+    decision::{RetryDecision, apply_candidate_recovery, retry_decision, telemetry_failure_scope},
 };
 use crate::{
     oauth::refresh::OAuthAuthenticationRefreshResult,
@@ -18,7 +16,6 @@ impl RetryExecution<'_> {
     pub(super) async fn handle_failure(
         &mut self,
         attempt_no: u32,
-        credential_id: RoutingCredentialId,
         failure: AttemptFailure,
     ) -> Result<(), FinalFailure> {
         self.note_rejected_refreshed_token(&failure);
@@ -29,34 +26,25 @@ impl RetryExecution<'_> {
                 .candidate()
                 .is_some_and(|candidate| self.budget.can_register_attempt(candidate.credential_id));
         let failure_scope = telemetry_failure_scope(&failure);
-        let mut decision = retry_decision(&failure, &self.budget, credential_id, can_refresh_oauth);
+        let mut decision = retry_decision(&failure, &self.budget, can_refresh_oauth);
         if decision
-            .delay()
+            .required_wait()
             .is_some_and(|delay| !self.budget.can_wait(delay))
         {
             decision = RetryDecision::Terminal;
         }
-        let delay_started_at = Instant::now();
         if let RetryDecision::OAuthRefresh {
             account_id,
             token_version,
-            ..
         } = decision
         {
-            let retry_delay = decision.delay().expect("OAuth retry has a delay");
             self.oauth_refresh_attempted = true;
             if self.refresh_oauth(account_id, token_version).await? {
-                decision =
-                    decision.with_delay(remaining_retry_delay(retry_delay, delay_started_at));
                 return self
                     .apply_retry_decision(attempt_no, failure_scope, failure, public, decision)
                     .await;
             }
-            decision = retry_decision(&failure, &self.budget, credential_id, false);
-            if decision.delay().is_some() {
-                decision =
-                    decision.with_delay(remaining_retry_delay(retry_delay, delay_started_at));
-            }
+            decision = retry_decision(&failure, &self.budget, false);
         }
         self.apply_retry_decision(attempt_no, failure_scope, failure, public, decision)
             .await
@@ -121,41 +109,42 @@ impl RetryExecution<'_> {
         public: FinalFailure,
         decision: RetryDecision,
     ) -> Result<(), FinalFailure> {
-        let delay = match decision {
+        match decision {
             RetryDecision::Terminal => {
                 self.services.recorder.annotate_attempt(
                     attempt_no,
                     failure_scope,
-                    decision.telemetry(),
+                    RequestAttemptRetryDecision::Terminal,
                 );
                 return Err(public);
             }
-            RetryDecision::OAuthRefresh { delay, .. } => delay,
-            RetryDecision::RetrySamePath(delay) => delay,
-            RetryDecision::Reselect { exclusion, delay } => {
-                exclude_failed_path(&mut self.exclusions, &failure, exclusion);
-                delay
+            RetryDecision::RetrySamePath(delay) => {
+                if !self.budget.can_wait(delay) {
+                    self.services.recorder.annotate_attempt(
+                        attempt_no,
+                        failure_scope,
+                        RequestAttemptRetryDecision::Terminal,
+                    );
+                    return Err(public);
+                }
+                wait_retry_delay(delay).await;
             }
-        };
-        if !self.budget.can_wait(delay) {
-            self.services.recorder.annotate_attempt(
-                attempt_no,
-                failure_scope,
-                RequestAttemptRetryDecision::Terminal,
-            );
-            return Err(public);
+            RetryDecision::PreferAlternate { .. } | RetryDecision::Reselect { .. } => {
+                apply_candidate_recovery(
+                    &mut self.selection_state,
+                    &failure,
+                    decision,
+                    Instant::now(),
+                );
+            }
+            RetryDecision::OAuthRefresh { .. } => {}
         }
         self.services
             .recorder
             .annotate_attempt(attempt_no, failure_scope, decision.telemetry());
         self.previous_error = Some(public);
-        wait_retry_delay(delay).await;
         Ok(())
     }
-}
-
-fn remaining_retry_delay(delay: Duration, started_at: Instant) -> Duration {
-    delay.saturating_sub(Instant::now().saturating_duration_since(started_at))
 }
 
 async fn wait_retry_delay(delay: Duration) {
@@ -166,24 +155,8 @@ async fn wait_retry_delay(delay: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::{remaining_retry_delay, wait_retry_delay};
+    use super::wait_retry_delay;
     use std::time::Duration;
-
-    #[tokio::test(start_paused = true)]
-    async fn work_done_during_retry_window_is_deducted_from_the_wait() {
-        let started_at = tokio::time::Instant::now();
-        tokio::time::advance(Duration::from_secs(3)).await;
-
-        assert_eq!(
-            remaining_retry_delay(Duration::from_secs(5), started_at),
-            Duration::from_secs(2)
-        );
-        tokio::time::advance(Duration::from_secs(3)).await;
-        assert_eq!(
-            remaining_retry_delay(Duration::from_secs(5), started_at),
-            Duration::ZERO
-        );
-    }
 
     #[tokio::test(start_paused = true)]
     async fn retry_wait_cannot_complete_before_the_semantic_delay() {

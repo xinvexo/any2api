@@ -18,7 +18,7 @@ use crate::{
     configuration::PublishedSnapshot,
     oauth::{OAuthQuotaActivity, refresh::OAuthRefresher},
     request_telemetry::{AttemptTimeoutMarker, RequestRecorder},
-    routing::CandidateExclusions,
+    routing::CandidateSelectionState,
 };
 
 use self::budget::RetryBudget;
@@ -61,7 +61,7 @@ struct RetryExecution<'a> {
     plan: PlannedRequest,
     services: RetryServices<'a>,
     budget: RetryBudget,
-    exclusions: CandidateExclusions,
+    selection_state: CandidateSelectionState,
     previous_error: Option<FinalFailure>,
     oauth_refresh_attempted: bool,
     refreshed_oauth_target: Option<(OAuthAccountId, u64)>,
@@ -93,7 +93,7 @@ pub(super) async fn execute(
             recorder,
         },
         budget,
-        exclusions: CandidateExclusions::default(),
+        selection_state: CandidateSelectionState::default(),
         previous_error: None,
         oauth_refresh_attempted: false,
         refreshed_oauth_target: None,
@@ -111,8 +111,7 @@ impl RetryExecution<'_> {
             match completed.result {
                 Ok(response) => return Ok(response),
                 Err(failure) => {
-                    self.handle_failure(completed.attempt_no, completed.credential_id, failure)
-                        .await?;
+                    self.handle_failure(completed.attempt_no, failure).await?;
                 }
             }
         }
