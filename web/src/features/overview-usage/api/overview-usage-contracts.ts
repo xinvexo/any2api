@@ -18,6 +18,7 @@ interface OverviewUsageTotals {
   tokenUsageRequestCount: number;
   inputTokens: bigint;
   outputTokens: bigint;
+  cacheReadTokens: bigint;
   totalTokens: bigint;
 }
 
@@ -107,11 +108,13 @@ function parseTotals(value: unknown): OverviewUsageTotals {
   const tokenUsageRequestCount = readCount(wire.token_usage_request_count);
   const inputTokens = readTokenCount(wire.input_tokens);
   const outputTokens = readTokenCount(wire.output_tokens);
+  const cacheReadTokens = readTokenCount(wire.cache_read_tokens);
   const totalTokens = readTokenCount(wire.total_tokens);
   if (
     successfulRequestCount + failedRequestCount !== requestCount ||
     tokenUsageRequestCount > requestCount ||
-    inputTokens + outputTokens !== totalTokens
+    inputTokens + outputTokens !== totalTokens ||
+    cacheReadTokens > inputTokens
   ) {
     throw invalidResponse();
   }
@@ -122,6 +125,7 @@ function parseTotals(value: unknown): OverviewUsageTotals {
     tokenUsageRequestCount,
     inputTokens,
     outputTokens,
+    cacheReadTokens,
     totalTokens,
   };
 }
@@ -198,6 +202,10 @@ function parseModels(value: unknown, selected: OverviewUsageTotals) {
   );
   assertBigIntSums(models.map((model) => model.inputTokens), selected.inputTokens);
   assertBigIntSums(models.map((model) => model.outputTokens), selected.outputTokens);
+  assertBigIntSums(
+    models.map((model) => model.cacheReadTokens),
+    selected.cacheReadTokens,
+  );
   return models;
 }
 

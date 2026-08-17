@@ -67,16 +67,13 @@ async fn refresh_rejection_exposes_one_safe_diagnostic_across_error_account_and_
 
     let response = app
         .clone()
-        .oneshot(request(
-            Method::GET,
-            "/api/admin/oauth/quota-events",
-            loopback,
-        ))
+        .oneshot(request(Method::GET, "/api/admin/events", loopback))
         .await
         .expect("event response");
     let mut events = response.into_body();
-    next_sse_event(&mut events).await;
-    next_sse_event(&mut events).await;
+    for _ in 0..6 {
+        next_sse_event(&mut events).await;
+    }
 
     let quota = json_request(
         app.clone(),

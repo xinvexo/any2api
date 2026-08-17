@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource } from "@/test/fake-event-source";
+import { AdminRealtimeProvider } from "@/shared/realtime";
 
 import { oauthQuotaQueryOptions } from "./oauth-quota-query";
 import { useOAuthQuotaChangeEvent } from "./use-oauth-quota-change-event";
@@ -13,7 +14,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("reloads active snapshots after reconnects and page-level change events", async () => {
+test("reloads active snapshots through the shared admin event stream", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   let reads = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -30,24 +31,21 @@ test("reloads active snapshots after reconnects and page-level change events", a
   const invalidate = vi.spyOn(client, "invalidateQueries");
   const view = render(
     <QueryClientProvider client={client}>
-      <QuotaConsumer />
+      <AdminRealtimeProvider authenticated>
+        <QuotaConsumer />
+      </AdminRealtimeProvider>
     </QueryClientProvider>,
   );
 
   expect(await screen.findByText("snapshot 1")).toBeInTheDocument();
   expect(FakeEventSource.instances).toHaveLength(1);
-  expect(FakeEventSource.instances[0]?.url).toBe("/api/admin/oauth/quota-events");
-
-  act(() => {
-    FakeEventSource.instances[0]?.emit("open");
-  });
-  expect(await screen.findByText("snapshot 2")).toBeInTheDocument();
+  expect(FakeEventSource.instances[0]?.url).toBe("/api/admin/events");
 
   act(() => {
     FakeEventSource.instances[0]?.emit("oauth_quota_changed");
   });
-  expect(await screen.findByText("snapshot 3")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(await screen.findByText("snapshot 2")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
 
   invalidate.mockClear();

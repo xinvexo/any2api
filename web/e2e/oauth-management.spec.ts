@@ -8,7 +8,7 @@ const fixtureSecrets = [
 ] as const;
 const oauthLayoutAccountCount = 10;
 
-test("OAuth JSON accounts remain server-side and support editing, model selection, and deletion", async ({
+test("OAuth JSON accounts remain server-side and support editing, model catalogs, and deletion", async ({
   page,
 }) => {
   const browserErrors = watchBrowserErrors(page);
@@ -52,30 +52,9 @@ test("OAuth JSON accounts remain server-side and support editing, model selectio
 
   const modelDrawer = page.getByRole("dialog", { name: "可用模型" });
   await expect(modelDrawer).toBeVisible();
-  const model = modelDrawer.getByRole("checkbox").first();
-  const modelName = await model.getAttribute("aria-label");
-  expect(modelName).toBeTruthy();
-  const initiallyChecked = await model.isChecked();
-  if (initiallyChecked) {
-    await model.uncheck();
-  } else {
-    await model.check();
-  }
-  await modelDrawer.getByRole("button", { name: "保存" }).click();
-  await expect(modelDrawer).toBeHidden();
-
-  await page
-    .getByRole("button", { name: "查看 E2E Codex Updated 的可用模型" })
-    .click();
-  const persistedModel = page.getByRole("dialog", { name: "可用模型" }).getByRole("checkbox", {
-    name: modelName!,
-  });
-  await expect(persistedModel).toBeChecked({ checked: !initiallyChecked });
-  await page
-    .getByRole("dialog", { name: "可用模型" })
-    .getByRole("button", { name: "关闭", exact: true })
-    .last()
-    .click();
+  await expect(modelDrawer.getByText("该账号模型目录为空")).toBeVisible();
+  await expect(modelDrawer.getByRole("button", { name: "保存" })).toBeDisabled();
+  await modelDrawer.getByRole("button", { name: "关闭", exact: true }).last().click();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await selectProvider(page, "Claude");

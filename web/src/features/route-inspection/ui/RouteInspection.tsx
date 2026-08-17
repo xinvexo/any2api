@@ -46,45 +46,14 @@ export function RouteInspection() {
     if (result.isSuccess) notify.success("路由检查已刷新");
   }
 
-  if (inspection.isPending && !inspection.data) {
-    return (
-      <div>
-        <h1 className="mb-4 text-base font-semibold text-primary">路由检查</h1>
-        <Surface
-          className="flex min-h-56 items-center justify-center p-7 text-sm text-secondary"
-          aria-busy="true"
-        >
-          正在读取路由配置
-        </Surface>
-      </div>
-    );
-  }
-
-  if (!inspection.data) {
-    return (
-      <div>
-        <h1 className="mb-4 text-base font-semibold text-primary">路由检查</h1>
-        <Surface className="p-6" role="alert">
-          <p className="font-semibold">无法读取路由检查</p>
-          <p className="mt-2 text-sm text-secondary">
-            {getRouteInspectionErrorMessage(inspection.error)}
-          </p>
-          <Button className="mt-5" onClick={() => void refresh()} disabled={inspection.isFetching}>
-            <RefreshCw size={14} />
-            重试
-          </Button>
-        </Surface>
-      </div>
-    );
-  }
+  const data = inspection.data;
 
   return (
     <div
       className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden"
       aria-busy={inspection.isFetching}
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
-        <h1 className="mr-auto text-base font-semibold text-primary">路由检查</h1>
+      <header className="flex min-h-8 shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
         <label className="relative min-w-[12rem] flex-1 sm:max-w-sm">
           <span className="sr-only">精确模型搜索</span>
           <Search
@@ -96,23 +65,27 @@ export function RouteInspection() {
             className={controlClass(false, "pl-8 pr-3")}
             value={modelQuery}
             placeholder="精确模型名"
+            disabled={!data}
             onChange={(event) => setModelQuery(event.target.value)}
           />
         </label>
-        <Select
-          value={status}
-          options={STATUS_OPTIONS}
-          onValueChange={setStatus}
-          aria-label="状态筛选"
-          className="w-36"
-        />
-        <Button variant="ghost" onClick={() => void refresh()} disabled={inspection.isFetching}>
-          <RefreshCw size={14} className={inspection.isFetching ? "animate-spin" : undefined} />
-          刷新
-        </Button>
-      </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Select
+            value={status}
+            options={STATUS_OPTIONS}
+            onValueChange={setStatus}
+            aria-label="状态筛选"
+            className="w-36"
+            disabled={!data}
+          />
+          <Button variant="ghost" onClick={() => void refresh()} disabled={inspection.isFetching}>
+            <RefreshCw size={14} className={inspection.isFetching ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+        </div>
+      </header>
 
-      {inspection.isError ? (
+      {inspection.isError && data ? (
         <Surface className="mt-3 shrink-0 border-warning/40 p-4 text-sm text-secondary" role="status">
           刷新失败，当前仍显示最近一次有效数据：
           {getRouteInspectionErrorMessage(inspection.error)}
@@ -120,7 +93,25 @@ export function RouteInspection() {
       ) : null}
 
       <div className="management-scroll-viewport min-h-0 flex-1 overflow-y-auto pt-3 [scrollbar-gutter:stable]">
-        {filtered.length === 0 ? (
+        {inspection.isPending && !data ? (
+          <Surface
+            className="flex min-h-56 items-center justify-center p-7 text-sm text-secondary"
+            aria-busy="true"
+          >
+            正在读取路由配置
+          </Surface>
+        ) : !data ? (
+          <Surface className="p-6" role="alert">
+            <p className="font-semibold">无法读取路由检查</p>
+            <p className="mt-2 text-sm text-secondary">
+              {getRouteInspectionErrorMessage(inspection.error)}
+            </p>
+            <Button className="mt-5" onClick={() => void refresh()} disabled={inspection.isFetching}>
+              <RefreshCw size={14} />
+              重试
+            </Button>
+          </Surface>
+        ) : filtered.length === 0 ? (
           <div className="flex min-h-52 flex-col items-center justify-center px-6 py-10 text-center" role="status">
             <Waypoints size={22} className="text-tertiary" aria-hidden="true" />
             <p className="mt-3 text-[13px] font-medium">
@@ -136,12 +127,14 @@ export function RouteInspection() {
         )}
       </div>
 
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle pt-3 text-[12px] text-secondary">
-        <p>
-          显示 <span className="tabular-nums text-primary">{filtered.length}</span> / {items.length}
-        </p>
-        <p className="tabular-nums">配置版本 {inspection.data.configRevision}</p>
-      </div>
+      {data ? (
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-subtle pt-3 text-[12px] text-secondary">
+          <p>
+            显示 <span className="tabular-nums text-primary">{filtered.length}</span> / {items.length}
+          </p>
+          <p className="tabular-nums">配置版本 {data.configRevision}</p>
+        </div>
+      ) : null}
     </div>
   );
 }

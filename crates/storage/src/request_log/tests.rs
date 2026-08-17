@@ -18,7 +18,7 @@ use crate::{
 
 mod capacity;
 mod corruption;
-mod pagination;
+mod cursor;
 
 const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 
@@ -67,10 +67,10 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .expect("append request log");
 
     let listed = store
-        .list_request_logs(0, &Default::default(), None, 1, 10)
+        .list_request_logs(0, &Default::default(), None, 10)
         .await
         .expect("list logs");
-    assert_eq!(listed.total, 1);
+    assert_eq!(listed.items.len(), 1);
     assert_eq!(listed.items[0].request_id, request_id);
     assert_eq!(
         listed.items[0].client_ip,
@@ -192,7 +192,7 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
     );
     assert_eq!(
         store
-            .list_request_logs(0, &Default::default(), None, 1, 10)
+            .list_request_logs(0, &Default::default(), None, 10)
             .await
             .expect("list")
             .items
@@ -221,10 +221,10 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
         1
     );
     let remaining = store
-        .list_request_logs(0, &Default::default(), None, 1, 10)
+        .list_request_logs(0, &Default::default(), None, 10)
         .await
         .expect("remaining");
-    assert_eq!(remaining.total, 1);
+    assert_eq!(remaining.items.len(), 1);
     assert_eq!(remaining.items[0].request_id, fourth.request.request_id);
 }
 
@@ -350,10 +350,10 @@ async fn every_protocol_operation_appends_and_lists_without_schema_drift() {
     }
 
     let listed = store
-        .list_request_logs(0, &Default::default(), None, 1, 20)
+        .list_request_logs(0, &Default::default(), None, 20)
         .await
         .expect("list logs");
-    assert_eq!(listed.total as usize, ProtocolOperation::ALL.len());
+    assert_eq!(listed.items.len(), ProtocolOperation::ALL.len());
     let mut operations: Vec<_> = listed.items.iter().map(|item| item.operation).collect();
     operations.sort();
     let mut expected = ProtocolOperation::ALL.to_vec();

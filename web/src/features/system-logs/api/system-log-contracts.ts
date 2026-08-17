@@ -56,11 +56,8 @@ interface SystemLogTelemetry {
 
 export interface SystemLogList {
   items: SystemLog[];
-  total: number;
-  page: number;
-  pageSize: number;
-  cursor: string | null;
   nextCursor: string | null;
+  hasMore: boolean;
   telemetry: SystemLogTelemetry;
 }
 
@@ -71,28 +68,18 @@ export interface ClearSystemLogsResult {
 export function parseSystemLogList(value: unknown): SystemLogList {
   const record = readRecord(value);
   const items = readArray(record.items).map(parseSystemLog);
-  const total = readNonNegativeInteger(record.total);
-  const page = readPositiveInteger(record.page);
-  const pageSize = readPositiveInteger(record.page_size);
-  const cursor = readCursor(record.cursor);
   const nextCursor = readCursor(record.next_cursor);
+  const hasMore = readBoolean(record.has_more);
   if (
-    pageSize > 100 ||
-    page > Math.max(1, Math.ceil(total / pageSize)) ||
-    items.length > pageSize ||
-    items.length > total ||
-    (items.length > 0 && cursor === null) ||
-    (nextCursor !== null && (items.length === 0 || cursor === null || nextCursor === cursor))
+    items.length > 100 ||
+    hasMore !== (nextCursor !== null)
   ) {
     throw invalidResponse();
   }
   return {
     items,
-    total,
-    page,
-    pageSize,
-    cursor,
     nextCursor,
+    hasMore,
     telemetry: parseTelemetry(record.telemetry),
   };
 }

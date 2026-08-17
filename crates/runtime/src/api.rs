@@ -39,7 +39,7 @@ pub use crate::public_request::{
 };
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{
-    ActiveRequestLogPage, HttpAccessLogChangeNotification, RequestTelemetry,
+    ActiveRequestLogBatch, HttpAccessLogChangeNotification, RequestTelemetry,
     RequestTelemetryControlError, RequestTelemetryMetrics,
 };
 pub use crate::routing::{

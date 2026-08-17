@@ -6,7 +6,7 @@ import type {
   SystemLogMessage,
 } from "../api/system-log-contracts";
 import { formatBytes, formatDuration } from "../model/system-log-presentation";
-import { useSystemLog } from "../model/use-system-logs";
+import { useSystemLog } from "../model/use-system-log";
 import { SystemLogBody } from "./SystemLogBody";
 import { Button } from "@/shared/ui/Button";
 import { SideDrawer } from "@/shared/ui/SideDrawer";

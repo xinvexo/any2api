@@ -11,12 +11,12 @@ use any2api_domain::{
 use super::{changes::LogChangeNotifier, telemetry::RequestTelemetry};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActiveRequestLogPage {
+pub struct ActiveRequestLogBatch {
     pub items: Vec<ActiveRequestLog>,
     pub total: u64,
 }
 
-impl ActiveRequestLogPage {
+impl ActiveRequestLogBatch {
     #[must_use]
     pub const fn empty() -> Self {
         Self {
@@ -104,9 +104,9 @@ impl ActiveRequestRegistry {
         }
     }
 
-    pub(super) fn list(&self, filter: &RequestLogFilter, limit: u32) -> ActiveRequestLogPage {
+    pub(super) fn list(&self, filter: &RequestLogFilter, limit: u32) -> ActiveRequestLogBatch {
         if filter.outcome().is_some() || limit == 0 {
-            return ActiveRequestLogPage::empty();
+            return ActiveRequestLogBatch::empty();
         }
         let entries = self.entries.lock().expect("active request registry");
         let mut items = entries
@@ -123,7 +123,7 @@ impl ActiveRequestRegistry {
         });
         let total = u64::try_from(items.len()).expect("active request count fits u64");
         items.truncate(limit as usize);
-        ActiveRequestLogPage { items, total }
+        ActiveRequestLogBatch { items, total }
     }
 
     pub(super) fn remove(&self, request_id: RequestId, notify: bool) {
@@ -211,7 +211,7 @@ impl RequestTelemetry {
         &self,
         filter: &RequestLogFilter,
         limit: u32,
-    ) -> ActiveRequestLogPage {
+    ) -> ActiveRequestLogBatch {
         self.active_requests.list(filter, limit)
     }
 

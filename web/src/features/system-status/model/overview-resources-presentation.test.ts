@@ -16,6 +16,6 @@ test("formats binary memory units and CPU percentages", () => {
 test("presents system memory as usage percentage with an absolute note", () => {
   expect(formatSystemMemory(8 * 1024 ** 3, 16 * 1024 ** 3)).toEqual({
     value: "50%",
-    note: "8 GiB / 16 GiB",
+    note: "已用 8 GiB / 共 16 GiB",
   });
 });

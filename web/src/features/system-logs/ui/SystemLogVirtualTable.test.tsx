@@ -8,7 +8,16 @@ test("renders only the visible system log rows", async () => {
   const items = Array.from({ length: 200 }, (_, index) => systemLog(index + 1));
   render(
     <div className="h-[320px]">
-      <SystemLogVirtualTable items={items} onSelect={() => {}} />
+      <SystemLogVirtualTable
+        items={items}
+        selectedId={null}
+        followingLatest
+        hasMore={false}
+        loadingMore={false}
+        onSelect={() => {}}
+        onFollowingLatestChange={() => {}}
+        onLoadMore={() => {}}
+      />
     </div>,
   );
 

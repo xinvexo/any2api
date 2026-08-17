@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type PropsWithChildren } from "react";
 
-import { AdminAuthProvider } from "@/features/admin-auth";
+import { AdminAuthProvider, useAdminAuth } from "@/features/admin-auth";
+import { AdminRealtimeProvider } from "@/shared/realtime";
 
 export function AppProviders({ children }: PropsWithChildren) {
   const [queryClient] = useState(
@@ -19,7 +20,21 @@ export function AppProviders({ children }: PropsWithChildren) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AdminAuthProvider>{children}</AdminAuthProvider>
+      <AdminAuthProvider>
+        <AuthenticatedRealtimeProvider>{children}</AuthenticatedRealtimeProvider>
+      </AdminAuthProvider>
     </QueryClientProvider>
+  );
+}
+
+function AuthenticatedRealtimeProvider({ children }: PropsWithChildren) {
+  const { session, refresh } = useAdminAuth();
+  return (
+    <AdminRealtimeProvider
+      authenticated={session?.authenticated === true}
+      onAuthRefresh={refresh}
+    >
+      {children}
+    </AdminRealtimeProvider>
   );
 }

@@ -41,6 +41,14 @@ export function formatOverviewRpm(value: number) {
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(value);
 }
 
+export function calculateOverviewCacheHitRate(cacheReadTokens: bigint, inputTokens: bigint) {
+  if (inputTokens <= 0n) return null;
+  const boundedCacheReadTokens = cacheReadTokens > inputTokens ? inputTokens : cacheReadTokens;
+  const tenthsOfPercent =
+    (boundedCacheReadTokens * 1_000n + inputTokens / 2n) / inputTokens;
+  return Number(tenthsOfPercent) / 10;
+}
+
 function formatOverviewDateTime(value: number) {
   return new Date(value).toLocaleString(undefined, {
     month: "2-digit",

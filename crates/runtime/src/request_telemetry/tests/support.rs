@@ -5,8 +5,8 @@ use std::sync::{
 
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogExchange,
-    HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpProtocolVersion, LogPage,
-    LogPageCursor, OAuthAccountId, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpProtocolVersion, LogBatch,
+    LogCursor, OAuthAccountId, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
     SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
@@ -68,18 +68,16 @@ impl HttpAccessLogRepository for BlockingRepository {
         &self,
         _since_ms: u64,
         _show_admin_operations: bool,
-        _cursor: Option<LogPageCursor>,
-        page: u32,
+        _cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
+    ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
         let logs = self.access_logs.lock().expect("HTTP access logs");
-        let total = logs.len() as u64;
         let items = logs
             .iter()
             .take(limit as usize)
             .map(HttpAccessLog::summary)
             .collect();
-        Ok(LogPage::new(items, total, page, None, None))
+        Ok(LogBatch::new(items, None))
     }
 
     async fn get_http_access_log(
@@ -210,11 +208,10 @@ impl RequestLogRepository for BlockingRepository {
         &self,
         _since_ms: u64,
         _filter: &any2api_domain::RequestLogFilter,
-        _cursor: Option<LogPageCursor>,
-        _page: u32,
+        _cursor: Option<LogCursor>,
         _limit: u32,
-    ) -> Result<LogPage<RequestLog>, StorageError> {
-        Ok(LogPage::empty())
+    ) -> Result<LogBatch<RequestLog>, StorageError> {
+        Ok(LogBatch::empty())
     }
 
     async fn get_request_log(

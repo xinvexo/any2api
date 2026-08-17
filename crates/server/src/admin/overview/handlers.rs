@@ -38,14 +38,14 @@ pub(crate) async fn resources(
     State(state): State<AppState>,
 ) -> Result<Json<OverviewResourcesResponse>, AdminApiError> {
     let snapshot = state
-        .runtime()
-        .system_metrics_snapshot()
+        .admin_realtime()
+        .current_snapshot()
         .await
-        .map_err(|error| {
-            tracing::warn!(%error, "system resource sampling failed");
+        .ok_or_else(|| {
+            tracing::warn!("shared system resource snapshot is unavailable");
             AdminApiError::system_metrics_unavailable()
         })?;
-    Ok(Json(snapshot.into()))
+    Ok(Json(snapshot.resources()))
 }
 
 fn parse_range(value: Option<&str>) -> Result<RequestLogOverviewRange, AdminApiError> {

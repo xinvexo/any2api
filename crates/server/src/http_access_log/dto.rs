@@ -1,46 +1,36 @@
-use any2api_domain::{HttpAccessLogSummary, LogPage};
+use any2api_domain::{HttpAccessLogSummary, LogBatch};
 use any2api_runtime::api::RequestTelemetryMetrics;
 use serde::Serialize;
 
-use crate::log_pagination::LogCursorScope;
+use crate::log_cursor::LogCursorScope;
 
 #[derive(Serialize)]
 pub(super) struct SystemLogListResponse {
     items: Vec<SystemLogResponse>,
-    total: u64,
-    page: u32,
-    page_size: u32,
-    cursor: Option<String>,
     next_cursor: Option<String>,
+    has_more: bool,
     telemetry: TelemetryResponse,
 }
 
 impl SystemLogListResponse {
     pub(super) fn new(
-        logs: LogPage<HttpAccessLogSummary>,
-        page_size: u32,
+        logs: LogBatch<HttpAccessLogSummary>,
         metrics: RequestTelemetryMetrics,
         show_admin_operations: bool,
     ) -> Self {
-        let cursor = logs
-            .cursor
+        let next_cursor = logs
+            .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::System(show_admin_operations).encode(cursor, logs.page));
-        let next_cursor = logs.next_cursor.as_ref().map(|cursor| {
-            LogCursorScope::System(show_admin_operations)
-                .encode(cursor, logs.page.saturating_add(1))
-        });
+            .map(|cursor| LogCursorScope::System(show_admin_operations).encode(cursor));
+        let has_more = next_cursor.is_some();
         Self {
             items: logs
                 .items
                 .into_iter()
                 .map(SystemLogResponse::from)
                 .collect(),
-            total: logs.total,
-            page: logs.page,
-            page_size,
-            cursor,
             next_cursor,
+            has_more,
             telemetry: metrics.into(),
         }
     }

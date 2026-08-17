@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
 };
 
-use crate::{admin::AdminApiError, state::AppState};
+use crate::{admin::AdminApiError, log_cursor::LOG_BATCH_SIZE, state::AppState};
 
 use super::{
     detail_dto::SystemLogDetailResponse,
@@ -22,15 +22,14 @@ pub(super) async fn list(
         .map_err(|_| AdminApiError::invalid_request("system log query is invalid"))?
         .0
         .validate()
-        .ok_or_else(|| AdminApiError::invalid_request("system log page is invalid"))?;
+        .ok_or_else(|| AdminApiError::invalid_request("system log cursor is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
         .list_http_access_logs(
-            query.page.since_ms,
+            query.batch.since_ms,
             query.show_admin_operations,
-            query.page.cursor,
-            query.page.page,
-            query.page.page_size,
+            query.batch.cursor,
+            LOG_BATCH_SIZE,
         )
         .await
         .map_err(|error| {
@@ -39,7 +38,6 @@ pub(super) async fn list(
         })?;
     Ok(Json(SystemLogListResponse::new(
         logs,
-        query.page.page_size,
         telemetry.metrics(),
         query.show_admin_operations,
     )))

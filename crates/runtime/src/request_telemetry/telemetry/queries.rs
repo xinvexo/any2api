@@ -4,7 +4,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use any2api_domain::{
-    CompletedRequestLog, HttpAccessLog, HttpAccessLogSummary, LogPage, LogPageCursor, RequestId,
+    CompletedRequestLog, HttpAccessLog, HttpAccessLogSummary, LogBatch, LogCursor, RequestId,
     RequestLog, RequestLogFilter,
 };
 use any2api_storage::api::{
@@ -19,17 +19,16 @@ impl RequestTelemetry {
         &self,
         since_ms: u64,
         filter: &RequestLogFilter,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<RequestLog>, StorageError> {
+    ) -> Result<LogBatch<RequestLog>, StorageError> {
         match &self.request_logs {
             Some(repository) => {
                 repository
-                    .list_request_logs(since_ms, filter, cursor, page, limit)
+                    .list_request_logs(since_ms, filter, cursor, limit)
                     .await
             }
-            None => Ok(LogPage::empty()),
+            None => Ok(LogBatch::empty()),
         }
     }
 
@@ -47,17 +46,16 @@ impl RequestTelemetry {
         &self,
         since_ms: u64,
         show_admin_operations: bool,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
+    ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
-                    .list_http_access_logs(since_ms, show_admin_operations, cursor, page, limit)
+                    .list_http_access_logs(since_ms, show_admin_operations, cursor, limit)
                     .await
             }
-            None => Ok(LogPage::empty()),
+            None => Ok(LogBatch::empty()),
         }
     }
 

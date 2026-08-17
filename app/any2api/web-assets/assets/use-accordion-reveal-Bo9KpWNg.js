@@ -1,1 +1,0 @@
-import{i as e,n as t}from"./jsx-runtime-bzQ4Vb5N.js";var n=e(t(),1),r=180;function i(e,t){let[i,a]=(0,n.useState)(t);return(0,n.useEffect)(()=>{if(!e||i)return;let t=window.setTimeout(()=>a(!0),r);return()=>window.clearTimeout(t)},[e,i]),e&&t&&i}export{i as t};

@@ -245,10 +245,9 @@ async fn burst_writes_above_the_old_cleanup_rate_stay_within_the_row_cap() {
     wait_for(|| telemetry.metrics().persisted_records == 1_200).await;
 
     let page = repository
-        .list_request_logs(0, &Default::default(), None, 1, 200)
+        .list_request_logs(0, &Default::default(), None, 200)
         .await
         .expect("capped request log page");
-    assert_eq!(page.total, 100);
     assert_eq!(page.items.len(), 100);
     assert_eq!(telemetry.metrics().dropped_records, 0);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
@@ -314,10 +313,10 @@ async fn graceful_shutdown_flushes_all_queued_request_logs() {
     assert_eq!(telemetry.metrics().persisted_records, 500);
     assert_eq!(telemetry.metrics().dropped_records, 0);
     let page = repository
-        .list_request_logs(0, &Default::default(), None, 1, 1)
+        .list_request_logs(0, &Default::default(), None, 600)
         .await
         .expect("persisted request logs");
-    assert_eq!(page.total, 500);
+    assert_eq!(page.items.len(), 500);
 }
 
 #[tokio::test]

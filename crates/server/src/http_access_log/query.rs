@@ -1,32 +1,25 @@
 use serde::Deserialize;
 
-use crate::log_pagination::{LogPageRequest, validate_system_log_page};
+use crate::log_cursor::{LogBatchRequest, validate_system_log_batch};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SystemLogListQuery {
     cursor: Option<String>,
-    page: Option<u32>,
-    page_size: Option<u32>,
     #[serde(default = "show_admin_operations_by_default")]
     show_admin_operations: bool,
 }
 
 pub(super) struct ValidatedSystemLogListQuery {
-    pub(super) page: LogPageRequest,
+    pub(super) batch: LogBatchRequest,
     pub(super) show_admin_operations: bool,
 }
 
 impl SystemLogListQuery {
     pub(super) fn validate(self) -> Option<ValidatedSystemLogListQuery> {
-        let page = validate_system_log_page(
-            self.cursor,
-            self.page,
-            self.page_size,
-            self.show_admin_operations,
-        )?;
+        let batch = validate_system_log_batch(self.cursor, self.show_admin_operations)?;
         Some(ValidatedSystemLogListQuery {
-            page,
+            batch,
             show_admin_operations: self.show_admin_operations,
         })
     }

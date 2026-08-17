@@ -1,8 +1,10 @@
-use any2api_domain::{CompletedRequestLog, ErrorClass, LogPage, RequestAttemptOutcome, RequestLog};
-use any2api_runtime::api::{ActiveRequestLogPage, PublishedSnapshot, RequestTelemetryMetrics};
+use any2api_domain::{
+    CompletedRequestLog, ErrorClass, LogBatch, RequestAttemptOutcome, RequestLog,
+};
+use any2api_runtime::api::{ActiveRequestLogBatch, PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
-use crate::log_pagination::LogCursorScope;
+use crate::log_cursor::LogCursorScope;
 
 use super::filter_options::RequestLogFilterOptionsResponse;
 use super::{active_dto::ActiveRequestLogResponse, attempt_dto::RequestAttemptResponse};
@@ -12,20 +14,16 @@ pub(crate) struct RequestLogListResponse {
     active_items: Vec<ActiveRequestLogResponse>,
     active_total: u64,
     items: Vec<RequestLogResponse>,
-    total: u64,
-    page: u32,
-    page_size: u32,
-    cursor: Option<String>,
     next_cursor: Option<String>,
+    has_more: bool,
     telemetry: RequestTelemetryResponse,
     filter_options: RequestLogFilterOptionsResponse,
 }
 
 impl RequestLogListResponse {
     pub(crate) fn new(
-        logs: LogPage<RequestLog>,
-        mut active: ActiveRequestLogPage,
-        page_size: u32,
+        logs: LogBatch<RequestLog>,
+        mut active: ActiveRequestLogBatch,
         metrics: RequestTelemetryMetrics,
         snapshot: &PublishedSnapshot,
         filter_fingerprint: &str,
@@ -45,13 +43,11 @@ impl RequestLogListResponse {
         );
         let filter_options =
             RequestLogFilterOptionsResponse::new(&logs.items, &active.items, snapshot);
-        let cursor = logs
-            .cursor
+        let next_cursor = logs
+            .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor, logs.page));
-        let next_cursor = logs.next_cursor.as_ref().map(|cursor| {
-            LogCursorScope::Request(filter_fingerprint).encode(cursor, logs.page.saturating_add(1))
-        });
+            .map(|cursor| LogCursorScope::Request(filter_fingerprint).encode(cursor));
+        let has_more = next_cursor.is_some();
         Self {
             active_items: active
                 .items
@@ -64,11 +60,8 @@ impl RequestLogListResponse {
                 .into_iter()
                 .map(|log| RequestLogResponse::from_log(log, snapshot))
                 .collect(),
-            total: logs.total,
-            page: logs.page,
-            page_size,
-            cursor,
             next_cursor,
+            has_more,
             telemetry: metrics.into(),
             filter_options,
         }

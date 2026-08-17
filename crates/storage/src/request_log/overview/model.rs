@@ -54,6 +54,7 @@ pub struct RequestLogOverviewTotals {
     pub token_usage_request_count: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_read_tokens: u64,
 }
 
 impl RequestLogOverviewTotals {
@@ -80,6 +81,7 @@ impl RequestLogOverviewTotals {
         )?;
         self.input_tokens = checked_add(self.input_tokens, other.input_tokens)?;
         self.output_tokens = checked_add(self.output_tokens, other.output_tokens)?;
+        self.cache_read_tokens = checked_add(self.cache_read_tokens, other.cache_read_tokens)?;
         Ok(())
     }
 
@@ -96,6 +98,7 @@ impl RequestLogOverviewTotals {
             )?,
             input_tokens: checked_subtract(self.input_tokens, other.input_tokens)?,
             output_tokens: checked_subtract(self.output_tokens, other.output_tokens)?,
+            cache_read_tokens: checked_subtract(self.cache_read_tokens, other.cache_read_tokens)?,
         })
     }
 }

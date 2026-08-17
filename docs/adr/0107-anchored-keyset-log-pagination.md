@@ -1,9 +1,9 @@
 # ADR-0107：日志使用带头部锚点的 Keyset 与按页定位
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0162
 - 日期：2026-08-04
 - 决策者：maintainer
-- 修订：ADR-0015、ADR-0051；2026-08-16 补充 HttpAccessLog 管理活动筛选作用域
+- 修订：ADR-0015、ADR-0051；2026-08-16 补充 HttpAccessLog 管理活动筛选作用域；2026-08-17 由 ADR-0162 取代页码与随机定位语义
 
 ## 背景
 

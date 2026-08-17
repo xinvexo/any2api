@@ -1,7 +1,7 @@
 mod capacity;
+mod cursor;
 mod oauth_quota_usage;
 mod overview;
-mod pagination;
 mod repository;
 mod rows;
 mod usage;

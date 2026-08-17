@@ -1,4 +1,5 @@
 import { requestJson } from "@/shared/api/http-client";
+import { ADMIN_API_PREFIX } from "@/shared/api/paths";
 
 import {
   parseClearSystemLogsResult,
@@ -12,19 +13,15 @@ import {
 export function getSystemLogs(
   showAdminOperations = true,
   cursor: string | null = null,
-  page = 1,
-  pageSize = 20,
   signal?: AbortSignal,
 ): Promise<SystemLogList> {
   const query = new URLSearchParams({
-    page: String(page),
-    page_size: String(pageSize),
     show_admin_operations: String(showAdminOperations),
   });
   if (cursor !== null) {
     query.set("cursor", cursor);
   }
-  return requestJson<unknown>(`/api/admin/system-logs?${query}`, {
+  return requestJson<unknown>(`${ADMIN_API_PREFIX}/system-logs?${query}`, {
     signal,
   }).then(parseSystemLogList);
 }
@@ -34,13 +31,13 @@ export function getSystemLog(
   signal?: AbortSignal,
 ): Promise<SystemLogDetail> {
   return requestJson<unknown>(
-    "/api/admin/system-logs/" + encodeURIComponent(requestId),
+    `${ADMIN_API_PREFIX}/system-logs/` + encodeURIComponent(requestId),
     { signal },
   ).then(parseSystemLogDetail);
 }
 
 export function clearSystemLogs(): Promise<ClearSystemLogsResult> {
-  return requestJson<unknown>("/api/admin/system-logs", { method: "DELETE" }).then(
+  return requestJson<unknown>(`${ADMIN_API_PREFIX}/system-logs`, { method: "DELETE" }).then(
     parseClearSystemLogsResult,
   );
 }

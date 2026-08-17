@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, ProviderCredentialTestService, ProxyTestService,
@@ -6,7 +6,9 @@ use any2api_runtime::api::{
 };
 use any2api_updater::api::ApplicationUpdateService;
 
-use crate::{admin_auth::AdminAuthService, zstd_decode::ZstdDecoder};
+use crate::{
+    admin::realtime::AdminRealtimeHub, admin_auth::AdminAuthService, zstd_decode::ZstdDecoder,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -19,6 +21,7 @@ pub struct AppState {
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
     admin_auth: Arc<AdminAuthService>,
     request_telemetry: Arc<RequestTelemetry>,
+    admin_realtime: Arc<OnceLock<Arc<AdminRealtimeHub>>>,
     application_updates: Option<Arc<dyn ApplicationUpdateService>>,
     zstd_decoder: ZstdDecoder,
 }
@@ -43,6 +46,7 @@ impl AppState {
             provider_credential_tests: None,
             admin_auth,
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
+            admin_realtime: Arc::new(OnceLock::new()),
             application_updates: None,
             zstd_decoder,
         }
@@ -134,6 +138,18 @@ impl AppState {
     #[must_use]
     pub(crate) fn request_telemetry_handle(&self) -> Arc<RequestTelemetry> {
         Arc::clone(&self.request_telemetry)
+    }
+
+    #[must_use]
+    pub(crate) fn admin_realtime(&self) -> Arc<AdminRealtimeHub> {
+        Arc::clone(self.admin_realtime.get_or_init(|| {
+            Arc::new(AdminRealtimeHub::new(
+                Arc::clone(&self.runtime),
+                Arc::clone(&self.snapshots),
+                Arc::clone(&self.public_requests),
+                Arc::clone(&self.request_telemetry),
+            ))
+        }))
     }
 
     #[must_use]

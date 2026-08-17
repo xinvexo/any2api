@@ -6,6 +6,7 @@ const probes = vi.hoisted(() => ({
   runtime: undefined as RuntimeQuery | undefined,
   resources: undefined as ResourcesQuery | undefined,
   usage: undefined as UsageQuery | undefined,
+  realtime: { connected: true, stale: false },
 }));
 
 vi.mock("@/features/balancing", () => ({
@@ -19,11 +20,15 @@ vi.mock("@/features/overview-usage", () => ({
 vi.mock("../model/use-overview-resources", () => ({
   useOverviewResources: () => probes.resources,
 }));
+vi.mock("@/shared/realtime", () => ({
+  useAdminRealtimeStatus: () => probes.realtime,
+}));
 
 import { SystemOverview } from "./SystemOverview";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  probes.realtime = { connected: true, stale: false };
 });
 
 test("shows resource and request load bands, then refreshes all overview queries", async () => {
@@ -32,7 +37,7 @@ test("shows resource and request load bands, then refreshes all overview queries
   probes.resources = resourcesQuery(refetch);
   probes.usage = usageQuery(refetch);
 
-  render(
+  const { container } = render(
     <MemoryRouter initialEntries={["/overview?range=24h"]}>
       <SystemOverview />
     </MemoryRouter>,
@@ -40,16 +45,26 @@ test("shows resource and request load bands, then refreshes all overview queries
 
   expect(screen.getByText("any2api 内存")).toBeInTheDocument();
   expect(screen.getByText("any2api CPU")).toBeInTheDocument();
-  expect(screen.getByText("系统内存")).toBeInTheDocument();
-  expect(screen.getByText("活动上游")).toBeInTheDocument();
+  expect(screen.getByText("整机内存")).toBeInTheDocument();
+  expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
-  expect(screen.getByText("Transport 客户端")).toBeInTheDocument();
-  expect(screen.getByText("RPM 用尽")).toBeInTheDocument();
+  expect(screen.getByText("账号与密钥")).toBeInTheDocument();
+  expect(screen.getByText("已达每分钟上限")).toBeInTheDocument();
+  expect(screen.queryByRole("progressbar", { name: "近 60 秒请求 使用率" }))
+    .not.toBeInTheDocument();
+  expect(screen.queryByRole("progressbar", { name: "进行中请求 使用率" }))
+    .not.toBeInTheDocument();
   expect(screen.getByText("请求负载")).toBeInTheDocument();
   expect(screen.getByText("资源状态")).toBeInTheDocument();
+  expect(screen.getByText("运行正常")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "系统总览" })).not.toBeInTheDocument();
+  expect(screen.queryByText("进程、主机与调用质量")).not.toBeInTheDocument();
+  expect(screen.queryByText("实时")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新系统总览" })).toBeInTheDocument();
   expect(screen.queryByText("后台任务")).not.toBeInTheDocument();
   expect(screen.queryByText("缓存命中")).not.toBeInTheDocument();
+  expect(container).not.toHaveTextContent(/活动上游|Transport 客户端|逻辑 CPU|RSS/);
+  expect(container.querySelector("time")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新系统总览" }));
   await waitFor(() => expect(refetch).toHaveBeenCalledTimes(3));
@@ -74,7 +89,7 @@ test("keeps the last resource values visible when a refresh fails", () => {
     .toHaveAttribute("role", "status");
 });
 
-test("does not show an RPM warning when no limited credential is exhausted", () => {
+test("does not show an account limit warning when no limited credential is exhausted", () => {
   const refetch = vi.fn(async () => ({ isSuccess: true }));
   probes.runtime = runtimeQuery(refetch);
   probes.runtime.data.totals.rateLimitedCredentialCount = 0;
@@ -87,15 +102,35 @@ test("does not show an RPM warning when no limited credential is exhausted", () 
     </MemoryRouter>,
   );
 
-  expect(screen.queryByText("RPM 用尽")).not.toBeInTheDocument();
+  expect(screen.queryByText("已达每分钟上限")).not.toBeInTheDocument();
+});
+
+test("keeps the last snapshot visible and marks a disconnected stream stale", () => {
+  const refetch = vi.fn(async () => ({ isSuccess: true }));
+  probes.runtime = runtimeQuery(refetch);
+  probes.resources = resourcesQuery(refetch);
+  probes.usage = usageQuery(refetch);
+  probes.realtime = { connected: false, stale: true };
+
+  render(
+    <MemoryRouter>
+      <SystemOverview />
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByText("128 MiB")).toBeInTheDocument();
+  expect(screen.getByText("数据陈旧")).toBeInTheDocument();
+  expect(screen.getByText("实时连接已中断，仍显示最近一次有效快照。"))
+    .toHaveAttribute("role", "status");
 });
 
 interface RuntimeQuery {
   data: {
     process: { shutdownPhase: "running"; activeRequests: number; backgroundTasks: number };
-    transport: { cacheEntries: number; cacheCapacity: number };
     queue: { waiting: number; maxWaiting: number };
     totals: {
+      credentialCount: number;
+      enabledCredentialCount: number;
       inFlight: number;
       requestsInWindow: number;
       limitedCredentialCount: number;
@@ -134,9 +169,10 @@ function runtimeQuery(refetch: () => Promise<{ isSuccess: boolean }>): RuntimeQu
   return {
     data: {
       process: { shutdownPhase: "running", activeRequests: 1, backgroundTasks: 0 },
-      transport: { cacheEntries: 3, cacheCapacity: 64 },
       queue: { waiting: 2, maxWaiting: 128 },
       totals: {
+        credentialCount: 64,
+        enabledCredentialCount: 48,
         inFlight: 1,
         requestsInWindow: 14,
         limitedCredentialCount: 2,

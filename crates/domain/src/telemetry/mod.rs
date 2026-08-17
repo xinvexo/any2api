@@ -1,5 +1,5 @@
 mod http_access_log;
-mod log_page;
+mod log_batch;
 mod quota_cost;
 mod request_attempt_diagnostics;
 mod request_log;
@@ -11,7 +11,7 @@ pub use http_access_log::{
     HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion,
     MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES, gateway_auth_rejected_capacity,
 };
-pub use log_page::{LogPage, LogPageCursor, LogPagePosition};
+pub use log_batch::{LogBatch, LogCursor, LogCursorPosition};
 pub use quota_cost::{
     MAX_QUOTA_RATE_CARD_CHARS, QuotaCostUnit, QuotaServiceTier, RequestQuotaCost,
     RequestQuotaCostRate,

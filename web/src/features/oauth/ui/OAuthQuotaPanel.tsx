@@ -26,6 +26,7 @@ export function OAuthQuotaPanel({
   accountLabel,
   provider,
   disabled = false,
+  queryDisabled = false,
   refreshAllPending = false,
   showError = true,
 }: {
@@ -33,6 +34,8 @@ export function OAuthQuotaPanel({
   accountLabel: string;
   provider: OAuthProvider;
   disabled?: boolean;
+  /** Prevents a deleted account from refetching while its mutation is committed. */
+  queryDisabled?: boolean;
   /** Keeps the spinner continuous while batch SSE refetches toggle query fetching. */
   refreshAllPending?: boolean;
   /** The account card already renders the persistent token diagnostic when present. */
@@ -40,7 +43,7 @@ export function OAuthQuotaPanel({
 }) {
   const queryClient = useQueryClient();
   const quotaOptions = oauthQuotaQueryOptions(accountId);
-  const quotaQuery = useQuery(quotaOptions);
+  const quotaQuery = useQuery({ ...quotaOptions, enabled: !queryDisabled });
   const resetRequested = useRef(false);
   const [resetRefreshFailed, setResetRefreshFailed] = useState(false);
   const [modelCatalogRefreshFailed, setModelCatalogRefreshFailed] = useState(false);

@@ -58,7 +58,11 @@ export function OverviewMetricTile({
       >
         {value}
       </strong>
-      <ProgressBar value={progress} color={color} label={progressLabel ?? `${label} 使用率`} />
+      {progress !== null || progressLabel ? (
+        <ProgressBar value={progress} color={color} label={progressLabel ?? `${label} 使用率`} />
+      ) : (
+        <div className="mt-2.5 h-1 rounded-full bg-surface-muted" aria-hidden="true" />
+      )}
       <p className="mt-1.5 truncate text-[11px] leading-4 text-tertiary" title={note}>
         {note}
       </p>

@@ -21,6 +21,9 @@ test("edits the structured card and sends a new hidden ID", async () => {
   renderPage();
 
   const exchange = await screen.findByLabelText("Credits / USD");
+  expect(screen.queryByRole("heading", { name: "Codex 额度费率" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "刷新额度费率" }).closest("header"))
+    .toHaveClass("min-h-8", "border-b", "pb-3");
   fireEvent.change(exchange, { target: { value: "30" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 

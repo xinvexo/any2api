@@ -1,5 +1,5 @@
 use any2api_domain::{
-    CompletedRequestLog, LogPage, LogPageCursor, RequestId, RequestLog, RequestLogFilter,
+    CompletedRequestLog, LogBatch, LogCursor, RequestId, RequestLog, RequestLogFilter,
 };
 use async_trait::async_trait;
 
@@ -7,8 +7,8 @@ use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
     capacity::{REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome, trim_to_capacity},
+    cursor,
     overview::{RequestLogOverview, RequestLogOverviewRange, load_request_log_overview},
-    pagination,
     rows::{RequestAttemptRow, RequestLogRow, parse_request_attempt, parse_request_log},
     writes::{delete_oldest_before, insert_request_attempt, insert_request_log},
 };
@@ -32,10 +32,9 @@ pub trait RequestLogRepository: Send + Sync {
         &self,
         since_ms: u64,
         filter: &RequestLogFilter,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<RequestLog>, StorageError>;
+    ) -> Result<LogBatch<RequestLog>, StorageError>;
 
     async fn get_request_log(
         &self,
@@ -102,11 +101,10 @@ impl RequestLogRepository for SqliteStore {
         &self,
         since_ms: u64,
         filter: &RequestLogFilter,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<RequestLog>, StorageError> {
-        pagination::list(self, since_ms, filter, cursor, page, limit).await
+    ) -> Result<LogBatch<RequestLog>, StorageError> {
+        cursor::list(self, since_ms, filter, cursor, limit).await
     }
 
     async fn get_request_log(

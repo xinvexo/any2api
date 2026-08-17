@@ -29,7 +29,7 @@ async fn request_log_rejects_a_malformed_persisted_client_ip() {
 }
 
 #[tokio::test]
-async fn request_log_list_skips_a_corrupt_row_without_hiding_it_from_total() {
+async fn request_log_batch_skips_a_corrupt_row_and_advances_its_cursor() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("corrupt-list-row.sqlite3"))
         .await
@@ -53,10 +53,9 @@ async fn request_log_list_skips_a_corrupt_row_without_hiding_it_from_total() {
     .expect("inject corrupt diagnostic");
 
     let page = store
-        .list_request_logs(0, &Default::default(), None, 1, 10)
+        .list_request_logs(0, &Default::default(), None, 10)
         .await
         .expect("list logs");
-    assert_eq!(page.total, 3);
     assert_eq!(
         page.items
             .into_iter()
@@ -70,16 +69,16 @@ async fn request_log_list_skips_a_corrupt_row_without_hiding_it_from_total() {
     ));
 
     let first = store
-        .list_request_logs(0, &Default::default(), None, 1, 1)
+        .list_request_logs(0, &Default::default(), None, 1)
         .await
         .expect("first cursor page");
     let corrupt_page = store
-        .list_request_logs(0, &Default::default(), first.next_cursor, 2, 1)
+        .list_request_logs(0, &Default::default(), first.next_cursor, 1)
         .await
         .expect("corrupt cursor page");
     assert!(corrupt_page.items.is_empty());
     let oldest_page = store
-        .list_request_logs(0, &Default::default(), corrupt_page.next_cursor, 3, 1)
+        .list_request_logs(0, &Default::default(), corrupt_page.next_cursor, 1)
         .await
         .expect("page after corrupt row");
     assert_eq!(oldest_page.items[0].request_id, oldest.request.request_id);

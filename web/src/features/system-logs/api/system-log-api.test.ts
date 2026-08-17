@@ -4,18 +4,18 @@ import { getSystemLog, getSystemLogs } from "./system-log-api";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("paginates system logs without client-controlled audit headers", async () => {
+test("serializes system log cursors without client-controlled audit headers", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => listResponse());
 
-  await getSystemLogs(false, "s4.0.cursor", 7, 50);
+  await getSystemLogs(false, "s5.0.cursor");
   await getSystemLogs();
 
   const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    "/api/admin/system-logs?page=7&page_size=50&show_admin_operations=false&cursor=s4.0.cursor",
+    "/api/admin/system-logs?show_admin_operations=false&cursor=s5.0.cursor",
   );
   expect(fetchMock.mock.calls[1]?.[0]).toBe(
-    "/api/admin/system-logs?page=1&page_size=20&show_admin_operations=true",
+    "/api/admin/system-logs?show_admin_operations=true",
   );
   expect(firstHeaders["X-Any2API-Log-Refresh"]).toBeUndefined();
 });
@@ -38,11 +38,8 @@ test("loads one raw system log exchange by request ID", async () => {
 function listResponse() {
   return new Response(JSON.stringify({
     items: [],
-    total: 0,
-    page: 1,
-    page_size: 20,
-    cursor: null,
     next_cursor: null,
+    has_more: false,
     telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
   }), {
     status: 200,

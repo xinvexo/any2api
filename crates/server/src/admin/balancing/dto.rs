@@ -5,7 +5,7 @@ use any2api_runtime::api::{
 };
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct BalancingRuntimeResponse {
     config_revision: u64,
     scheduler_epoch: u64,
@@ -59,14 +59,14 @@ impl BalancingRuntimeResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct ProcessResponse {
     active_requests: usize,
     background_tasks: usize,
     shutdown_phase: &'static str,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct TransportResponse {
     cache_entries: usize,
     cache_capacity: usize,
@@ -87,14 +87,14 @@ impl From<TransportRuntimeSnapshot> for TransportResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct BreakerResponse {
     closed: usize,
     open: usize,
     half_open: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct TelemetryResponse {
     queued: usize,
     in_flight: usize,
@@ -102,7 +102,7 @@ struct TelemetryResponse {
     dropped: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct QueueResponse {
     waiting: u32,
     max_waiting: u32,
@@ -128,7 +128,7 @@ impl From<&BalancingRuntimeSnapshot> for QueueResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct TotalsResponse {
     credential_count: usize,
     enabled_credential_count: usize,
@@ -155,7 +155,7 @@ impl From<BalancingTotalsSnapshot> for TotalsResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct ProviderResponse {
     provider_kind: ProviderKind,
     credential_count: usize,

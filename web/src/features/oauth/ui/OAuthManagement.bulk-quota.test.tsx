@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { oauthQueryKeys } from "../model/oauth-query-keys";
 import { OAuthManagement } from "./OAuthManagement";
 import { clearNotifications, NotificationHost } from "@/shared/notifications";
+import { AdminRealtimeProvider } from "@/shared/realtime";
 
 afterEach(() => {
   clearNotifications();
@@ -276,10 +277,12 @@ function renderManagement() {
     client,
     ...render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/oauth"]}>
-          <OAuthManagement />
-          <NotificationHost />
-        </MemoryRouter>
+        <AdminRealtimeProvider authenticated={false}>
+          <MemoryRouter initialEntries={["/oauth"]}>
+            <OAuthManagement />
+            <NotificationHost />
+          </MemoryRouter>
+        </AdminRealtimeProvider>
       </QueryClientProvider>,
     ),
   };

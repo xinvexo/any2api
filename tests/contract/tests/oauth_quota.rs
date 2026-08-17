@@ -81,7 +81,7 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/admin/oauth/quota-events")
+                .uri("/api/admin/events")
                 .extension(ConnectInfo(loopback))
                 .body(Body::empty())
                 .expect("quota event request"),
@@ -90,14 +90,13 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
         .expect("quota event response");
     assert_eq!(response.status(), StatusCode::OK);
     let mut events = response.into_body();
-    let initial_events = format!(
-        "{}{}",
-        next_sse_event(&mut events).await,
-        next_sse_event(&mut events).await
-    );
+    let mut initial_events = String::new();
+    for _ in 0..6 {
+        initial_events.push_str(&next_sse_event(&mut events).await);
+    }
     assert!(initial_events.contains("event: oauth_quota_changed"));
     assert!(initial_events.contains("event: oauth_refresh_diagnostic_changed"));
-    assert_eq!(initial_events.matches("data: 0").count(), 2);
+    assert!(initial_events.matches("data: 0").count() >= 2);
 
     let refreshed = request(
         app.clone(),

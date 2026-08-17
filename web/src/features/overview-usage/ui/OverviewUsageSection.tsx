@@ -1,4 +1,12 @@
-import { Activity, CheckCircle2, Coins, Gauge, RefreshCw, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  CheckCircle2,
+  Coins,
+  DatabaseZap,
+  Gauge,
+  RefreshCw,
+  type LucideIcon,
+} from "lucide-react";
 import { Suspense, lazy } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -15,6 +23,7 @@ import {
 import { getOverviewUsageErrorMessage } from "../model/overview-usage-error";
 import {
   calculateOverviewAverageRpm,
+  calculateOverviewCacheHitRate,
   formatOverviewInteger,
   formatOverviewRpm,
   OVERVIEW_RANGE_OPTIONS,
@@ -83,6 +92,10 @@ export function OverviewUsageSection() {
     overview.selected.successfulRequestCount,
     overview.selected.requestCount,
   );
+  const cacheHitRate = calculateOverviewCacheHitRate(
+    overview.selected.cacheReadTokens,
+    overview.selected.inputTokens,
+  );
 
   return (
     <section className="min-w-0 border-t border-subtle pt-8" aria-busy={query.isFetching}>
@@ -113,7 +126,7 @@ export function OverviewUsageSection() {
         </p>
       ) : null}
 
-      <dl className="mt-6 grid min-w-0 divide-y divide-subtle border-y border-subtle sm:grid-cols-4 sm:divide-x sm:divide-y-0 sm:divide-subtle">
+      <dl className="mt-6 grid min-w-0 divide-y divide-subtle border-y border-subtle lg:grid-cols-5 lg:divide-x lg:divide-y-0 lg:divide-subtle">
         <OverviewMetric
           icon={Activity}
           label="请求数"
@@ -138,6 +151,17 @@ export function OverviewUsageSection() {
           value={formatOverviewInteger(overview.selected.totalTokens)}
           note={`usage 覆盖 ${formatOverviewInteger(overview.selected.tokenUsageRequestCount)} 次`}
           tone="violet"
+        />
+        <OverviewMetric
+          icon={DatabaseZap}
+          label="缓存命中率"
+          value={cacheHitRate === null ? "—" : formatOverviewPercent(cacheHitRate)}
+          note={
+            cacheHitRate === null
+              ? "暂无输入 Token"
+              : `缓存读取 ${formatOverviewInteger(overview.selected.cacheReadTokens)} / 输入 ${formatOverviewInteger(overview.selected.inputTokens)}`
+          }
+          tone="cyan"
         />
         <OverviewMetric
           icon={Gauge}
@@ -197,12 +221,13 @@ function OverviewMetric({
   label: string;
   value: string;
   note: string;
-  tone: "blue" | "green" | "violet" | "orange";
+  tone: "blue" | "green" | "violet" | "cyan" | "orange";
 }) {
   const color = {
     blue: "var(--chart-1)",
     green: "var(--chart-6)",
     violet: "var(--chart-2)",
+    cyan: "var(--chart-7)",
     orange: "var(--chart-5)",
   }[tone];
   return (

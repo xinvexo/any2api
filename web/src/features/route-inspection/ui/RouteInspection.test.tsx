@@ -10,8 +10,10 @@ test("renders model cards and filters by exact model name and finite route statu
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(response()));
   renderInspection();
 
-  expect(await screen.findByRole("heading", { level: 1, name: "路由检查" })).toBeInTheDocument();
   expect(await screen.findByText("available-model")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "路由检查" })).not.toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "精确模型搜索" }).closest("header"))
+    .toHaveClass("min-h-8", "border-b", "pb-3");
   expect(screen.getByRole("listitem", { name: "available-model 路由" })).toHaveClass(
     "rounded-[8px]",
   );
@@ -32,6 +34,17 @@ test("renders model cards and filters by exact model name and finite route statu
     expect(screen.getByText("disabled-model")).toBeInTheDocument();
     expect(screen.queryByText("available-model")).not.toBeInTheDocument();
   });
+});
+
+test("keeps the filter toolbar in place while the first request is pending", () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(() => {}));
+  renderInspection();
+
+  expect(screen.getByText("正在读取路由配置")).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "精确模型搜索" })).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: "状态筛选" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
+  expect(screen.queryByRole("heading", { name: "路由检查" })).not.toBeInTheDocument();
 });
 
 function renderInspection() {

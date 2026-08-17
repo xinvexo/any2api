@@ -1,69 +1,81 @@
+import { memo } from "react";
+
 import type { ActiveRequestLog } from "../api/request-log-contracts";
 import {
+  formatDurationMs,
   formatLogTime,
   processingTone,
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
-import { cn } from "@/shared/lib/cn";
 import { requestLogGridClass } from "./RequestLogTableRow";
+import { cn } from "@/shared/lib/cn";
 
-export function ActiveRequestLogCard({ log }: { log: ActiveRequestLog }) {
-  const source = upstreamSource(log);
+interface ActiveRequestLogRowProps {
+  log: ActiveRequestLog;
+  nowMs: number;
+}
+
+export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
+  log,
+  nowMs,
+}: ActiveRequestLogRowProps) {
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <article className="min-w-0 overflow-hidden rounded-[14px] bg-accent/5">
-      <div className="flex w-full min-w-0 items-start gap-1.5 px-3 py-2.5 text-left">
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="flex flex-wrap gap-x-2 text-[11px] tabular-nums text-tertiary">
-            <time dateTime={new Date(log.startedAtMs).toISOString()}>
-              {formatLogTime(log.startedAtMs)}
-            </time>
-            <span className="min-w-0 max-w-full break-all">IP {log.clientIp}</span>
-          </p>
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
-            <UpstreamSourceInline source={source} />
-          </div>
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[13px] font-semibold text-primary">{model}</span>
-            <StatusBadge />
-          </div>
-          <p className="text-[11px] text-tertiary">等待请求完成</p>
-        </div>
+    <article role="listitem" className="min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <time
+          className="shrink-0 text-[11px] tabular-nums text-tertiary"
+          dateTime={new Date(log.startedAtMs).toISOString()}
+        >
+          {formatLogTime(log.startedAtMs)}
+        </time>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
+          {model}
+        </span>
+        <StatusBadge />
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
+        <span className="shrink-0 tabular-nums">{elapsed(log, nowMs)}</span>
+        <span className="min-w-0 flex-1 truncate text-right">
+          {upstreamSource(log).displayName}
+        </span>
       </div>
     </article>
   );
-}
+});
 
-export function ActiveRequestLogTableRow({ log }: { log: ActiveRequestLog }) {
+export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
+  log,
+  nowMs,
+}: ActiveRequestLogRowProps) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <div role="row" className={cn(requestLogGridClass, "border-b border-subtle/50 bg-accent/5")}>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">
-        <div className="flex min-w-0 items-center gap-0.5">
-          <span className="size-5 shrink-0" aria-hidden="true" />
-          <time className="truncate" dateTime={new Date(log.startedAtMs).toISOString()}>
-            {formatLogTime(log.startedAtMs)}
-          </time>
-        </div>
-      </div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">
-        <span className="block truncate" title={log.clientIp}>{log.clientIp}</span>
-      </div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px]"><UpstreamSourceInline source={source} /></div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px]"><span className="block truncate font-medium text-primary">{model}</span></div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px]"><ThinkingLevel value={log.thinkingLevel} /></div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px]"><StatusBadge /></div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
-      <div role="cell" className="min-w-0 px-1 py-2.5 text-left text-[12px] tabular-nums text-secondary">—</div>
+    <div role="row" className={cn(requestLogGridClass, "h-11 border-b border-subtle/50 bg-accent/5 text-[12px]")}>
+      <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
+      <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
+      <Cell>
+        {source.kind === "none" ? (
+          <span className="text-tertiary">未选上游</span>
+        ) : (
+          <span className={cn("inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium", upstreamKindTone(source.kind))}>
+            {source.displayName}
+          </span>
+        )}
+      </Cell>
+      <Cell className="font-medium text-primary">{model}</Cell>
+      <Cell>{log.thinkingLevel ?? "-"}</Cell>
+      <Cell><StatusBadge /></Cell>
+      <Cell className="tabular-nums text-secondary">-</Cell>
+      <Cell className="tabular-nums text-secondary">{elapsed(log, nowMs)}</Cell>
+      <Cell className="text-secondary">-</Cell>
+      <Cell className="text-secondary">-</Cell>
+      <Cell className="text-secondary">-</Cell>
+      <Cell className="text-secondary">-</Cell>
     </div>
   );
-}
+});
 
 function StatusBadge() {
   return (
@@ -73,21 +85,10 @@ function StatusBadge() {
   );
 }
 
-function UpstreamSourceInline({ source }: { source: ReturnType<typeof upstreamSource> }) {
-  if (source.kind === "none") {
-    return <span className="text-[11px] text-tertiary">未选上游</span>;
-  }
-  return (
-    <span className={cn("inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium", upstreamKindTone(source.kind))}>
-      {source.displayName}
-    </span>
-  );
+function elapsed(log: ActiveRequestLog, nowMs: number) {
+  return formatDurationMs(Math.max(0, nowMs - log.startedAtMs));
 }
 
-function ThinkingLevel({ value }: { value: string | null }) {
-  return value ? (
-    <span className="inline-flex max-w-full truncate rounded-full bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-secondary">{value}</span>
-  ) : (
-    <span className="text-[11px] text-tertiary">—</span>
-  );
+function Cell({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div role="cell" className={cn("min-w-0 truncate px-1 text-left", className)}>{children}</div>;
 }

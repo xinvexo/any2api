@@ -1,4 +1,5 @@
 import { requestJson } from "@/shared/api/http-client";
+import { ADMIN_API_PREFIX } from "@/shared/api/paths";
 
 import {
   parseRequestLogDetail,
@@ -13,15 +14,10 @@ import {
 
 export function getRequestLogs(
   cursor: string | null = null,
-  page = 1,
-  pageSize = 20,
   filters: RequestLogFilters = EMPTY_REQUEST_LOG_FILTERS,
   signal?: AbortSignal,
 ): Promise<RequestLogList> {
-  const query = new URLSearchParams({
-    page: String(page),
-    page_size: String(pageSize),
-  });
+  const query = new URLSearchParams();
   if (cursor !== null) {
     query.set("cursor", cursor);
   }
@@ -29,7 +25,7 @@ export function getRequestLogs(
   appendFilter(query, "public_model", filters.publicModel);
   appendFilter(query, "gateway_api_key_id", filters.gatewayApiKeyId);
   return requestJson<unknown>(
-    `/api/admin/request-logs?${query}`,
+    `${ADMIN_API_PREFIX}/request-logs?${query}`,
     { signal },
   ).then(parseRequestLogList);
 }
@@ -42,7 +38,7 @@ function appendFilter(query: URLSearchParams, key: string, value?: string) {
 
 export function getRequestLog(requestId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
   return requestJson<unknown>(
-    "/api/admin/request-logs/" + encodeURIComponent(requestId),
+    `${ADMIN_API_PREFIX}/request-logs/` + encodeURIComponent(requestId),
     { signal },
   ).then(parseRequestLogDetail);
 }

@@ -4,7 +4,7 @@ import { parseRequestLogDetail, parseRequestLogList } from "./request-log-contra
 
 describe("request log contracts", () => {
   it("parses list metrics and a detail attempt timeline", () => {
-    const list = parseRequestLogList(requestLogPage([request()]));
+    const list = parseRequestLogList(requestLogBatch([request()]));
     expect(list.items[0]?.publicModel).toBe("codex-local");
     expect(list.items[0]?.clientIp).toBe("203.0.113.8");
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
@@ -76,7 +76,7 @@ describe("request log contracts", () => {
 
   it("parses a bounded processing request projection", () => {
     const list = parseRequestLogList({
-      ...requestLogPage([]),
+      ...requestLogBatch([]),
       active_items: [activeRequest()],
       active_total: 1,
     });
@@ -130,7 +130,7 @@ describe("request log contracts", () => {
 
   it("accepts the largest lossless token count", () => {
     const list = parseRequestLogList(
-      requestLogPage([{ ...request(), input_tokens: Number.MAX_SAFE_INTEGER }]),
+      requestLogBatch([{ ...request(), input_tokens: Number.MAX_SAFE_INTEGER }]),
     );
 
     expect(list.items[0]?.inputTokens).toBe(Number.MAX_SAFE_INTEGER);
@@ -138,7 +138,7 @@ describe("request log contracts", () => {
 
   it("accepts Chat Completions request logs", () => {
     const list = parseRequestLogList(
-      requestLogPage([
+      requestLogBatch([
         {
           ...request(),
           ingress_protocol: "openai_chat_completions",
@@ -154,7 +154,7 @@ describe("request log contracts", () => {
   it("accepts Images generation and edit request logs", () => {
     for (const operation of ["images_generations", "images_edits"]) {
       const list = parseRequestLogList(
-        requestLogPage([
+        requestLogBatch([
           {
             ...request(),
             ingress_protocol: "openai_images",
@@ -242,28 +242,22 @@ describe("request log contracts", () => {
     expect(detail.attempts[0]?.outcome).toBe("failed");
   });
 
-  it("rejects inconsistent page metadata", () => {
+  it("rejects inconsistent batch metadata", () => {
     expect(() =>
-      parseRequestLogList({ ...requestLogPage([request()]), total: 0 }),
+      parseRequestLogList({ ...requestLogBatch([request()]), has_more: true }),
     ).toThrow("invalid request log response");
     expect(() =>
-      parseRequestLogList({ ...requestLogPage([]), page_size: 101 }),
+      parseRequestLogList({ ...requestLogBatch([]), next_cursor: "r4.next" }),
     ).toThrow("invalid request log response");
     expect(() =>
-      parseRequestLogList({ ...requestLogPage([request()]), cursor: null }),
-    ).toThrow("invalid request log response");
-    expect(() =>
-      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r3.next" }),
-    ).toThrow("invalid request log response");
-    expect(() =>
-      parseRequestLogList({ ...requestLogPage([request()]), page: 2 }),
+      parseRequestLogList(requestLogBatch(Array.from({ length: 101 }, request))),
     ).toThrow("invalid request log response");
   });
 
   it("rejects omitted fields from the current nullable contract", () => {
     const omittedRequestField = request() as Record<string, unknown>;
     delete omittedRequestField.credential_label;
-    expect(() => parseRequestLogList(requestLogPage([omittedRequestField]))).toThrow(
+    expect(() => parseRequestLogList(requestLogBatch([omittedRequestField]))).toThrow(
       "invalid request log response",
     );
 
@@ -278,29 +272,25 @@ describe("request log contracts", () => {
     ).toThrow("invalid request log response");
   });
 
-  it("allows a cursor to advance across a page containing only corrupt persisted rows", () => {
-    const page = parseRequestLogList({
-      ...requestLogPage([]),
-      total: 2,
-      cursor: "r3.current",
-      next_cursor: "r3.next",
+  it("allows a cursor to advance across a batch containing only corrupt persisted rows", () => {
+    const batch = parseRequestLogList({
+      ...requestLogBatch([]),
+      next_cursor: "r4.next",
+      has_more: true,
     });
 
-    expect(page.items).toEqual([]);
-    expect(page.nextCursor).toBe("r3.next");
+    expect(batch.items).toEqual([]);
+    expect(batch.nextCursor).toBe("r4.next");
   });
 });
 
-function requestLogPage(items: unknown[]) {
+function requestLogBatch(items: unknown[]) {
   return {
     active_items: [],
     active_total: 0,
     items,
-    total: items.length,
-    page: 1,
-    page_size: 20,
-    cursor: items.length > 0 ? "r3.current" : null,
     next_cursor: null,
+    has_more: false,
     telemetry: telemetry(),
     filter_options: filterOptions(),
   };

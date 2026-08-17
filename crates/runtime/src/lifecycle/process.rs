@@ -148,7 +148,11 @@ impl ProcessLifecycle {
         })
     }
 
-    pub(crate) fn spawn_until_draining<F>(&self, future: F) -> JoinHandle<Option<F::Output>>
+    /// Spawn a background task that is cancelled when process draining begins.
+    ///
+    /// Server-side infrastructure uses this boundary for non-critical shared
+    /// samplers. The task remains in the lifecycle tracker for orderly shutdown.
+    pub fn spawn_until_draining<F>(&self, future: F) -> JoinHandle<Option<F::Output>>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,

@@ -1,6 +1,6 @@
 use any2api_domain::{
     ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,
-    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, LogPagePosition,
+    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, LogCursorPosition,
     RequestId,
 };
 use sqlx::FromRow;
@@ -25,8 +25,8 @@ pub(super) struct HttpAccessLogSummaryRow {
 }
 
 impl HttpAccessLogSummaryRow {
-    pub(super) fn page_position(&self) -> Result<LogPagePosition, StorageError> {
-        Ok(LogPagePosition::new(
+    pub(super) fn cursor_position(&self) -> Result<LogCursorPosition, StorageError> {
+        Ok(LogCursorPosition::new(
             to_u64(self.started_at_ms)?,
             self.request_id.clone(),
         ))

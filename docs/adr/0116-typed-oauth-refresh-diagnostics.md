@@ -31,7 +31,7 @@ Provider 对结构化拒绝码作精确分类。通用永久拒绝至少识别 `
 - `oauth_refreshed_access_token_rejected`：Token 已成功换代，但同一认证操作重试仍为 `401`；
 - `oauth_token_refresh_failed`：网络、代理、超时、5xx、未知拒绝、解析、校验或发布失败。
 
-错误 envelope 与账号列表中的 `token_refresh_failure` 使用同一诊断结构。Web 在账号卡片展示阶段、原因、时间和处置建议。刷新诊断变化通过既有已认证 `/api/admin/oauth/quota-events` 的 `oauth_refresh_diagnostic_changed` 无 payload 事件使账号列表失效；额度变化继续使用同一端点的 `oauth_quota_changed` 事件。
+错误 envelope 与账号列表中的 `token_refresh_failure` 使用同一诊断结构。Web 在账号卡片展示阶段、原因、时间和处置建议。刷新诊断变化通过统一已认证 `/api/admin/events` 的 `oauth_refresh_diagnostic_changed` 无 payload 事件使账号列表失效；额度变化继续使用同一连接的 `oauth_quota_changed` 事件。
 
 诊断由 `token_version` 隔离。成功换代、重新授权、账号删除或配置发布使当前版本变化后，旧诊断不再返回；进程内状态按活动账号版本裁剪，不持久化到 SQLite。永久拒绝抑制、singleflight、CAS、批量发布和认证/路由健康代际保持原有语义。
 

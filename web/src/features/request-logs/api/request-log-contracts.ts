@@ -98,11 +98,8 @@ export interface RequestLogList {
   activeItems: ActiveRequestLog[];
   activeTotal: number;
   items: RequestLog[];
-  total: number;
-  page: number;
-  pageSize: number;
-  cursor: string | null;
   nextCursor: string | null;
+  hasMore: boolean;
   telemetry: RequestTelemetryMetrics;
   filterOptions: RequestLogFilterOptions;
 }
@@ -118,20 +115,13 @@ export function parseRequestLogList(value: unknown): RequestLogList {
   const activeItems = readArray(record.active_items).map(parseActiveRequestLog);
   const activeTotal = readNonNegativeInteger(record.active_total);
   const items = readArray(record.items).map(parseRequestLog);
-  const total = readNonNegativeInteger(record.total);
-  const page = readPositiveInteger(record.page);
-  const pageSize = readPositiveInteger(record.page_size);
-  const cursor = readCursor(record.cursor);
   const nextCursor = readCursor(record.next_cursor);
+  const hasMore = readBoolean(record.has_more);
   if (
-    pageSize > 100 ||
-    activeItems.length > pageSize ||
+    activeItems.length > 100 ||
     activeItems.length > activeTotal ||
-    page > Math.max(1, Math.ceil(total / pageSize)) ||
-    items.length > pageSize ||
-    items.length > total ||
-    (items.length > 0 && cursor === null) ||
-    (nextCursor !== null && (cursor === null || nextCursor === cursor))
+    items.length > 100 ||
+    hasMore !== (nextCursor !== null)
   ) {
     throw invalidResponse();
   }
@@ -139,11 +129,8 @@ export function parseRequestLogList(value: unknown): RequestLogList {
     activeItems,
     activeTotal,
     items,
-    total,
-    page,
-    pageSize,
-    cursor,
     nextCursor,
+    hasMore,
     telemetry: parseTelemetry(record.telemetry),
     filterOptions: parseRequestLogFilterOptions(record.filter_options),
   };

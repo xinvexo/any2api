@@ -1,5 +1,5 @@
 use any2api_domain::{
-    HttpAccessLog, HttpAccessLogSummary, LogPage, LogPageCursor, RequestId,
+    HttpAccessLog, HttpAccessLogSummary, LogBatch, LogCursor, RequestId,
     gateway_auth_rejected_capacity,
 };
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
     capacity::trim_to_capacity,
-    pagination,
+    cursor,
     rows::{HttpAccessLogDetailRow, parse_detail},
     writes::{delete_oldest_before, insert},
 };
@@ -66,10 +66,9 @@ pub trait HttpAccessLogRepository: Send + Sync {
         &self,
         since_ms: u64,
         show_admin_operations: bool,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError>;
+    ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError>;
 
     async fn get_http_access_log(
         &self,
@@ -151,11 +150,10 @@ impl HttpAccessLogRepository for SqliteStore {
         &self,
         since_ms: u64,
         show_admin_operations: bool,
-        cursor: Option<LogPageCursor>,
-        page: u32,
+        cursor: Option<LogCursor>,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
-        pagination::list(self, since_ms, show_admin_operations, cursor, page, limit).await
+    ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
+        cursor::list(self, since_ms, show_admin_operations, cursor, limit).await
     }
 
     async fn get_http_access_log(

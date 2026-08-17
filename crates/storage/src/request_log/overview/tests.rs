@@ -16,10 +16,24 @@ async fn overview_keeps_retained_and_selected_totals_separate() {
         .expect("storage");
     let now_ms = 10_000_000;
     let records = [
-        record(now_ms - 4_000_000, Some("old"), 200, Some(100), Some(20)),
-        record(now_ms - 3_000_000, Some("gpt-a"), 200, Some(30), Some(5)),
-        record(now_ms - 1_000_000, Some("gpt-a"), 500, None, None),
-        record(now_ms - 100_000, Some("gpt-b"), 201, None, Some(7)),
+        record(
+            now_ms - 4_000_000,
+            Some("old"),
+            200,
+            Some(100),
+            Some(20),
+            Some(999),
+        ),
+        record(
+            now_ms - 3_000_000,
+            Some("gpt-a"),
+            200,
+            Some(30),
+            Some(5),
+            Some(12),
+        ),
+        record(now_ms - 1_000_000, Some("gpt-a"), 500, None, None, None),
+        record(now_ms - 100_000, Some("gpt-b"), 201, None, Some(7), None),
     ];
     store
         .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
@@ -34,12 +48,14 @@ async fn overview_keeps_retained_and_selected_totals_separate() {
     assert_eq!(overview.retained_started_at_ms, Some(now_ms - 4_000_000));
     assert_eq!(overview.retained_totals.request_count, 4);
     assert_eq!(overview.retained_totals.total_tokens(), 162);
+    assert_eq!(overview.retained_totals.cache_read_tokens, 112);
     assert_eq!(overview.retained_totals.token_usage_request_count, 3);
     assert_eq!(overview.range_totals.request_count, 3);
     assert_eq!(overview.range_totals.successful_request_count, 2);
     assert_eq!(overview.range_totals.failed_request_count(), 1);
     assert_eq!(overview.range_totals.input_tokens, 30);
     assert_eq!(overview.range_totals.output_tokens, 12);
+    assert_eq!(overview.range_totals.cache_read_tokens, 12);
     assert_eq!(overview.range_totals.token_usage_request_count, 2);
     assert_eq!(overview.time_buckets.len(), 12);
     assert_eq!(
@@ -68,7 +84,7 @@ async fn overview_bounds_model_groups_and_distinguishes_unknown_from_other() {
         .await
         .expect("storage");
     let now_ms = 100_000_000;
-    let mut records = vec![record(now_ms - 1, None, 200, Some(1), Some(1))];
+    let mut records = vec![record(now_ms - 1, None, 200, Some(1), Some(1), Some(1))];
     records.extend((0..14).map(|index| {
         record(
             now_ms - 10_000 - index,
@@ -76,6 +92,7 @@ async fn overview_bounds_model_groups_and_distinguishes_unknown_from_other() {
             if index == 13 { 500 } else { 200 },
             Some(index + 1),
             Some(1),
+            Some(index.div_ceil(2)),
         )
     }));
     store
@@ -118,6 +135,14 @@ async fn overview_bounds_model_groups_and_distinguishes_unknown_from_other() {
             .sum::<u128>(),
         overview.range_totals.total_tokens()
     );
+    assert_eq!(
+        overview
+            .models
+            .iter()
+            .map(|model| model.totals.cache_read_tokens)
+            .sum::<u64>(),
+        overview.range_totals.cache_read_tokens
+    );
 }
 
 #[tokio::test]
@@ -127,8 +152,8 @@ async fn overview_counts_a_200_stream_error_as_failed() {
         .await
         .expect("storage");
     let now_ms = 10_000_000;
-    let success = record(now_ms - 2, Some("gpt-a"), 200, None, None);
-    let mut failed = record(now_ms - 1, Some("gpt-a"), 200, None, None);
+    let success = record(now_ms - 2, Some("gpt-a"), 200, None, None, None);
+    let mut failed = record(now_ms - 1, Some("gpt-a"), 200, None, None, None);
     failed.request.error_class = Some(ErrorClass::Upstream);
     store
         .append_request_logs(&[success, failed], MAX_REQUEST_LOG_ROWS)
@@ -152,6 +177,7 @@ fn record(
     status_code: u16,
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
 ) -> CompletedRequestLog {
     CompletedRequestLog {
         request: RequestLog {
@@ -176,7 +202,7 @@ fn record(
             first_token_ms: None,
             input_tokens,
             output_tokens,
-            cache_read_tokens: Some(999),
+            cache_read_tokens,
             cache_creation_tokens: None,
             quota_cost: None,
             is_stream: false,

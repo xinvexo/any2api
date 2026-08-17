@@ -41,6 +41,7 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
                     200,
                     Some(100),
                     Some(20),
+                    Some(999),
                 ),
                 record(
                     now_ms - 20 * 60 * 1_000,
@@ -48,8 +49,9 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
                     200,
                     Some(30),
                     Some(5),
+                    Some(12),
                 ),
-                record(now_ms - 10 * 60 * 1_000, None, 503, None, None),
+                record(now_ms - 10 * 60 * 1_000, None, 503, None, None, None),
             ],
             MAX_REQUEST_LOG_ROWS,
         )
@@ -63,11 +65,13 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
     assert_eq!(body["range"], "1h");
     assert_eq!(body["retained"]["request_count"], 3);
     assert_eq!(body["retained"]["total_tokens"], "155");
+    assert_eq!(body["retained"]["cache_read_tokens"], "112");
     assert_eq!(body["retained"]["token_usage_request_count"], 2);
     assert_eq!(body["selected"]["request_count"], 2);
     assert_eq!(body["selected"]["successful_request_count"], 1);
     assert_eq!(body["selected"]["failed_request_count"], 1);
     assert_eq!(body["selected"]["total_tokens"], "35");
+    assert_eq!(body["selected"]["cache_read_tokens"], "12");
     let buckets = body["time_buckets"].as_array().expect("time buckets");
     assert_eq!(buckets.len(), 12);
     assert_eq!(
@@ -79,6 +83,13 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
     );
     let models = body["models"].as_array().expect("models");
     assert!(models.iter().any(|model| model["public_model"] == "gpt-a"));
+    assert_eq!(
+        models
+            .iter()
+            .find(|model| model["public_model"] == "gpt-a")
+            .expect("gpt-a model")["cache_read_tokens"],
+        "12"
+    );
     assert!(
         models
             .iter()
@@ -142,6 +153,7 @@ async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable()
         200,
         None,
         None,
+        None,
     );
     let corrupt = record(
         now_ms.saturating_sub(2_000),
@@ -149,11 +161,13 @@ async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable()
         200,
         None,
         None,
+        None,
     );
     let newest = record(
         now_ms.saturating_sub(1_000),
         Some("new-model"),
         200,
+        None,
         None,
         None,
     );
@@ -178,9 +192,9 @@ async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable()
     .expect("inject corrupt telemetry");
 
     let (_directory, app) = test_router(directory, Arc::clone(&storage)).await;
-    let (status, _, body) = request(app.clone(), "/api/admin/request-logs?page_size=10").await;
+    let (status, _, body) = request(app.clone(), "/api/admin/request-logs").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["total"], 3);
+    assert!(body.get("total").is_none());
     let items = body["items"].as_array().expect("request log items");
     assert_eq!(items.len(), 2);
     assert_eq!(
@@ -251,6 +265,7 @@ fn record(
     status_code: u16,
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
+    cache_read_tokens: Option<u64>,
 ) -> CompletedRequestLog {
     CompletedRequestLog {
         request: RequestLog {
@@ -275,7 +290,7 @@ fn record(
             first_token_ms: None,
             input_tokens,
             output_tokens,
-            cache_read_tokens: Some(999),
+            cache_read_tokens,
             cache_creation_tokens: None,
             quota_cost: None,
             is_stream: false,

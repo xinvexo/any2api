@@ -115,6 +115,7 @@ export function OAuthAccounts({
           renderItem={(account) => (
             <OAuthAccountItem
               account={account}
+              deleting={mutations.remove.isPending}
               pending={pending}
               quotaRefreshPending={quotaRefreshPending}
               onToggleEnabled={(enabled) => toggleAccount(account, enabled)}
@@ -213,6 +214,7 @@ export function OAuthAccounts({
 
 function OAuthAccountItem({
   account,
+  deleting,
   pending,
   quotaRefreshPending,
   onToggleEnabled,
@@ -221,6 +223,7 @@ function OAuthAccountItem({
   onDelete,
 }: {
   account: OAuthAccount;
+  deleting: boolean;
   pending: boolean;
   quotaRefreshPending: boolean;
   onToggleEnabled: (enabled: boolean) => void;
@@ -231,7 +234,7 @@ function OAuthAccountItem({
   const reauthorizationRequired = account.tokenRefreshFailure?.reauthorizationRequired === true;
   const quotaQuery = useQuery({
     ...oauthQuotaQueryOptions(account.id),
-    enabled: !reauthorizationRequired,
+    enabled: !reauthorizationRequired && !deleting,
   });
   const quota = reauthorizationRequired || quotaQuery.isError
     ? null
@@ -259,6 +262,7 @@ function OAuthAccountItem({
                 accountLabel={account.label}
                 provider={account.providerKind}
                 disabled={pending}
+                queryDisabled={deleting}
                 refreshAllPending={quotaRefreshPending}
                 showError={account.tokenRefreshFailure === null}
               />

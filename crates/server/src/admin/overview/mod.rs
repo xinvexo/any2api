@@ -1,6 +1,8 @@
 mod dto;
 mod handlers;
 
+pub(super) use dto::OverviewResourcesResponse;
+
 use axum::{Router, routing::get};
 
 use crate::state::AppState;

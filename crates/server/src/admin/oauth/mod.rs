@@ -1,5 +1,4 @@
 mod account;
-mod events;
 mod import;
 mod login;
 mod proxy_selection;
@@ -15,5 +14,4 @@ pub(super) fn routes() -> Router<AppState> {
         .merge(login::routes())
         .merge(import::routes())
         .merge(quota::routes())
-        .merge(events::routes())
 }

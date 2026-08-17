@@ -1,0 +1,71 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { expect, test, vi } from "vitest";
+
+import type { RequestLog } from "../api/request-log-contracts";
+import { RequestLogVirtualTable } from "./RequestLogVirtualTable";
+
+test("renders only visible request rows and selects a row without expanding it", async () => {
+  const items = Array.from({ length: 200 }, (_, index) => requestLog(index + 1));
+  const onSelect = vi.fn();
+  render(
+    <div className="h-[320px]">
+      <RequestLogVirtualTable
+        items={items}
+        selectedId={null}
+        nowMs={Date.now()}
+        followingLatest
+        hasMore={false}
+        loadingMore={false}
+        onSelect={onSelect}
+        onFollowingLatestChange={() => {}}
+        onLoadMore={() => {}}
+      />
+    </div>,
+  );
+
+  const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
+  const firstRow = within(viewport).getByRole("row", { name: "查看请求 model-1" });
+  fireEvent.click(firstRow);
+  expect(onSelect).toHaveBeenCalledWith("request-1");
+  expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
+  expect(within(viewport).queryByText("model-200")).not.toBeInTheDocument();
+
+  viewport.scrollTop = 7_800;
+  fireEvent.scroll(viewport);
+
+  await waitFor(() => expect(within(viewport).getByText("model-200")).toBeInTheDocument());
+  expect(within(viewport).queryByText("model-1")).not.toBeInTheDocument();
+});
+
+function requestLog(index: number): RequestLog {
+  return {
+    requestId: `request-${index}`,
+    startedAtMs: 1_700_000_000_000 - index,
+    clientIp: "127.0.0.1",
+    configRevision: 1,
+    gatewayApiKeyId: null,
+    ingressProtocol: "openai_responses",
+    operation: "responses",
+    publicModel: `model-${index}`,
+    thinkingLevel: null,
+    providerEndpointId: null,
+    providerEndpointName: null,
+    credentialId: null,
+    credentialLabel: null,
+    oauthAccountId: null,
+    oauthAccountLabel: null,
+    proxyProfileId: null,
+    proxyProfileLabel: null,
+    statusCode: 200,
+    outcome: "success",
+    errorMessage: null,
+    attemptCount: 1,
+    latencyMs: 10,
+    firstTokenMs: 2,
+    inputTokens: 1,
+    outputTokens: 1,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    isStream: true,
+  };
+}

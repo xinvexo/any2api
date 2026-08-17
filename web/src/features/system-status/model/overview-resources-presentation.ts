@@ -15,6 +15,6 @@ export function formatSystemMemory(usedBytes: number, totalBytes: number) {
   const ratio = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
   return {
     value: formatResourcePercent(ratio),
-    note: `${formatResourceBytes(usedBytes)} / ${formatResourceBytes(totalBytes)}`,
+    note: `已用 ${formatResourceBytes(usedBytes)} / 共 ${formatResourceBytes(totalBytes)}`,
   };
 }

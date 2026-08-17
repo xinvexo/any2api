@@ -18,7 +18,7 @@ pub(crate) struct OverviewUsageResponse {
     models: Vec<OverviewUsageModelResponse>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 pub(crate) struct OverviewResourcesResponse {
     sampled_at_ms: u64,
@@ -26,14 +26,14 @@ pub(crate) struct OverviewResourcesResponse {
     system: OverviewSystemResourcesResponse,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 struct OverviewProcessResourcesResponse {
     resident_memory_bytes: u64,
     cpu_usage_percent: f32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 struct OverviewSystemResourcesResponse {
     used_memory_bytes: u64,
@@ -83,6 +83,7 @@ struct OverviewUsageTotalsResponse {
     token_usage_request_count: u64,
     input_tokens: String,
     output_tokens: String,
+    cache_read_tokens: String,
     total_tokens: String,
 }
 
@@ -95,6 +96,7 @@ impl From<RequestLogOverviewTotals> for OverviewUsageTotalsResponse {
             token_usage_request_count: value.token_usage_request_count,
             input_tokens: value.input_tokens.to_string(),
             output_tokens: value.output_tokens.to_string(),
+            cache_read_tokens: value.cache_read_tokens.to_string(),
             total_tokens: value.total_tokens().to_string(),
         }
     }
@@ -133,6 +135,7 @@ struct OverviewUsageModelResponse {
     token_usage_request_count: u64,
     input_tokens: String,
     output_tokens: String,
+    cache_read_tokens: String,
     total_tokens: String,
 }
 
@@ -148,6 +151,7 @@ impl From<RequestLogOverviewModel> for OverviewUsageModelResponse {
             token_usage_request_count: totals.token_usage_request_count,
             input_tokens: totals.input_tokens,
             output_tokens: totals.output_tokens,
+            cache_read_tokens: totals.cache_read_tokens,
             total_tokens: totals.total_tokens,
         }
     }

@@ -7,6 +7,7 @@ test("parses exact decimal token totals beyond JavaScript safe integers", () => 
   const parsed = parseOverviewUsage(overviewUsageWire("1h"), "1h");
 
   expect(parsed.retained.totalTokens).toBe(9_007_199_254_741_000n);
+  expect(parsed.selected.cacheReadTokens).toBe(4n);
   expect(parsed.timeBuckets).toHaveLength(12);
   expect(parsed.models.map((model) => model.publicModel)).toEqual(["gpt-test", null]);
 });
@@ -23,6 +24,16 @@ test("rejects token, time bucket, and model conservation mismatches", () => {
   const modelMismatch = structuredClone(overviewUsageWire());
   modelMismatch.models[0].request_count = 2;
   expect(() => parseOverviewUsage(modelMismatch)).toThrow("invalid overview usage response");
+
+  const cacheMismatch = structuredClone(overviewUsageWire());
+  cacheMismatch.models[0].cache_read_tokens = "3";
+  expect(() => parseOverviewUsage(cacheMismatch)).toThrow("invalid overview usage response");
+
+  const impossibleCacheRate = structuredClone(overviewUsageWire());
+  impossibleCacheRate.selected.cache_read_tokens = "11";
+  expect(() => parseOverviewUsage(impossibleCacheRate)).toThrow(
+    "invalid overview usage response",
+  );
 });
 
 test("rejects an omitted current nullable retention boundary", () => {

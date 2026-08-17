@@ -29,6 +29,7 @@ export function overviewUsageWire(range: OverviewUsageRange = "24h"): OverviewUs
       token_usage_request_count: 3,
       input_tokens: "9007199254740993",
       output_tokens: "7",
+      cache_read_tokens: "4503599627370496",
       total_tokens: "9007199254741000",
     },
     selected: {
@@ -38,6 +39,7 @@ export function overviewUsageWire(range: OverviewUsageRange = "24h"): OverviewUs
       token_usage_request_count: 2,
       input_tokens: "10",
       output_tokens: "5",
+      cache_read_tokens: "4",
       total_tokens: "15",
     },
     time_buckets: buckets,
@@ -51,6 +53,7 @@ export function overviewUsageWire(range: OverviewUsageRange = "24h"): OverviewUs
         token_usage_request_count: 1,
         input_tokens: "10",
         output_tokens: "0",
+        cache_read_tokens: "4",
         total_tokens: "10",
       },
       {
@@ -62,6 +65,7 @@ export function overviewUsageWire(range: OverviewUsageRange = "24h"): OverviewUs
         token_usage_request_count: 1,
         input_tokens: "0",
         output_tokens: "5",
+        cache_read_tokens: "0",
         total_tokens: "5",
       },
     ],

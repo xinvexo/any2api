@@ -18,7 +18,7 @@
 | Transport 与请求面 | [用途/模式隔离](0123-purpose-and-mode-transport-isolation.md)、[Header ownership](0125-credential-owned-request-headers.md)、[响应 Content-Encoding](0127-transport-response-content-coding.md)、[同方言 Accept-Encoding](0135-same-dialect-accept-encoding-pass-through.md)、[缓存连续性](0149-upstream-request-surface-and-cache-continuity.md) |
 | 调度、会话与重试 | [QueueTicket](0010-bounded-generation-queue.md)、[RPM](0037-single-optional-rpm-admission.md)、[会话绑定](0062-unified-session-affinity.md)、[RetrySafety](0093-evidence-based-precommit-retry-safety.md)、[预提交拒绝](0136-precontent-rejection-fidelity-and-overload-backoff.md) |
 | OAuth 与额度 | [额度持久化](0111-activity-driven-persistent-oauth-quota.md)、[刷新诊断](0116-typed-oauth-refresh-diagnostics.md)、[Credits/健康](0137-codex-credits-and-quota-health.md)、[费率卡](0145-configurable-codex-quota-rate-card.md)、[累计统计](0146-cumulative-codex-quota-statistics.md)、[手动刷新模型目录](0158-live-oauth-model-discovery.md) |
-| 日志与可观测 | [请求遥测](0015-bounded-request-telemetry.md)、[HTTP 系统日志](0051-complete-http-access-logging.md)、[原始交换详情](0081-raw-http-system-log-details.md)、[字节有界队列](0114-byte-bounded-telemetry-ownership.md)、[活动请求投影](0159-live-request-log-overlay.md)、[系统资源总览](0160-system-resource-overview.md) |
+| 日志与可观测 | [请求遥测](0015-bounded-request-telemetry.md)、[HTTP 系统日志](0051-complete-http-access-logging.md)、[原始交换详情](0081-raw-http-system-log-details.md)、[字节有界队列](0114-byte-bounded-telemetry-ownership.md)、[活动请求投影](0159-live-request-log-overlay.md)、[实时游标日志流](0162-realtime-cursor-log-feeds.md)、[系统资源总览](0160-system-resource-overview.md)、[统一管理员实时事件](0163-unified-admin-realtime-events.md) |
 | Web、部署与更新 | [浏览器 E2E](0022-browser-e2e-contract.md)、[内嵌资源](0027-embedded-web-assets.md)、[Web 错误边界](0085-web-error-recovery-boundaries.md)、[自更新回滚](0089-bounded-self-update-binary-rollback.md) |
 
 ## 完整当前清单
@@ -114,7 +114,6 @@
 | [0104](0104-bounded-web-configuration-lifecycle.md) | ADR-0104: 收敛 Web 配置发布生命周期与稳定管理外壳 |
 | [0105](0105-bounded-gateway-usage-tracker.md) | ADR-0105: 以 PublishedSnapshot reconcile 约束 Gateway 使用状态 |
 | [0106](0106-side-effect-free-oauth-quota-evidence.md) | ADR-0106：OAuth 额度查询只读与拒绝证据收敛 |
-| [0107](0107-anchored-keyset-log-pagination.md) | ADR-0107：日志使用带头部锚点的 Keyset 与按页定位 |
 | [0108](0108-minimal-public-health-response.md) | ADR-0108：公共健康响应只保留状态与应用版本 |
 | [0109](0109-gateway-auth-rejected-log-isolation.md) | ADR-0109：Gateway 鉴权拒绝日志的低优先级容量隔离 |
 | [0110](0110-session-creating-wait-handoff.md) | ADR-0110: Session Creating 在候选等待前交还 |
@@ -150,7 +149,6 @@
 | [0147](0147-codex-workspace-member-oauth-identity.md) | ADR-0147：分离 Codex 工作区路由标识与成员 OAuth 身份 |
 | [0149](0149-upstream-request-surface-and-cache-continuity.md) | ADR-0149：上游请求面与 prompt cache 连续性 |
 | [0150](0150-oauth-only-global-proxy.md) | ADR-0150: OAuth 默认出口与账号级代理选择 |
-| [0151](0151-openai-responses-websocket-ingress.md) | ADR-0151：OpenAI Responses WebSocket 入口（已由 ADR-0161 取代） |
 | [0152](0152-openai-alpha-search-ingress.md) | ADR-0152：OpenAI Alpha Search 入口（`POST /v1/alpha/search`） |
 | [0153](0153-provider-credential-public-model-alias.md) | ADR-0153：凭据模型条目的可选公开别名 |
 | [0154](0154-codex-memory-prompt-cache-key.md) | ADR-0154：Codex memory 请求稳定 Prompt Cache |
@@ -161,3 +159,5 @@
 | [0159](0159-live-request-log-overlay.md) | ADR-0159：请求日志使用进程内活动请求投影 |
 | [0160](0160-system-resource-overview.md) | ADR-0160：系统总览的实时资源与负载指标 |
 | [0161](0161-remove-responses-websocket-ingress.md) | ADR-0161：移除 OpenAI Responses WebSocket 入口 |
+| [0162](0162-realtime-cursor-log-feeds.md) | ADR-0162：日志使用 SSE 通知与游标连续流 |
+| [0163](0163-unified-admin-realtime-events.md) | ADR-0163：统一管理员实时事件与总览快照 |

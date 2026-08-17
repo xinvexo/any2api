@@ -1,24 +1,36 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, test } from "vitest";
 
 import type { RequestLogList } from "../api/request-log-contracts";
 import { requestLogQueryKeys } from "../model/request-log-query-keys";
 import { RequestLogManagement } from "./RequestLogManagement";
+import { AdminRealtimeProvider } from "@/shared/realtime";
 
-test("shows client IP and explicit token metric names in the request list", () => {
+test("shows compact metrics and opens request details in a drawer", async () => {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
     },
   });
-  client.setQueryData(requestLogQueryKeys.list(null, 1, 20), requestLogs());
+  const logs = requestLogs();
+  client.setQueryData(requestLogQueryKeys.list(), {
+    pages: [logs],
+    pageParams: [null],
+  });
+  client.setQueryData(requestLogQueryKeys.detail(logs.items[0].requestId), {
+    request: logs.items[0],
+    attempts: [],
+    telemetry: logs.telemetry,
+  });
 
   render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <RequestLogManagement />
+        <AdminRealtimeProvider authenticated={false}>
+          <RequestLogManagement />
+        </AdminRealtimeProvider>
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -28,13 +40,15 @@ test("shows client IP and explicit token metric names in the request list", () =
   expect(screen.getByRole("columnheader", { name: "输出 Token" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "缓存命中 Token" })).toBeInTheDocument();
   expect(screen.getByRole("cell", { name: "203.0.113.8" })).toBeInTheDocument();
-  expect(
-    within(screen.getByRole("list", { name: "请求日志列表" })).getByText(
-      "IP 203.0.113.8",
-    ),
-  ).toBeInTheDocument();
+  expect(within(screen.getByRole("list", { name: "请求日志列表" })).getByText("claude-test")).toBeInTheDocument();
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("row", { name: "查看请求 claude-test" }));
+  const drawer = await screen.findByRole("dialog", { name: "请求详情" });
+  expect(within(drawer).getByText("Gateway API Key")).toBeInTheDocument();
+  expect(within(drawer).getByText("Provider Endpoint")).toBeInTheDocument();
+  expect(within(drawer).getByText("日志遥测")).toBeInTheDocument();
 });
 
 function requestLogs(): RequestLogList {
@@ -96,11 +110,8 @@ function requestLogs(): RequestLogList {
         isStream: true,
       },
     ],
-    total: 1,
-    page: 1,
-    pageSize: 20,
-    cursor: "r3.cursor",
     nextCursor: null,
+    hasMore: false,
     telemetry: {
       queuedRecords: 0,
       inFlightRecords: 0,

@@ -12,6 +12,7 @@ mod oauth;
 mod overview;
 mod provider;
 mod proxy;
+pub(crate) mod realtime;
 mod request_json;
 mod request_log;
 mod request_usage;

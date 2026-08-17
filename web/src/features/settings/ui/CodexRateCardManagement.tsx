@@ -58,9 +58,8 @@ export function CodexRateCardManagement() {
   const dialogOpen = refreshRequested || blocker.state === "blocked";
   return (
     <div className="flex h-full min-h-0 flex-col" aria-busy={editor.pending}>
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
-        <h1 className="text-[16px] font-semibold tracking-tight">Codex 额度费率</h1>
-        <div className="flex items-center gap-1.5">
+      <header className="flex min-h-8 shrink-0 flex-wrap items-center justify-end gap-3 border-b border-subtle pb-3">
+        <div className="flex h-8 items-center gap-1.5">
           <Button
             variant="ghost"
             size="sm"
@@ -85,7 +84,7 @@ export function CodexRateCardManagement() {
         </div>
       </header>
 
-      <div className="management-scroll-viewport min-h-0 flex-1 overflow-y-auto pb-4 pt-2 md:[scrollbar-gutter:stable]">
+      <div className="management-scroll-viewport min-h-0 flex-1 overflow-y-auto pb-4 pt-3 md:[scrollbar-gutter:stable]">
         <CodexRateCardBody editor={editor} onRefresh={requestRefresh} />
       </div>
 

@@ -13,7 +13,7 @@ mod tests;
 mod timestamp;
 mod worker;
 
-pub use active_requests::ActiveRequestLogPage;
+pub use active_requests::ActiveRequestLogBatch;
 pub use event::HttpAccessLogChangeNotification;
 pub use metrics::RequestTelemetryMetrics;
 use observation::RequestObservation;

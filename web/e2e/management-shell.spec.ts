@@ -47,7 +47,7 @@ test("desktop core management deep links render against the real service", async
     ["/proxies", "代理列表"],
     ["/providers?kind=codex", "还没有 Codex Endpoint"],
     ["/routes", "当前没有允许的公开模型"],
-    ["/quota-rates", "Codex 额度费率"],
+    ["/quota-rates", "美元换算"],
     ["/settings/routing", "RPM 用尽行为"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],
@@ -58,6 +58,29 @@ test("desktop core management deep links render against the real service", async
     await expectNoHorizontalOverflow(page);
   }
 
+  expect(browserErrors).toEqual([]);
+});
+
+test("title-free overview, routes, and quota pages stay within the mobile viewport", async ({ page }) => {
+  const browserErrors = watchBrowserErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loginAt(page, "/", "运行正常");
+
+  await expect(page.locator("main h1")).toHaveCount(0);
+  await expect(page.getByText("进程、主机与调用质量")).toHaveCount(0);
+  await expect(page.getByText("缓存命中率", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "资源状态" }).locator("time")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.goto("/routes");
+  await expect(page.getByRole("textbox", { name: "精确模型搜索" })).toBeVisible();
+  await expect(page.locator("main h1")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.goto("/quota-rates");
+  await expect(page.getByText("美元换算", { exact: true })).toBeVisible();
+  await expect(page.locator("main h1")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
 
@@ -158,26 +181,21 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
     await page.request.get(`/api/e2e-virtual-row/${index}`);
   }
   await expect.poll(async () => {
-    const response = await page.request.get("/api/admin/system-logs?page_size=50");
+    const response = await page.request.get(
+      "/api/admin/system-logs?show_admin_operations=true",
+    );
     const payload = await response.json() as { items: Array<{ path: string }> };
     return payload.items.filter((item) => item.path.startsWith("/api/e2e-virtual-row/")).length;
   }).toBe(40);
 
-  const pageSizeChanged = page.waitForResponse((response) =>
-    response.url().includes("/api/admin/system-logs?page_size=50"),
-  );
-  await page.getByRole("combobox", { name: "每页条数" }).click();
-  await page.getByRole("option", { name: "50 条/页" }).click();
-  await pageSizeChanged;
-  await expect(page.getByRole("table", { name: "系统日志表格" })).toBeVisible();
-
   const refreshed = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/admin/system-logs?page_size=50") &&
+      response.url().includes("/api/admin/system-logs?show_admin_operations=true") &&
       response.request().method() === "GET",
   );
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   const refreshedPayload = await (await refreshed).json() as { items: Array<{ path: string }> };
+  await expect(page.getByRole("table", { name: "系统日志表格" })).toBeVisible();
   const targetPath = "/api/e2e-virtual-row/0";
   const targetIndex = refreshedPayload.items.findIndex((item) => item.path === targetPath);
   expect(targetIndex).toBeGreaterThanOrEqual(0);
@@ -210,8 +228,9 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   await expect(mobileList).toBeVisible();
   await expect(mobileList).toHaveCSS("padding-right", "8px");
   const mobileCard = mobileList.getByRole("listitem").first();
-  await expect(mobileCard).toHaveCSS("border-radius", "14px");
-  await expect(mobileCard).toHaveCSS("border-top-width", "0px");
+  const mobileCardButton = mobileCard.getByRole("button");
+  await expect(mobileCardButton).toHaveCSS("border-radius", "8px");
+  await expect(mobileCardButton).toHaveCSS("border-top-width", "0px");
   await expect(page.getByRole("button", { name: "刷新", exact: true })).toHaveCSS("width", "36px");
   await expect(page.getByRole("button", { name: "清理历史日志" })).toHaveCSS("width", "36px");
   await expectNoHorizontalOverflow(page);

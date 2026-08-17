@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
 use any2api_domain::RequestId;
-use any2api_runtime::api::ActiveRequestLogPage;
+use any2api_runtime::api::ActiveRequestLogBatch;
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::QueryRejection},
 };
 
-use crate::state::AppState;
+use crate::{log_cursor::LOG_BATCH_SIZE, state::AppState};
 
 use super::{
     dto::{RequestLogDetailResponse, RequestLogListResponse},
@@ -23,20 +23,19 @@ pub(crate) async fn list(
         .map_err(|_| AdminApiError::invalid_request("request log query is invalid"))?
         .0
         .validate()
-        .ok_or_else(|| AdminApiError::invalid_request("request log page is invalid"))?;
+        .ok_or_else(|| AdminApiError::invalid_request("request log cursor is invalid"))?;
     let telemetry = state.request_telemetry();
-    let active = if query.page.cursor.is_none() && query.page.page == 1 {
-        telemetry.list_active_requests(&query.filter, query.page.page_size)
+    let active = if query.batch.cursor.is_none() {
+        telemetry.list_active_requests(&query.filter, LOG_BATCH_SIZE)
     } else {
-        ActiveRequestLogPage::empty()
+        ActiveRequestLogBatch::empty()
     };
     let logs = telemetry
         .list(
-            query.page.since_ms,
+            query.batch.since_ms,
             &query.filter,
-            query.page.cursor,
-            query.page.page,
-            query.page.page_size,
+            query.batch.cursor,
+            LOG_BATCH_SIZE,
         )
         .await
         .map_err(|error| {
@@ -47,7 +46,6 @@ pub(crate) async fn list(
     Ok(Json(RequestLogListResponse::new(
         logs,
         active,
-        query.page.page_size,
         telemetry.metrics(),
         snapshot.as_ref(),
         &query.filter_fingerprint,

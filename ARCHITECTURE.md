@@ -51,8 +51,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
-23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的混合分页，只展示最近 3 天；相邻下一页使用 Keyset，任意跳页只允许用现有索引驱动、仅投影排序键的查询定位边界，禁止对完整日志行做 OFFSET 翻页。系统日志列表提供默认开启的“显示管理操作”查询开关；关闭时服务端从列表、精确总数和所有分页边界中统一排除 `/api/admin` 及其子路径、`/assets/*` 编译资源和管理 Web 的固定根资源，且筛选状态必须进入 Cursor 作用域。该开关与自动刷新一样是每个浏览器独立、使用带版本 `localStorage` key 持久化的非敏感界面偏好；两者都只改变查询或刷新视图，不改变日志采集、保留或清理。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
-24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、活动上游请求、排队、近 60 秒请求率、连接池客户端条目和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。scheduler epoch、遥测丢弃数、缓存命中等诊断字段保留在受认证 API 中但不得占据总览视觉空间。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
+23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均只展示最近 3 天，并以 `(started_at_ms, request_id)` 头部锚点和排他边界做单向 Keyset 连续读取；管理 API 每批最多返回 100 条摘要及可选 `next_cursor`/`has_more`，不再返回页码、页大小、精确总数或执行任何 OFFSET 跳页。系统日志列表提供默认开启的“显示管理操作”查询开关；关闭时服务端从锚点和每个游标批次中统一排除 `/api/admin` 及其子路径、`/assets/*` 编译资源和管理 Web 的固定根资源，且筛选状态必须进入 Cursor 作用域。该开关与自动刷新一样是每个浏览器独立、使用带版本 `localStorage` key 持久化的非敏感界面偏好；两者都只改变查询或刷新视图，不改变日志采集、保留或清理。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知；Web 把约 100 ms 内的事件合并并单飞执行 HTTP 追赶，从最新锚点沿 Cursor 读取到已知持久化 ID 或 3000 条缓存边界，断线重连依靠服务端立即发送当前 epoch 恢复一致。固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。完整决策见 `docs/adr/0162-realtime-cursor-log-feeds.md`。
+24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。调用分析同时按所选范围展示 Prompt Cache 命中率，固定以 RequestLog 的 `cache_read_tokens / input_tokens` 计算；单条缓存读取最多按该条归一化输入量计入，没有输入 Token 时显示未知，缓存读取不能再次计入 Token 总量。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。总览当前状态通过已认证的统一 `/api/admin/events` SSE 获取：服务端一个共享 sampler 每 2 秒构建并广播最新资源/运行态快照，浏览器管理员壳只创建一个 EventSource 并向各视图分发。断线保留最近快照并标示 stale；连接存在但 7 秒未收到 fresh snapshot 时同样标示 stale；重连立即以最新快照恢复，session 失效时停止重连。历史调用统计继续通过 HTTP 按当前范围每 60 秒刷新，实时事件不得触发统计重算。scheduler epoch、遥测丢弃数、Transport Client 缓存条目与命中等运行诊断字段保留在受认证 API 中但不得占据总览视觉空间；它们与 Prompt Cache Token 命中率不是同一口径。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。完整决策见 `docs/adr/0055-flat-overview-request-analytics.md`、`docs/adr/0163-unified-admin-realtime-events.md`。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
@@ -259,7 +259,7 @@ OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端�
 
 OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占满该内容行并作为账号集合的唯一实际滚动区；不得再叠加相对 viewport 或根字体的 `max-height`，否则高视口下会在列表外留下不可用空白并把末行裁切在内部滚动边界。虚拟化仍只渲染可见行和少量 overscan，不因占满工作区而改为全量挂载。
 
-负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总、进程活动请求/后台任务计数与当前策略下的活动显式会话数进入总览；前两者共用受认证的 `/api/admin/balancing` 查询与前端 Query cache，不再轮询公共健康端点。`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md`、`docs/adr/0066-active-session-overview.md` 与 `docs/adr/0108-minimal-public-health-response.md`。
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总、进程活动请求/后台任务计数与当前策略下的活动显式会话数进入总览；总览从共享管理员 SSE 的 `overview_snapshot` 消费前两类运行态，HTTP `/api/admin/balancing` 仅保留 bootstrap、手动刷新和故障回退，绝不轮询公共健康端点。`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md`、`docs/adr/0066-active-session-overview.md`、`docs/adr/0108-minimal-public-health-response.md` 与 `docs/adr/0163-unified-admin-realtime-events.md`。
 
 设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个 OAuth 默认出口入口。Codex 额度费率不进入通用设置页，主导航提供独立“额度费率”菜单和 `/quota-rates` deep link；该页面仍通过 SettingRegistry 读写同一个覆盖值，不建立第二套配置来源。
 
@@ -1041,7 +1041,7 @@ request_logs
 
 默认不保存 Prompt、完整请求体、完整响应体、完整 `GatewayApiKey` 或上游凭据 Secret。
 
-`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。TCP 对端和 XFF 中每个地址进入信任匹配、loopback 判断或持久化前都先使用 Rust `IpAddr::to_canonical()` 规范化，使 `::ffff:a.b.c.d` 与原生 IPv4 具有同一语义。直连请求使用规范化 TCP 对端地址；只有该地址命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。管理 Web 的请求日志桌面列表默认直接显示该规范客户端 IP，窄屏卡片也在摘要中显示；内联展开区不再重复该字段，脱离列表上下文的独立详情页仍展示以便定位请求。
+`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。TCP 对端和 XFF 中每个地址进入信任匹配、loopback 判断或持久化前都先使用 Rust `IpAddr::to_canonical()` 规范化，使 `::ffff:a.b.c.d` 与原生 IPv4 具有同一语义。直连请求使用规范化 TCP 对端地址；只有该地址命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。管理 Web 的请求日志桌面列表默认直接显示该规范客户端 IP，窄屏卡片也在摘要中显示；详情 Drawer 与脱离列表上下文的独立详情页仍展示以便定位请求。
 
 `input_tokens` 是 Provider 无关的归一化输入总量。对 Anthropic Messages，ProtocolAdapter 在上游明确提供这些字段时把 `input_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens` 相加后写入该字段；`cache_read_tokens` 仍只保存缓存读取明细，不能再次加入总量。缓存创建没有单独的 RequestLog/SQLite 字段，但其已知数量不能从归一化输入中丢失。
 
@@ -1056,26 +1056,29 @@ revision、Gateway Key、协议与操作；请求解码和每次开始 Attempt �
 
 管理读取必须从最终 RequestLog 派生不暴露内部分类细节的粗粒度 `outcome`：2xx 且 `error_class IS NULL` 为 `success`，`error_class = cancelled` 为 `cancelled`，其余为 `failed`。HTTP 状态仍作为独立事实展示；流式响应已经返回 200 后收到协议失败事件、Body 错误或被取消时，不能再仅凭 200 显示“成功”。内部 `error_class`、Attempt 原始 `outcome` 与 `retry_safety` 仍不进入管理 DTO。
 
-管理列表在未固定 Cursor 的最新第一页额外返回独立的 `active_items` 与匹配条件下的精确
-`active_total`。`active_items` 最多返回当前 `page_size` 条并按开始时间、Request ID 倒序排列，Web
+管理列表在不带 Cursor 的最新批次额外返回独立的 `active_items` 与匹配条件下的精确
+`active_total`。`active_items` 最多返回 100 条并按开始时间、Request ID 倒序排列，Web
 把它们放在最终日志之前并显示“请求中”；活动项没有最终 HTTP 状态、耗时、Token 或 Attempt 详情，
-完成前不可展开。活动项不进入持久化 `items`、`total`、Cursor 或页数，因而不能改变已锚定历史页。
+完成前不可打开详情。活动项不进入持久化 `items` 或 Cursor，因而不能改变已锚定历史批次。
 精确模型和 Gateway Key 筛选同时作用于活动投影；任何 `outcome=success|failed|cancelled` 筛选都只看
-最终日志并隐藏活动项。固定 Cursor、历史页和非第一页均不返回活动项。
+最终日志并隐藏活动项。带 Cursor 的历史读取不返回活动项。
 
-管理 Web 的请求日志展开区按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使换账号或同账号重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。
+管理 Web 的请求日志详情抽屉按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使换账号或同账号重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。列表行不得内联展开；桌面行与移动卡片都以整项选择打开右侧 Drawer/窄屏 Sheet，单条详情只在选择后按需读取并使用短生命周期缓存。
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
-请求日志列表只提供三个有界、精确的结构化筛选：`outcome=success|failed|cancelled`、精确 `public_model` 和 `gateway_api_key_id`。不提供 `operation`、`credential_id`、`oauth_account_id` 筛选，也不提供 Request ID 手工定位输入；Request ID 只作为列表项进入既有单条详情端点的内部标识。筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 从当前配置快照和当前日志页合并模型、Gateway API Key 选择项，已经从配置删除但仍出现在当前日志页中的稳定 Gateway API Key ID 保持可见。队列观测、刷新动作与筛选控件必须位于同一个紧凑工具栏，不能拆成重复边框的独立面板。
+请求日志列表只提供三个有界、精确的结构化筛选：`outcome=success|failed|cancelled`、精确 `public_model` 和 `gateway_api_key_id`。不提供 `operation`、`credential_id`、`oauth_account_id` 筛选，也不提供 Request ID 手工定位输入；Request ID 只作为列表项进入既有单条详情端点的内部标识。筛选不得扩张为 Prompt、错误正文、Header、Body 的全文检索或通用查询 DSL。管理 Web 从当前配置快照和当前日志批次合并模型、Gateway API Key 选择项，已经从配置删除但仍出现在已加载日志中的稳定 Gateway API Key ID 保持可见。队列观测、刷新动作与筛选控件必须位于同一个紧凑工具栏，不能拆成重复边框的独立面板。
 
-请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用有界 `page`、`page_size` 与版本化不透明 `cursor` 做带头部锚点的混合分页，并返回实际 `page`、锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点、所属页号、该页可选的排他边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝。相邻下一页继续直接使用 Keyset 边界；请求页号与 Cursor 所属页不同时，Storage 只允许在同一读事务内通过现有索引驱动、相同筛选谓词且仅投影排序键的 `OFFSET` 查询定位目标页前一行，再按 Keyset 读取本页，禁止对完整日志行做 OFFSET 分页或让 Web 连发中间页请求。精确 `COUNT(*)`、边界定位与列表必须复用同一筛选谓词；请求页号超过收缩后的总页数时，服务端收敛到最后一页并返回实际页号。Web 只保存当前页和一个锚定 Cursor，页码输入可直接跳转任意页；首次页保持实时，一旦进入历史页或固定锚点后，返回第一页也保持同一锚定视图。手动刷新、改变页大小或改变任一筛选条件都清除锚点并回到最新第一页。页面只在未固定 Cursor 时响应 `request_logs_changed` 与 `active_requests_changed`，历史锚定视图不因事件漂移或重复查询。两类 SSE 都只发送递增的内存 epoch，不发送 RequestLog、Attempt、活动投影或其他日志正文；其中 `request_logs_changed` 仍只在 SQLite 提交后推进。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整分页决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
+请求日志管理列表固定查询最近 3 天，在同一组规范化筛选条件内使用版本化不透明 `cursor` 做带头部锚点的单向 Keyset 连续读取。首次请求不带 Cursor，服务端固定读取最多 100 条最终摘要；响应只返回 `items`、`active_items`、`active_total`、可选 `next_cursor`、`has_more`、遥测指标与筛选选项，不返回 `page`、`page_size`、`total` 或当前 Cursor。Cursor 只携带首次读取的头部 `(started_at_ms, request_id)` 锚点、下一批排他边界和当前筛选指纹；Cursor 与请求筛选不匹配时必须拒绝。Storage 每次只按相同谓词和排序索引读取 `limit + 1` 行，禁止 `COUNT(*)`、OFFSET 边界定位与随机跳页。Web 使用 Infinite Query 顺序加载更早批次，以 Request ID 去重活动项和最终项；活动请求完成后，同一 Request ID 的最终项原位取代活动项，不能短暂重复。筛选变化和手动刷新都清除游标链并回到最新。
+
+请求日志 SSE 只发送递增内存 epoch，不发送 RequestLog、Attempt、活动投影或其他日志正文；`request_logs_changed` 仍只在 SQLite 提交后推进。Web 对 `request_logs_changed` 与 `active_requests_changed` 做约 100 ms 合并后用普通 HTTP 同步最新批次。列表位于最新位置时立即合并新项并保持跟随；用户浏览历史时不得把新行插入当前窗口，只累计“有新日志”提示，选择返回最新后再替换为新的游标链。浏览器缓存最多保留 3000 条摘要，加载历史时从新端裁剪，跟随最新时从旧端裁剪，并按固定行高补偿滚动位置以保持视觉锚点。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0162-realtime-cursor-log-feeds.md`。
 
 活动投影使用独立的 `active_requests_changed` SSE epoch。注册、解码元数据变化和 Attempt 当前来源变化
 推进该 epoch；最终日志成功提交时，Writer 先移除对应活动项，再推进既有
 `request_logs_changed`，不额外制造中间空档。最终遥测无法入队或 SQLite 写入失败时，请求已经结束，
 活动项仍必须移除并推进 `active_requests_changed`，不能让可降级遥测故障留下永久“请求中”。浏览器
-在同一 `/api/admin/log-events` 连接中同时订阅两个事件，并只在未固定 Cursor 的最新视图重新查询。
+在同一 `/api/admin/events` 连接中同时订阅两个日志事件及 `overview_snapshot`；日志事件先短暂合并，再读取最新 HTTP 批次，总览直接消费快照。
+是否立即合并到可见列表由当前是否位于最新位置决定。
 完整活动投影决策见 `docs/adr/0159-live-request-log-overlay.md`。
 
 ### 9.10 HttpAccessLog
@@ -1105,15 +1108,15 @@ http_access_logs
 
 `path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板；它只服务列表摘要和保留谓词。`uri` 保存 Axum 解析后收到的完整 URI，包括 query。请求 Header 在任何鉴权剥离前捕获，响应 Header 在上游 Header 归一化及本地 `x-request-id` fallback 完成后捕获；同名多值 Header 必须逐值保留，值按原始字节保存。该记录描述 any2api 的客户端侧 HTTP 交换，不包含 Runtime 发送给 Provider 的上游请求或 Provider 的原始上游响应。
 
-请求与响应 Body 使用不改变背压的旁路流包装器捕获，每个方向最多保留前 1 MiB，同时保存实际观察到的总字节数、`complete` 与 `truncated`。未被 Handler 读取完的请求体、Body error、客户端取消和无限流不能被伪装成完整正文。正文和 Header 不做字段过滤、关键字替换或 Secret 脱敏；UTF-8 值通过管理 DTO 原样返回，非 UTF-8 值使用 Base64 并携带编码标记。这个明确例外只适用于已认证系统日志详情，普通 tracing/file log、模型 RequestLog、错误正文和 SSE 事件仍不得携带这些原始值。列表查询只读取摘要列；过滤与精确 `COUNT(*)` 必须通过包含时间、排序键和全部保留谓词字段的覆盖索引完成，不得为了判断摘要行而读取 Header/Body BLOB；`GET /api/admin/system-logs/{request_id}` 才读取单条交换详情，避免分页把多条大正文同时载入内存和浏览器。
+请求与响应 Body 使用不改变背压的旁路流包装器捕获，每个方向最多保留前 1 MiB，同时保存实际观察到的总字节数、`complete` 与 `truncated`。未被 Handler 读取完的请求体、Body error、客户端取消和无限流不能被伪装成完整正文。正文和 Header 不做字段过滤、关键字替换或 Secret 脱敏；UTF-8 值通过管理 DTO 原样返回，非 UTF-8 值使用 Base64 并携带编码标记。这个明确例外只适用于已认证系统日志详情，普通 tracing/file log、模型 RequestLog、错误正文和 SSE 事件仍不得携带这些原始值。列表查询只读取摘要列；过滤、头部锚点与每个 Keyset 批次必须通过包含时间、排序键和全部保留谓词字段的覆盖索引完成，不得为了判断摘要行而读取 Header/Body BLOB；`GET /api/admin/system-logs/{request_id}` 才读取单条交换详情，避免列表把多条大正文同时载入内存和浏览器。
 
 `method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；当前约束由不可改写的完整 Migration 链演进得到，不能通过重写既有 Migration 消除历史结构。
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外，从本次捕获的 PublishedSnapshot 只解析一次客户端连接，并把“同一快照 + 成功或失败的完整解析结果 + 可选规范 TCP peer”作为不可变请求扩展交给公开鉴权、管理鉴权与登录/Setup；内层禁止重新读取转发头或加载另一 revision。解析成功时 HttpAccessLog 与鉴权使用同一逻辑客户端，解析失败时 HttpAccessLog 仅以规范 TCP peer（若存在）审计本地拒绝，而公开/管理鉴权复用同一错误 Fail-Closed；peer 也缺失时 `HttpAccessLog.client_ip` 可以为 `NULL`。无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
 
-系统日志管理列表与请求日志使用相同的最近 3 天、带头部锚点的混合分页、直接页码定位、精确锚定窗口总数和服务端页码收敛语义。列表查询提供 `show_admin_operations` 布尔参数并默认 `true`；设为 `false` 时，锚点、总数、跳页边界和页面数据必须使用同一个服务端谓词，精确排除 `path = '/api/admin'`、`path GLOB '/api/admin/*'`、`path GLOB '/assets/*'`，以及 `/any2api-icon.png`、`/boot-theme.js`、`/favicon-16x16.png`、`/favicon-32x32.png`、`/apple-touch-icon.png`、`/index.html` 这些固定管理 Web 根资源；仍保留 `/api/administrator` 等非子路径。该参数必须编码进 Cursor 作用域，禁止跨筛选状态复用游标。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前 Cursor 页、筛选结果或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
+系统日志管理列表与请求日志使用相同的最近 3 天、固定 100 条批次和带头部锚点的单向 Keyset 连续读取语义。列表查询提供 `show_admin_operations` 布尔参数并默认 `true`；设为 `false` 时，锚点和每个游标批次必须使用同一个服务端谓词，精确排除 `path = '/api/admin'`、`path GLOB '/api/admin/*'`、`path GLOB '/assets/*'`，以及 `/any2api-icon.png`、`/boot-theme.js`、`/favicon-16x16.png`、`/favicon-32x32.png`、`/apple-touch-icon.png`、`/index.html` 这些固定管理 Web 根资源；仍保留 `/api/administrator` 等非子路径。该参数必须编码进 Cursor 作用域，禁止跨筛选状态复用游标。响应只返回摘要、`next_cursor`、`has_more` 和遥测指标，不返回页码、页大小、精确总数或当前 Cursor；查询不执行 `COUNT(*)` 或 OFFSET。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前 Cursor 批次、筛选结果或 3 天窗口；因此确认文案不得把当前可见条数伪装为清理总数。
 
-两类日志共用已认证管理端点 `GET /api/admin/log-events`。该 SSE 仅发送 `request_logs_changed` 与 `system_logs_changed` 两种失效事件及对应的进程内递增 epoch：RequestLog 批次必须在 SQLite 成功提交后才推进对应 epoch；HttpAccessLog 批次只有包含至少一条非系统日志列表自读记录时才推进系统日志 epoch，精确的 `GET /api/admin/system-logs` 在命中统一审计规则时仍写入 SQLite，但不能由自身触发下一次列表读取。系统日志有序清理和两类保留删除仅在确实删除记录后推进。epoch 不持久化、不用于恢复，也不提供事件历史回放；新连接先收到当前 epoch，断线由浏览器原生重连，只有未固定历史 Cursor 的最新页重新查询。SSE keepalive 不代表数据变化；进程进入 draining 时主动结束通知流，避免空闲管理连接延长更新或停机。成功建立的通知流由服务端响应扩展排除 HttpAccessLog，并明确禁用反向代理响应缓冲；认证失败、未知路径和普通列表请求仍按统一审计规则处理，客户端 Header 无权跳过日志或改变通知语义。
+两类日志与总览共用已认证管理端点 `GET /api/admin/events`。该 SSE 发送 `request_logs_changed`、`system_logs_changed` 两种失效事件及对应的进程内递增 epoch，并发送每 2 秒生成的 `overview_snapshot`：RequestLog 批次必须在 SQLite 成功提交后才推进对应 epoch；HttpAccessLog 批次只有包含至少一条非系统日志列表自读记录时才推进系统日志 epoch，精确的 `GET /api/admin/system-logs` 在命中统一审计规则时仍写入 SQLite，但不能由自身触发下一次列表读取。系统日志有序清理和两类保留删除仅在确实删除记录后推进。epoch 不持久化、不用于恢复，也不提供事件历史回放；新连接先收到最新总览快照和当前 epoch，断线由浏览器原生重连并重新读取最新 HTTP 批次。浏览器在约 100 ms 内合并 open 与日志变更通知，避免事件突发造成逐条 SQLite 查询；总览快照只保留最新值。SSE keepalive 不代表数据变化；进程进入 draining 时主动结束通知流，避免空闲管理连接延长更新或停机。成功建立的通知流由服务端响应扩展排除 HttpAccessLog，并明确禁用反向代理响应缓冲；认证失败、未知路径和普通列表请求仍按统一审计规则处理，客户端 Header 无权跳过日志或改变通知语义。
 
 ### 9.11 持久化实体关系
 
@@ -2761,7 +2764,7 @@ Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请�
 
 第一次官方观测建立锚点。后续只要官方 `used_percent` 相对锚点是有限正增量，并且区间 SQL 返回正的本地 Credits，就立即把两者和完成区间数加入持久化累计，再推进锚点；本地已落库数字就是事实，不设置最小百分比阈值、样本列表、淘汰、证据状态、置信度、离散度、异常值判断或最近区间诊断。SQL 暂时返回零或查询失败时保持锚点，使后续观测继续覆盖同一序号区间；进程变化只重建锚点，保留既有累计。官方 `reset_at` 变化或 `used_percent` 下降只重建锚点，不清累计；reset 命令本身完全不改统计，只有下一次官方观测确认边界后才开始新窗口。只有凭据身份、窗口 ID/类型/时长或已知订阅层级改变才清累计。容量唯一按 `Σlocal Credits × 100 / ΣΔused%` 计算。Estimator v9 状态只持久化凭据指纹、可选订阅层级、窗口键、一个锚点、两个累计总量和完成区间数；Migration 0029 在 SQL 中把 v8 旧结构一次性汇总为 v9，生产 Rust 只接受 v9 当前结构。已有 snapshot 读取或校验失败时 refresh 必须失败并保留原记录。本机容量统计只用于管理展示，不参与健康、路由、RPM、计费或运行态恢复。完整决策见 `docs/adr/0145-configurable-codex-quota-rate-card.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
-活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert quota snapshot 后推进 quota change epoch；reset 命令不删除 snapshot，Web 在命令成功后显式刷新并以新的官方观测更新快照。Token 刷新诊断写入、更新或失效后推进独立 refresh diagnostic epoch。受认证 `/api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 或 `oauth_refresh_diagnostic_changed` 无业务 payload 失效事件，Web 随后分别重读 SQLite quota GET 或安全账号元数据，不由事件访问 Provider，也不在事件中携带诊断或 Secret。
+活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert quota snapshot 后推进 quota change epoch；reset 命令不删除 snapshot，Web 在命令成功后显式刷新并以新的官方观测更新快照。Token 刷新诊断写入、更新或失效后推进独立 refresh diagnostic epoch。受认证的统一 `/api/admin/events` SSE 同时发送 `oauth_quota_changed` 与 `oauth_refresh_diagnostic_changed` 无业务 payload 失效事件，Web 随后分别重读 SQLite quota GET 或安全账号元数据，不由事件访问 Provider，也不在事件中携带诊断或 Secret；旧 `/api/admin/oauth/quota-events` 不再保留。
 
 明确的 `allowed=false`、`limit_reached=true`、权威 Token `remaining=0` 或 Provider 声明的耗尽诊断会同步到同一 OAuthAccount 当前 `account_generation` 的路由健康，在已知 reset 时刻或有界兜底探测前从路由候选排除，并跨仅替换认证材料的 Token refresh 保留；明确可用的后续额度查询可以提前清除。Codex 例外按同一权威快照组合：`credits.has_credits=true` 或 `credits.unlimited=true` 会覆盖普通 included rolling exhaustion，使账号继续路由；`spend_control.reached=true` 与 workspace owner/member credits depleted 或 usage limit reached 是更强的工作区硬停止，仍排除账号。未知字段、单个窗口达到 100%、Credits 的本地换算和本机美元估算均不得建立该状态。完整决策见 `docs/adr/0070-oauth-authentication-and-quota-routing-health.md`、`docs/adr/0095-split-authentication-and-routing-health-generations.md` 与 `docs/adr/0137-codex-credits-and-quota-health.md`。
 
@@ -2986,9 +2989,9 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.10 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览的调度负载读取受认证的 `GET /api/admin/balancing` 聚合快照，只把活动上游请求、排队、近 60 秒请求率、连接池客户端条目和受保护状态投影到首屏。进程/主机资源读取独立的受认证 `GET /api/admin/overview/resources`：返回 any2api 进程 RSS、进程 CPU（按逻辑 CPU 数归一化到 0..100）、系统已用/总内存和系统 CPU。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，使用生命周期追踪的 blocking 任务；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败返回稳定的 503 管理错误，禁止以零值伪装可用性。两类视图都只读取现有进程内快照，不建立第二套持久化运行指标。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态以及 any2api RSS/CPU、系统内存/CPU 投影到首屏。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。AdminRealtimeHub 每 2 秒读取并广播一次聚合结果；调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。`overview_snapshot` 只包含安全聚合字段、`sampled_at_ms` 和 freshness/error 状态，不包含日志正文或任何 Secret。
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；过滤计数按请求、凭据与原因去重，不表示排队轮询次数。这些计数不持久化、不恢复，也不通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级页面只投影该账号现有句柄的 RPM、`in_flight`、实际代理和有限状态 `ready|disabled|endpoint_disabled|authentication_expired|proxy_disabled|rate_limited`；这些状态分别表示账号自身停用、Endpoint 停用、OAuth 认证过期、所选代理停用和本地 RPM 窗口用尽，禁止用笼统“不可路由”掩盖已知原因。不返回逐模型健康、过滤计数、熔断细节或会话样本。RequestLog 历史统计仍由各自管理页面负责，总览不复制第二份账号目录。
 
@@ -3004,11 +3007,11 @@ oauth_token_refresh_failed
 
 完整 HTTP 生命周期观测与模型 RequestLog 再次分开：最外层 Server 中间件先覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405，再在 Body 结算时应用系统日志保留规则。保留判定必须先且只读取 path、规范客户端 IP、最终状态码与 Body outcome；成功完成的本机非公开内部流量直接丢弃，不得为了判定而构造完整 `HttpAccessLog` 或复制 Header/Body。只有命中保留规则时才把两侧已经有界捕获的 Header 与 Body 缓冲区移动进日志对象，结算单次性保证这些所有权只转移一次。公开 `/v1`、非 loopback/未知客户端、4xx/5xx、Body 错误与取消保留。每条保留记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path 与含 query 的完整 URI、HTTP version、两侧原始 Header、两侧有界 Body 捕获、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；原始 HTTP 字段按系统日志详情例外不做脱敏。
 
-系统日志的客户端 IP 使用领域层唯一规范语义：先把 IPv4-mapped IPv6 转为规范 IPv4，再判断 loopback。Server 在可信代理解析后执行该规范化，Storage 写入时再次保证持久化文本规范；前向 Migration `0009` 把旧版可能留下的 `::ffff:127.*` loopback 文本转换为 `127.*`。列表的精确 COUNT 与分页必须引用同一个 SQL 保留谓词常量，并只依赖规范持久化形式 `127.*`/`::1`；禁止在两条查询里各自维护近似 IP 规则。该日志降噪语义只看规范逻辑客户端地址，不改变管理员 Setup 与远程访问所要求的“直接 TCP loopback、且未经过 trusted proxy”权限边界。
+系统日志的客户端 IP 使用领域层唯一规范语义：先把 IPv4-mapped IPv6 转为规范 IPv4，再判断 loopback。Server 在可信代理解析后执行该规范化，Storage 写入时再次保证持久化文本规范；前向 Migration `0009` 把旧版可能留下的 `::ffff:127.*` loopback 文本转换为 `127.*`。列表的锚点与每个 Keyset 批次必须引用同一个 SQL 保留谓词常量，并只依赖规范持久化形式 `127.*`/`::1`；禁止在两条查询里各自维护近似 IP 规则。该日志降噪语义只看规范逻辑客户端地址，不改变管理员 Setup 与远程访问所要求的“直接 TCP loopback、且未经过 trusted proxy”权限边界。
 
-两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用带头部锚点的混合分页；响应返回实际页码、页大小、当前/下一 Cursor 与锚定窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页。相邻下一页使用 Keyset；任意跳页只允许用现有索引驱动、仅投影排序键的查询执行边界定位 OFFSET，禁止对完整日志行做 OFFSET。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 的自动刷新开关开启且位于未固定 Cursor 的最新页时订阅日志变更 SSE；历史锚定视图暂停订阅，手动刷新清除 Cursor 并回到最新。请求日志页面采用相同的最新页事件刷新/历史页暂停语义。自动刷新与“显示管理操作”选择都只适用于系统日志，都是每个浏览器独立的非敏感界面偏好，各自使用带版本的 `localStorage` key 持久化且不进入 SettingRegistry；Cursor 与页码只在当前挂载内存中保存。
+两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用带头部锚点的单向连续 Keyset；每批最多返回 100 条、可选下一 Cursor 和 `has_more`，不再使用页码、页大小、总数、COUNT 或 OFFSET。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 的自动刷新开关开启时通过共享 `/api/admin/events` 订阅日志变更，约 100 ms 合并事件后从最新锚点沿 Cursor 单飞追赶到已知持久化 ID 或缓存边界；用户浏览历史时只显示 pending 新日志计数而不改变当前可见行，也不长期缓存第二份 pending 列表，手动刷新或返回最新时清除旧 Cursor 链并回到顶部。请求日志页面采用相同的最新跟随/历史 pending 语义。自动刷新与“显示管理操作”选择都只适用于系统日志，都是每个浏览器独立的非敏感界面偏好，各自使用带版本 `localStorage` key 持久化且不进入 SettingRegistry；Cursor 不持久化。
 
-日志变更 SSE 是提交后的失效通知，不是第二套数据面：事件不携带日志正文，不持久化、不回放，并允许同一 SQLite 批次内的多条记录合并为一次通知。新连接先发送当前 epoch 以覆盖断线窗口，浏览器原生重连后重新查询；keepalive 不触发查询。只有成功通过管理员认证并建立的 `/api/admin/log-events` 响应由服务端排除 HttpAccessLog；系统日志列表 `GET` 仍按统一规则决定是否写入 HttpAccessLog，但由 Server 标记为不推进 `system_logs_changed`。首次加载、自动刷新、手动刷新、认证失败、无效查询、404/405 和其他请求的审计资格仍由统一系统日志保留规则决定，客户端不发送任何自动刷新或通知抑制标记。
+日志与 OAuth 失效 SSE 是提交后的通知，不是第二套业务数据面；总览 SSE 只保留最新快照：事件不携带日志、额度或诊断正文，不持久化、不回放，并允许同一 SQLite 批次内的多条记录合并为一次通知。新连接先发送当前快照和全部 epoch 以覆盖断线窗口，浏览器有界重连后重新查询对应 HTTP 真相；keepalive 不触发查询。只有成功通过管理员认证并建立的 `/api/admin/events` 响应由服务端排除 HttpAccessLog；系统日志列表 `GET` 仍按统一规则决定是否写入 HttpAccessLog，但由 Server 标记为不推进 `system_logs_changed`。首次加载、自动刷新、手动刷新、认证失败、无效查询、404/405 和其他请求的审计资格仍由统一系统日志保留规则决定，客户端不发送任何自动刷新或通知抑制标记。
 
 请求遥测采用以下边界：
 
@@ -3021,7 +3024,7 @@ oauth_token_refresh_failed
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；队列内、Writer 已接收未结算和累计持久化/丢弃使用互不混淆的记录计数；
 - SSE 只有在首帧验证与会话绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录；RequestLog 按 retention/max_rows 清理，HttpAccessLog 按共享 retention、独立 max_rows 与原始交换字节预算清理，并在支持的数据库上有界增量回收 freelist；历史记录不参与启动恢复；
-- RequestLog 分页读取把单行领域解码失败视为可丢失遥测损坏：只跳过当前页中损坏的行，并对每次查询汇总一次不含行内容的 `corrupt_rows` 告警；`total` 仍精确表示时间窗口内实际持久化的行数。SQL/事务错误、单条详情及 Attempt 解码失败继续返回错误，配置与 Secret 加载更不得复用该容错路径；
+- RequestLog 连续读取把单行领域解码失败视为可丢失遥测损坏：只跳过当前批次中损坏的行，并对每次查询汇总一次不含行内容的 `corrupt_rows` 告警；下一 Cursor 仍从最后一个原始排序键推进。SQL/事务错误、单条详情及 Attempt 解码失败继续返回错误，配置与 Secret 加载更不得复用该容错路径；
 - ProtocolAdapter 在已知 OpenAI/Anthropic 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
 - Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens` 与 `input_tokens_details.cached_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
 - Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens`；归一化输入是三个输入字段的安全求和，缓存读取同时写入 `cache_read_tokens` 明细。SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；缺失或 `null` 的可选缓存字段按零参与求和，出现非法或溢出值时归一化输入保持未知；
@@ -3152,18 +3155,20 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.4 总览运行态
 
+- 实时运行态统一订阅已认证的 `/api/admin/events`：管理壳只创建一个共享 `EventSource`，由 `AdminRealtimeProvider` 将 `overview_snapshot` 分发给总览、日志、系统日志和 Provider 视图。服务端共享 sampler 每 2 秒广播一次最新资源/运行态快照；连接建立和重连立即发送当前快照，连接存在但连续 7 秒没有 fresh snapshot 时 Web 也把最近值标记为陈旧。快照不需要回放，日志仍以 epoch 失效通知和游标 HTTP 查询作为事实来源；旧 `/api/admin/log-events` 不再作为独立连接入口；
+- SSE 断线时保留最近快照并显示 stale/disconnected 状态，不把暂时不可达渲染成零值；重连成功后以最新快照替换。session 失效或收到 401/403 后关闭 EventSource、停止自动重连并回到管理员登录态，避免重连风暴。总览仍保留手动 HTTP 刷新作为回退；历史 usage 统计继续按当前范围每 60 秒 HTTP 刷新，实时快照不得触发聚合查询风暴；
 - 页面在应用主 Surface 内使用标题、资源网格、请求负载面板、调用分析和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行使用紧凑列表，不使用卡片套卡片；
-- 首屏把四项资源（any2api RSS、any2api CPU、系统内存、系统 CPU）与请求负载面板并列展示，窄屏自然堆叠。请求负载面板固定包含近 60 秒请求率、活动上游请求、排队等待和连接池客户端条目；存在本地 RPM 限制时才增加 RPM 用尽行。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值；连接池客户端条目明确标注为共享客户端/池条目，不冒充底层 TCP socket 数；
+- 首屏把四项资源（any2api 内存、any2api CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
 - 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、成功率、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；无请求时成功率显示为无数据而不是 0%；
 - 平均 RPM 固定等于所选时间段最终请求数除以该时间段完整分钟数，不按活跃分钟、成功请求或时间桶平均值另造口径；日志关闭、遥测丢弃或上游未返回 usage 时不得猜测缺失 Token；
 - 图表在宽屏固定左侧平滑时间曲线、右侧紧凑模型占比饼图，窄屏按相同顺序上下排列；时间曲线保留固定空桶并标出失败调用。饼图本体不得挤占主要趋势空间，最多展示八个扇区：按调用量取前七项，剩余项只在 Web 展示层守恒合并为“其余 N 个模型”，不改写管理 API 原始统计。两图直接并列展示，不增加时间/模型切换；图形必须使用语义 Token、清晰坐标和非颜色唯一的摘要，不能以大面积高饱和柱块压过数据内容；
-- Provider 汇总只在存在 Provider 时显示滚动 60 秒请求数、当前 `in_flight` 和 RPM 用尽账号数；
-- 连接池客户端条目、熔断打开数和停机阶段只在它们能解释当前负载或保护状态时显示；遥测容量、丢弃数、固定等待者、scheduler epoch、累计选中次数等诊断字段不在首屏渲染；
+- Provider 汇总只在存在 Provider 时显示滚动 60 秒请求数、当前未结束请求数和达到每分钟上限的账号数；
+- Transport Client 缓存条目/命中、熔断打开数、遥测容量、丢弃数、固定等待者、scheduler epoch、累计选中次数等诊断字段不在首屏渲染；停机阶段只通过动态系统状态展示；
 - 普通显式会话的活动/建立中计数留在受认证的 Affinity 管理 API；系统总览不把策略关闭时的两个零值渲染成独立指标，也不保留无入口的会话总览前端组件；
 - 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
 - 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 
-历史调用图表是 SQLite RequestLog 的保留窗口视图，与只在当前进程存在的调度、队列和会话运行态明确分区。完整决策见 `docs/adr/0055-flat-overview-request-analytics.md`。
+历史调用图表是 SQLite RequestLog 的保留窗口视图，与只在当前进程存在的调度、队列和会话运行态明确分区；实时资源与运行态不配置客户端固定 `refetchInterval`。完整决策见 `docs/adr/0055-flat-overview-request-analytics.md` 与 `docs/adr/0163-unified-admin-realtime-events.md`。
 
 ### 19.5 路由策略设置
 
@@ -3195,11 +3200,11 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 摘要展示开始时间、规范客户端 IP、method、客户端实际完整 URI、HTTP version、最终状态、Body 生命周期耗时、响应字节和 completed/body_error/cancelled 结果；
 - 选择一条记录后按 Request ID 懒加载详情，分别展示请求与响应的全部 Header 值和 Body 捕获；文本保持原值，二进制明确标为 Base64，并显示总字节数、完整/未完整与截断状态；迁移前记录明确显示“未捕获”而不是伪造空 Header/Body；
 - 完整且声明为 JSON 的 UTF-8 Body 可以格式化并切换查看原文，但语法高亮必须同时受格式化文本 `256 * 1024` 字符和 4,096 个 token 的固定预算约束；任一预算超出时仍显示完整格式化纯文本，只用单一文本节点，禁止为大 Body 同步创建数万 span；
-- 桌面表格使用虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用自然滚动卡片；
-- 支持手动刷新和自动刷新开关；开关开启且列表位于未固定 Cursor 的最新页时订阅已认证日志变更 SSE，并在 `system_logs_changed` 后刷新；进入历史锚定视图后暂停订阅，手动刷新清除 Cursor 并回到最新。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启，Cursor 与页码不持久化；
-- 工具栏提供默认开启的“显示管理操作”开关；关闭时由服务端排除 `/api/admin` 及其子路径、`/assets/*` 和管理 Web 的固定根资源产生的日志，切换后关闭当前详情并回到最新第一页。开关使用独立的带版本 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启；它不改变采集、保留与“清理历史日志”的范围；
+- 桌面表格使用固定行高的虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用紧凑连续卡片，并与桌面共享游标加载、3000 条缓存上限和详情 Drawer/Sheet；
+- 支持手动刷新和自动刷新开关；开关开启时订阅已认证日志变更 SSE，并在约 100 ms 内合并 `system_logs_changed` 后读取最新批次。列表位于顶部时立即跟随；浏览历史时不插入新行，只展示 pending 新日志数量，手动刷新或选择返回最新后清除 Cursor 链并回到顶部。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启，Cursor 链不持久化；
+- 工具栏提供默认开启的“显示管理操作”开关；关闭时由服务端排除 `/api/admin` 及其子路径、`/assets/*` 和管理 Web 的固定根资源产生的日志，切换后关闭当前详情并回到最新批次。开关使用独立的带版本 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启；它不改变采集、保留与“清理历史日志”的范围；
 - 成功建立的日志通知流由服务端排除系统日志；系统日志列表 `GET` 仍按统一规则审计，但不推进 `system_logs_changed`，避免自动刷新读取自身形成通知闭环；客户端不发送日志排除或通知抑制标记；
-- 支持带二次确认的“清理历史日志”；清理成功后重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
+- 支持带二次确认的“清理历史日志”；清理成功后关闭详情、清空摘要与 pending 最新批次并重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
 - 系统设置分别提供系统日志最大行数和原始交换容量；容量淘汰删除完整最旧记录，不能把单条详情静默改成部分 Header/Body；
 - path/URI 不显示路由模板或归一化通配路径；query、Cookie、User-Agent、Referer 和其他 Header 以及请求体、响应体均可通过已认证详情读取，不做脱敏。
 
@@ -3259,7 +3264,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 前置 Nginx/Caddy 提供 TLS；
 - 数据目录挂载。
 
-前置反向代理必须保留数据面和管理通知的长请求语义：对 `/v1` SSE、`/api/admin/log-events` 与 `/api/admin/oauth/quota-events` 关闭响应缓冲，并把 `/v1` 的 upstream read/write timeout
+前置反向代理必须保留数据面和管理通知的长请求语义：对 `/v1` SSE 与 `/api/admin/events` 关闭响应缓冲，并把 `/v1` 的 upstream read/write timeout
 配置为至少 `1200s`，从而覆盖 unary Responses Compact；Codex v2 流式远程压缩至少需要 `300s`，Images 请求至少需要 `180s`。
 如果还有 CDN 或外层负载均衡，每一层都必须提供相同或更长的窗口；固定时长后出现的代理 HTML
 `502/504` 属于外层部署 timeout，应用内预算无法覆盖。

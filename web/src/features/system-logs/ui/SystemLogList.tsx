@@ -1,8 +1,6 @@
-import { ArrowDownToLine, Clock3, Eye, Monitor, Network } from "lucide-react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import type { SystemLog } from "../api/system-log-contracts";
-import { SystemLogVirtualTable } from "./SystemLogVirtualTable";
 import {
   formatBytes,
   formatDuration,
@@ -10,134 +8,110 @@ import {
   outcomeLabel,
   statusTone,
 } from "../model/system-log-presentation";
+import { SystemLogVirtualTable } from "./SystemLogVirtualTable";
 import { cn } from "@/shared/lib/cn";
-import { IconButton } from "@/shared/ui/IconButton";
+import { IntersectionSentinel } from "@/shared/ui/IntersectionSentinel";
+
+interface SystemLogListProps {
+  items: readonly SystemLog[];
+  selectedId: string | null;
+  followingLatest: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onSelect: (requestId: string) => void;
+  onFollowingLatestChange: (following: boolean) => void;
+  onLoadMore: () => void;
+}
 
 export function SystemLogList({
   items,
+  selectedId,
+  followingLatest,
+  hasMore,
+  loadingMore,
   onSelect,
-}: {
-  items: SystemLog[];
-  onSelect: (requestId: string) => void;
-}) {
+  onFollowingLatestChange,
+  onLoadMore,
+}: SystemLogListProps) {
+  const mobileTopRef = useRef<HTMLDivElement>(null);
+  const previousFollowingRef = useRef(followingLatest);
+  const handleMobileLatest = useCallback(
+    (visible: boolean) => {
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+        onFollowingLatestChange(visible);
+      }
+    },
+    [onFollowingLatestChange],
+  );
+  const handleHistoryVisible = useCallback(
+    (visible: boolean) => { if (visible) onLoadMore(); },
+    [onLoadMore],
+  );
+
+  useEffect(() => {
+    if (followingLatest && !previousFollowingRef.current) {
+      mobileTopRef.current?.scrollIntoView?.({ block: "start" });
+    }
+    previousFollowingRef.current = followingLatest;
+  }, [followingLatest]);
+
   return (
     <>
       <div
+        ref={mobileTopRef}
         className="management-scroll-viewport space-y-2 md:hidden"
         role="list"
         aria-label="系统日志列表"
       >
+        <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
         {items.map((log) => (
-          <article
-            key={log.requestId}
-            role="listitem"
-            data-responsive-row="card"
-            className="relative rounded-[14px] bg-surface-muted/55 p-3 transition-colors"
-          >
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0 rounded-[6px] bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-secondary">
-                  {log.method}
-                </span>
-                <time
-                  dateTime={new Date(log.startedAtMs).toISOString()}
-                  className="min-w-0 truncate text-[11px] tabular-nums text-tertiary"
-                >
-                  {formatSystemLogTime(log.startedAtMs)}
-                </time>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <span
-                  aria-label={`HTTP 状态 ${log.statusCode ?? "未知"}，结果${outcomeLabel(log.outcome)}`}
-                  className={cn(
-                    "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px]",
-                    statusTone(log),
-                    statusSurfaceTone(log),
-                  )}
-                >
-                  <span className="font-mono font-semibold">{log.statusCode ?? "-"}</span>
-                  <span className="mx-1 opacity-45" aria-hidden="true">·</span>
-                  <span className="text-[10px] font-medium">{outcomeLabel(log.outcome)}</span>
-                </span>
-                <IconButton
-                  label={`查看完整请求 ${log.uri}`}
-                  onClick={() => onSelect(log.requestId)}
-                >
-                  <Eye size={14} aria-hidden="true" />
-                </IconButton>
-              </div>
-            </div>
-            <p className="mt-2 break-words font-mono text-[12px] leading-[1.45] text-primary [overflow-wrap:anywhere]">
-              {log.uri}
-            </p>
-            <dl className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-secondary">
-              <Metadata
-                icon={<Monitor size={11} aria-hidden="true" />}
-                label="客户端"
-                value={log.clientIp ?? "未知"}
-                mono
-              />
-              <Metadata
-                icon={<Network size={11} aria-hidden="true" />}
-                label="协议"
-                value={log.httpVersion}
-                mono
-              />
-              <Metadata
-                icon={<Clock3 size={11} aria-hidden="true" />}
-                label="耗时"
-                value={formatDuration(log.durationMs)}
-              />
-              <Metadata
-                icon={<ArrowDownToLine size={11} aria-hidden="true" />}
-                label="响应"
-                value={formatBytes(log.responseBytes)}
-              />
-            </dl>
-          </article>
+          <SystemLogCard key={log.requestId} log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
         ))}
+        <IntersectionSentinel enabled={hasMore && !loadingMore} rootMargin="400px 0px" onVisibilityChange={handleHistoryVisible} />
+        {loadingMore ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
       </div>
-      <SystemLogVirtualTable items={items} onSelect={onSelect} />
+      <SystemLogVirtualTable
+        items={items}
+        selectedId={selectedId}
+        followingLatest={followingLatest}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onSelect={onSelect}
+        onFollowingLatestChange={onFollowingLatestChange}
+        onLoadMore={onLoadMore}
+      />
     </>
   );
 }
 
-function Metadata({
-  icon,
-  label,
-  value,
-  mono = false,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: boolean; onSelect: (requestId: string) => void }) {
   return (
-    <div className="min-w-0">
-      <dt className="sr-only">{label}</dt>
-      <dd
+    <div role="listitem">
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`查看完整请求 ${log.uri}`}
         className={cn(
-          "flex min-w-0 items-center gap-1 text-secondary [&_svg]:shrink-0 [&_svg]:text-tertiary",
-          mono && "font-mono",
+          "focus-ring block min-h-[4.5rem] w-full min-w-0 rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left transition-colors",
+          selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
         )}
+        onClick={() => onSelect(log.requestId)}
       >
-        {icon}
-        <span className="min-w-0 break-all tabular-nums">{value}</span>
-      </dd>
+      <div className="flex min-w-0 items-center gap-2">
+        <time className="shrink-0 text-[11px] tabular-nums text-tertiary" dateTime={new Date(log.startedAtMs).toISOString()}>
+          {formatSystemLogTime(log.startedAtMs)}
+        </time>
+        <span className="shrink-0 rounded-[5px] bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-secondary">{log.method}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-primary" title={log.uri}>{log.uri}</span>
+        <span className={cn("shrink-0 font-mono text-[11px] font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</span>
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
+        <span className="min-w-0 flex-1 truncate font-mono">{log.clientIp ?? "未知"}</span>
+        <span className="shrink-0">{formatDuration(log.durationMs)}</span>
+        <span className="shrink-0">{formatBytes(log.responseBytes)}</span>
+        <span className="shrink-0">{outcomeLabel(log.outcome)}</span>
+      </div>
+      </button>
     </div>
   );
-}
-
-function statusSurfaceTone(log: SystemLog) {
-  switch (statusTone(log)) {
-    case "text-success":
-      return "bg-success/10";
-    case "text-warning":
-      return "bg-warning/10";
-    case "text-danger":
-      return "bg-danger/10";
-    default:
-      return "bg-surface/70";
-  }
 }

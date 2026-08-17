@@ -1,5 +1,5 @@
 mod capacity;
-mod pagination;
+mod cursor;
 mod repository;
 mod rows;
 mod writes;
@@ -8,5 +8,5 @@ mod writes;
 mod tests;
 
 #[cfg(test)]
-pub(crate) use pagination::{HIDE_ADMIN_OPERATIONS_PREDICATE, SYSTEM_LOG_RETENTION_PREDICATE};
+pub(crate) use cursor::{HIDE_ADMIN_OPERATIONS_PREDICATE, SYSTEM_LOG_RETENTION_PREDICATE};
 pub use repository::{HttpAccessLogCapacity, HttpAccessLogRepository};

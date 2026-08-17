@@ -52,7 +52,9 @@ pub(super) async fn load_request_log_overview_at(
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \
-         COALESCE(SUM(output_tokens), 0) AS output_tokens FROM request_logs \
+         COALESCE(SUM(output_tokens), 0) AS output_tokens, \
+         COALESCE(SUM(MIN(COALESCE(cache_read_tokens, 0), COALESCE(input_tokens, 0))), 0) \
+         AS cache_read_tokens FROM request_logs \
          WHERE started_at_ms >= ? AND started_at_ms < ? GROUP BY public_model \
          ORDER BY request_count DESC, public_model COLLATE BINARY ASC LIMIT ?",
     )
@@ -80,7 +82,9 @@ fn aggregate_query(bounded: bool) -> &'static str {
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \
-         COALESCE(SUM(output_tokens), 0) AS output_tokens FROM request_logs \
+         COALESCE(SUM(output_tokens), 0) AS output_tokens, \
+         COALESCE(SUM(MIN(COALESCE(cache_read_tokens, 0), COALESCE(input_tokens, 0))), 0) \
+         AS cache_read_tokens FROM request_logs \
          WHERE started_at_ms >= ? AND started_at_ms < ?"
     } else {
         "SELECT MIN(started_at_ms) AS oldest_started_at_ms, COUNT(*) AS request_count, \
@@ -88,7 +92,9 @@ fn aggregate_query(bounded: bool) -> &'static str {
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \
-         COALESCE(SUM(output_tokens), 0) AS output_tokens FROM request_logs"
+         COALESCE(SUM(output_tokens), 0) AS output_tokens, \
+         COALESCE(SUM(MIN(COALESCE(cache_read_tokens, 0), COALESCE(input_tokens, 0))), 0) \
+         AS cache_read_tokens FROM request_logs"
     }
 }
 
@@ -101,6 +107,7 @@ fn parse_aggregate(
         row.token_usage_request_count,
         row.input_tokens,
         row.output_tokens,
+        row.cache_read_tokens,
     )?;
     Ok((row.oldest_started_at_ms.map(from_i64).transpose()?, totals))
 }
@@ -141,6 +148,7 @@ fn parse_models(
             row.token_usage_request_count,
             row.input_tokens,
             row.output_tokens,
+            row.cache_read_tokens,
         )?;
         included.checked_add(&totals)?;
         models.push(RequestLogOverviewModel {
@@ -165,6 +173,7 @@ fn parse_totals(
     token_usage_request_count: i64,
     input_tokens: i64,
     output_tokens: i64,
+    cache_read_tokens: i64,
 ) -> Result<RequestLogOverviewTotals, StorageError> {
     let totals = RequestLogOverviewTotals {
         request_count: from_i64(request_count)?,
@@ -172,6 +181,7 @@ fn parse_totals(
         token_usage_request_count: from_i64(token_usage_request_count)?,
         input_tokens: from_i64(input_tokens)?,
         output_tokens: from_i64(output_tokens)?,
+        cache_read_tokens: from_i64(cache_read_tokens)?,
     };
     validate_counts(
         totals.request_count,
@@ -204,6 +214,7 @@ struct AggregateRow {
     token_usage_request_count: i64,
     input_tokens: i64,
     output_tokens: i64,
+    cache_read_tokens: i64,
 }
 
 #[derive(FromRow)]
@@ -221,4 +232,5 @@ struct ModelRow {
     token_usage_request_count: i64,
     input_tokens: i64,
     output_tokens: i64,
+    cache_read_tokens: i64,
 }

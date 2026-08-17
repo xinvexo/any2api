@@ -5,21 +5,19 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::log_pagination::{LogPageRequest, validate_request_log_page};
+use crate::log_cursor::{LogBatchRequest, validate_request_log_batch};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RequestLogListQuery {
     cursor: Option<String>,
-    page: Option<u32>,
-    page_size: Option<u32>,
     outcome: Option<String>,
     public_model: Option<String>,
     gateway_api_key_id: Option<String>,
 }
 
 pub(super) struct ValidatedRequestLogListQuery {
-    pub(super) page: LogPageRequest,
+    pub(super) batch: LogBatchRequest,
     pub(super) filter: RequestLogFilter,
     pub(super) filter_fingerprint: String,
 }
@@ -38,10 +36,9 @@ impl RequestLogListQuery {
         let gateway_api_key_id = parse_id(self.gateway_api_key_id)?;
         let filter = RequestLogFilter::new(outcome, public_model, gateway_api_key_id);
         let filter_fingerprint = filter_fingerprint(&filter);
-        let page =
-            validate_request_log_page(self.cursor, self.page, self.page_size, &filter_fingerprint)?;
+        let batch = validate_request_log_batch(self.cursor, &filter_fingerprint)?;
         Some(ValidatedRequestLogListQuery {
-            page,
+            batch,
             filter,
             filter_fingerprint,
         })
@@ -81,8 +78,6 @@ mod tests {
     fn query() -> RequestLogListQuery {
         RequestLogListQuery {
             cursor: None,
-            page: Some(4),
-            page_size: Some(20),
             outcome: Some("cancelled".into()),
             public_model: Some("gpt-test".into()),
             gateway_api_key_id: Some(GatewayApiKeyId::new().to_string()),
@@ -96,7 +91,7 @@ mod tests {
             validated.filter.outcome(),
             Some(RequestLogOutcomeFilter::Cancelled)
         );
-        assert_eq!(validated.page.page, 4);
+        assert!(validated.batch.cursor.is_none());
         let mut obsolete_outcome = query();
         obsolete_outcome.outcome = Some("failure".into());
         assert!(obsolete_outcome.validate().is_none());

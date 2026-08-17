@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-16
 - 决策者：maintainer
+- 修订：2026-08-17 由 ADR-0162 将活动投影接入无页码的最新游标批次；统一实时事件入口由 ADR-0163 修订
 
 ## 背景
 
@@ -31,21 +32,20 @@ Header、Body、Secret、原始 Session ID 或 OAuth JSON。
 telemetry sequence。它不参与启动恢复，进程结束后直接清空。最终成功、失败和取消继续沿用现有
 exactly-once 结算，生成一条完整 `CompletedRequestLog` 和全部 Attempt。
 
-管理请求日志列表保留现有持久化 `items`、`total`、Cursor 和页数语义，并额外返回
-`active_items`/`active_total`：
+管理请求日志的最新游标批次在持久化 `items` 之外返回 `active_items`/`active_total`：
 
-- 只在未固定 Cursor 的最新第一页返回活动项；
-- `active_items` 按开始时间和 Request ID 倒序，最多返回当前 `page_size` 条；
+- 只在不带 Cursor 的最新批次返回活动项；历史 Cursor 批次返回空活动集合；
+- `active_items` 按开始时间和 Request ID 倒序，最多返回 100 条；
 - 精确 `public_model` 与 `gateway_api_key_id` 筛选作用于活动项；任何最终 `outcome` 筛选隐藏活动项；
-- 活动项不占用持久化页大小、不进入 `total`，也不改变历史锚点；
-- Web 把活动项置于最终日志之前，显示“请求中”，最终前不提供详情展开。
+- 活动项不占用持久化批次大小，也不改变历史锚点；
+- Web 把活动项置于最终日志之前，显示“请求中”，最终前不提供详情抽屉；同一 Request ID 的最终项出现后必须去掉活动项，不能短暂显示两行。
 
 活动注册和安全字段变化推进独立 `active_requests_changed` epoch。成功写入最终日志时，Writer 在
 SQLite Commit 之后先从注册表移除对应活动项，再推进既有 commit-only
 `request_logs_changed`；浏览器一次重新查询即可从活动项切换到最终项。最终遥测无法入队或 SQLite
 写入失败时，请求已经结束，终止路径移除活动项并推进 `active_requests_changed`，允许最终历史记录
-按既有可降级语义缺失，但禁止留下假的“请求中”。两个事件共用现有已认证 `/api/admin/log-events`
-连接，事件仍只携带 epoch，不携带日志正文。
+按既有可降级语义缺失，但禁止留下假的“请求中”。两个事件共用现有已认证 `/api/admin/events`
+连接，事件仍只携带 epoch，不携带日志正文；连接同时承载 ADR-0163 的总览快照。
 
 ## 备选方案
 
@@ -61,13 +61,13 @@ SQLite Commit 之后先从注册表移除对应活动项，再推进既有 commi
 - 页面可以在请求进入 Runtime 后立即显示活动行，并在长时、流式和取消请求完成后切换为最终结果。
 - 不新增 Migration，不改变最终 RequestLog、Attempt、统计和 quota fence 的存储契约。
 - 活动列表是当前进程的瞬时观察；重启、遥测关闭或请求尚未进入 Runtime 时不会显示。
-- 每个活动请求增加一条有界字段投影和少量通知；管理响应按页大小限制正文，不返回无界活动集合。
+- 每个活动请求增加一条有界字段投影和少量通知；管理响应按固定批次上限限制正文，不返回无界活动集合。
 
 ## 验证
 
 - Runtime 测试覆盖登记、解码/Attempt 更新、过滤和排序，以及成功 Commit、入队失败、SQLite 失败和
   取消后的清理。
 - Server DTO/SSE 测试覆盖活动项标签、独立 epoch 和最终项去重。
-- Web 契约与组件测试覆盖“请求中”显示、无最终指标、不可展开、活动/最终切换和历史页不展示活动项。
+- Web 契约与组件测试覆盖“请求中”显示、无最终指标、不可打开详情、活动/最终去重切换和历史批次不展示活动项。
 - 运行 Rust fmt、相关 clippy/test，以及 Web typecheck、lint、test、`build:embedded` 与
   `check:embedded`。
