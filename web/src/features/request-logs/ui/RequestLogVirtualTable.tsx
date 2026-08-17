@@ -15,6 +15,10 @@ import {
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
+import {
+  listEntryAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 interface RequestLogVirtualTableProps {
   items: readonly RequestLogFeedItem[];
@@ -26,6 +30,7 @@ interface RequestLogVirtualTableProps {
   onSelect: (requestId: string) => void;
   onFollowingLatestChange: (following: boolean) => void;
   onLoadMore: () => void;
+  entryAnimations?: ReadonlyMap<string, ListEntryAnimation>;
 }
 
 export function RequestLogVirtualTable({
@@ -38,6 +43,7 @@ export function RequestLogVirtualTable({
   onSelect,
   onFollowingLatestChange,
   onLoadMore,
+  entryAnimations,
 }: RequestLogVirtualTableProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef({ ids: [] as string[], scrollTop: 0 });
@@ -131,7 +137,12 @@ export function RequestLogVirtualTable({
               return (
                 <div
                   key={virtualRow.key}
-                  className="absolute left-0 top-0 w-full"
+                  className={cn(
+                    "absolute left-0 top-0 w-full",
+                    listEntryAnimationClass(
+                      item ? entryAnimations?.get(item.requestId) : undefined,
+                    ),
+                  )}
                   style={{ height: REQUEST_LOG_ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {item ? (

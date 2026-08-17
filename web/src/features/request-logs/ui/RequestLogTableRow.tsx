@@ -36,15 +36,23 @@ export const RequestLogCard = memo(function RequestLogCard({
   const success = isSuccessOutcome(log.outcome);
   return (
     <div role="listitem">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className={cn(
-          "focus-ring block min-h-[4.5rem] w-full min-w-0 rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left transition-colors",
+          "focus-ring block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
           selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
         )}
         aria-label={`查看请求 ${model}`}
+        title="双击查看详情"
         aria-pressed={selected}
-        onClick={() => onSelect(log.requestId)}
+        onDoubleClick={() => onSelect(log.requestId)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(log.requestId);
+          }
+        }}
       >
       <div className="flex min-w-0 items-center gap-2">
         <time
@@ -68,7 +76,7 @@ export const RequestLogCard = memo(function RequestLogCard({
           {source.displayName}
         </span>
       </div>
-      </button>
+      </div>
     </div>
   );
 });
@@ -87,12 +95,13 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
       tabIndex={0}
       aria-selected={selected}
       aria-label={`查看请求 ${model}`}
+      title="双击查看详情"
       className={cn(
         requestLogGridClass,
         "focus-ring h-11 cursor-pointer border-b border-subtle/50 text-[12px] outline-none transition-colors",
         selected ? "bg-accent/10" : "hover:bg-surface-muted/45",
       )}
-      onClick={() => onSelect(log.requestId)}
+      onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

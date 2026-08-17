@@ -6,6 +6,7 @@ import {
   resultBadgeLabel,
   resultTone,
   shouldShowAttemptTimeline,
+  upstreamCredentialDisplay,
   upstreamSource,
 } from "./request-log-presentation";
 
@@ -50,6 +51,22 @@ test("keeps the credential fallback when an endpoint name is unavailable", () =>
   });
 
   expect(source.displayName).toBe("key");
+});
+
+test("identifies API keys by endpoint without adding an OAuth endpoint placeholder", () => {
+  expect(upstreamCredentialDisplay({
+    oauthAccountId: null,
+    credentialId: "credential-1",
+    providerEndpointName: "Claude",
+    credentialLabel: "key3",
+  })).toEqual({ label: "上游凭据", value: "Claude · key3" });
+
+  expect(upstreamCredentialDisplay({
+    oauthAccountId: "oauth-1",
+    credentialId: null,
+    providerEndpointName: null,
+    oauthAccountLabel: "work@example.com",
+  })).toEqual({ label: "上游凭据", value: "OAuth · work@example.com" });
 });
 
 test("renders a failed 200 stream from its final outcome", () => {

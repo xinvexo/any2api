@@ -13,6 +13,10 @@ import {
   statusTone,
 } from "../model/system-log-presentation";
 import { cn } from "@/shared/lib/cn";
+import {
+  listEntryAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 const ROW_HEIGHT = 44;
 const gridClass =
@@ -27,6 +31,7 @@ interface SystemLogVirtualTableProps {
   onSelect: (requestId: string) => void;
   onFollowingLatestChange: (following: boolean) => void;
   onLoadMore: () => void;
+  entryAnimations?: ReadonlyMap<string, ListEntryAnimation>;
 }
 
 export function SystemLogVirtualTable({
@@ -38,6 +43,7 @@ export function SystemLogVirtualTable({
   onSelect,
   onFollowingLatestChange,
   onLoadMore,
+  entryAnimations,
 }: SystemLogVirtualTableProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef({ ids: [] as string[], scrollTop: 0 });
@@ -109,7 +115,16 @@ export function SystemLogVirtualTable({
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const log = items[virtualRow.index];
               return (
-                <div key={virtualRow.key} className="absolute left-0 top-0 w-full" style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}>
+                <div
+                  key={virtualRow.key}
+                  className={cn(
+                    "absolute left-0 top-0 w-full",
+                    listEntryAnimationClass(
+                      log ? entryAnimations?.get(log.requestId) : undefined,
+                    ),
+                  )}
+                  style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
+                >
                   {log ? (
                     <SystemLogRow log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
                   ) : (
@@ -131,8 +146,9 @@ function SystemLogRow({ log, selected, onSelect }: { log: SystemLog; selected: b
       role="row"
       tabIndex={0}
       aria-selected={selected}
+      title="双击查看详情"
       className={cn(gridClass, "focus-ring h-11 cursor-pointer border-b border-subtle/50 text-[12px] outline-none transition-colors", selected ? "bg-accent/10" : "hover:bg-surface-muted/45")}
-      onClick={() => onSelect(log.requestId)}
+      onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
     >
       <Cell className="tabular-nums text-secondary">{formatSystemLogTime(log.startedAtMs)}</Cell>

@@ -45,6 +45,7 @@ export function operationLabel(value: RequestLogOperation) {
 type UpstreamSourceFields = {
   oauthAccountId: string | null;
   credentialId: string | null;
+  providerEndpointId?: string | null;
   providerEndpointName?: string | null;
   oauthAccountLabel?: string | null;
   credentialLabel?: string | null;
@@ -88,6 +89,25 @@ export function upstreamSource(log: UpstreamSourceFields): {
     displayName: "—",
     shortId: "—",
   };
+}
+
+/** User-facing source label that keeps API-key credentials identifiable. */
+export function upstreamCredentialDisplay(log: UpstreamSourceFields) {
+  const source = upstreamSource(log);
+  if (source.kind === "oauth") {
+    return { label: "上游凭据", value: `OAuth · ${source.displayName}` };
+  }
+  if (source.kind === "api_key") {
+    const endpoint =
+      log.providerEndpointName?.trim() ||
+      (log.providerEndpointId ? shortId(log.providerEndpointId) : null);
+    const credential = log.credentialLabel?.trim() || source.shortId;
+    return {
+      label: "上游凭据",
+      value: endpoint ? `${endpoint} · ${credential}` : credential,
+    };
+  }
+  return { label: "上游凭据", value: "未记录" };
 }
 
 function shortId(value: string | null | undefined) {

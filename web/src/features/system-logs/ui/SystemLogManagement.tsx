@@ -1,14 +1,11 @@
-import { ArrowUp, RefreshCw, ScrollText, Trash2 } from "lucide-react";
+import { RefreshCw, ScrollText, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import type { SystemLog } from "../api/system-log-contracts";
 import {
   loadSystemLogAdminOperationsPreference,
   saveSystemLogAdminOperationsPreference,
 } from "../model/system-log-admin-operations-preference";
-import {
-  loadSystemLogAutoRefreshPreference,
-  saveSystemLogAutoRefreshPreference,
-} from "../model/system-log-auto-refresh-preference";
 import { useClearSystemLogs } from "../model/use-clear-system-logs";
 import { useSystemLogs } from "../model/use-system-logs";
 import { SystemLogDetailDrawer } from "./SystemLogDetailDrawer";
@@ -17,17 +14,24 @@ import { notify } from "@/shared/notifications";
 import { useAdminRealtimeStatus } from "@/shared/realtime";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
 import { Switch } from "@/shared/ui/Switch";
+import { useListEntryAnimations } from "@/shared/ui/useListEntryAnimations";
 
 export function SystemLogManagement() {
-  const [autoRefresh, setAutoRefresh] = useState(loadSystemLogAutoRefreshPreference);
   const [showAdminOperations, setShowAdminOperations] = useState(loadSystemLogAdminOperationsPreference);
   const [followingLatest, setFollowingLatest] = useState(true);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const query = useSystemLogs(autoRefresh, showAdminOperations, followingLatest);
+  const query = useSystemLogs(showAdminOperations, followingLatest);
   const clearMutation = useClearSystemLogs();
   const realtime = useAdminRealtimeStatus();
+  const entryAnimations = useListEntryAnimations(
+    query.items,
+    systemLogEntryId,
+    systemLogEntryState,
+    `${showAdminOperations}\u0000${query.data ? "ready" : "loading"}`,
+  );
   const { fetchNextPage, hasNextPage, isFetchingNextPage, refreshLatest } = query;
 
   const refreshLogs = useCallback(async () => {
@@ -43,11 +47,6 @@ export function SystemLogManagement() {
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
-
-  const handleAutoRefreshChange = (enabled: boolean) => {
-    setAutoRefresh(enabled);
-    saveSystemLogAutoRefreshPreference(enabled);
-  };
 
   const handleShowAdminOperationsChange = (enabled: boolean) => {
     setShowAdminOperations(enabled);
@@ -72,9 +71,8 @@ export function SystemLogManagement() {
     <div className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden" aria-busy={query.isFetching}>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-secondary">
-          <Toggle id="system-log-auto-refresh" label="自动刷新" checked={autoRefresh} onChange={handleAutoRefreshChange} />
           <Toggle id="system-log-admin-operations" label="显示管理操作" checked={showAdminOperations} onChange={handleShowAdminOperationsChange} />
-          {autoRefresh && !realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
+          {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
         </div>
         <div className="flex items-center gap-0.5">
           <Button size="sm" variant="ghost" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage} title="刷新">
@@ -88,12 +86,6 @@ export function SystemLogManagement() {
       </div>
 
       {query.isError && query.data ? <p className="shrink-0 border-b border-warning/30 py-3 text-[12px] text-warning" role="status">同步失败，当前显示最近一次有效数据</p> : null}
-
-      {query.pendingCount > 0 ? (
-        <button type="button" className="focus-ring mx-auto mt-3 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white shadow-sm" onClick={() => { setFollowingLatest(true); query.applyPending(); }}>
-          <ArrowUp size={13} />有 {query.pendingCount} 条新日志 · 回到最新
-        </button>
-      ) : null}
 
       {query.data ? (
         <div className="pt-3 md:min-h-0 md:flex-1">
@@ -109,6 +101,7 @@ export function SystemLogManagement() {
               onSelect={setSelectedId}
               onFollowingLatestChange={setFollowingLatest}
               onLoadMore={loadMore}
+              entryAnimations={entryAnimations}
             />
           )}
         </div>
@@ -118,6 +111,14 @@ export function SystemLogManagement() {
         <div className="flex min-h-56 flex-1 flex-col items-center justify-center text-center" role="alert"><p className="text-sm font-semibold">无法读取系统日志</p><Button className="mt-4" onClick={() => void refreshLogs()}><RefreshCw size={15} />重试</Button></div>
       )}
 
+      <ScrollToTopButton
+        visible={!followingLatest}
+        onClick={() => {
+          setFollowingLatest(true);
+          query.applyPending();
+        }}
+      />
+
       <ConfirmDialog open={confirmClear} title="清理历史系统日志？" description="将删除数据库中当前保留的全部系统日志，此操作不可撤销。" confirmLabel="清理" tone="danger" pending={clearMutation.isPending} onClose={() => setConfirmClear(false)} onConfirm={handleClear} />
       <SystemLogDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
@@ -126,4 +127,12 @@ export function SystemLogManagement() {
 
 function Toggle({ id, label, checked, onChange }: { id: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return <div className="flex items-center gap-2"><span id={`${id}-label`}>{label}</span><Switch id={id} checked={checked} aria-labelledby={`${id}-label`} onCheckedChange={onChange} /></div>;
+}
+
+function systemLogEntryId(log: SystemLog) {
+  return log.requestId;
+}
+
+function systemLogEntryState(log: SystemLog) {
+  return log.outcome;
 }

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, test } from "vitest";
 
@@ -44,13 +44,23 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("row", { name: "查看请求 claude-test" }));
+  const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
+  viewport.scrollTop = 100;
+  fireEvent.scroll(viewport);
+  expect(screen.queryByText(/条新日志/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "回到顶部" }));
+  await waitFor(() => expect(viewport.scrollTop).toBe(0));
+
+  const row = screen.getByRole("row", { name: "查看请求 claude-test" });
+  fireEvent.click(row);
+  expect(screen.queryByRole("dialog", { name: "请求详情" })).not.toBeInTheDocument();
+  fireEvent.doubleClick(row);
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getByText("Gateway API Key")).toBeInTheDocument();
-  expect(within(drawer).getByText("Provider Endpoint")).toBeInTheDocument();
-  expect(within(drawer).getByText("上游 API Key")).toBeInTheDocument();
-  expect(within(drawer).getByText("primary")).toBeInTheDocument();
-  expect(within(drawer).getByText("日志遥测")).toBeInTheDocument();
+  expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
+  expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();
+  expect(within(drawer).getByText("Claude · primary")).toBeInTheDocument();
+  expect(within(drawer).queryByText("日志遥测")).not.toBeInTheDocument();
 });
 
 test("does not show an endpoint placeholder for OAuth requests", async () => {
@@ -90,13 +100,96 @@ test("does not show an endpoint placeholder for OAuth requests", async () => {
     </MemoryRouter>,
   );
 
-  fireEvent.click(screen.getByRole("row", { name: "查看请求 claude-test" }));
+  fireEvent.doubleClick(screen.getByRole("row", { name: "查看请求 claude-test" }));
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
-  expect(within(drawer).getByText("OAuth 账号")).toBeInTheDocument();
-  expect(within(drawer).getByText("marking.huge_20@icloud.com")).toBeInTheDocument();
+  expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();
+  expect(within(drawer).getByText("OAuth · marking.huge_20@icloud.com")).toBeInTheDocument();
   expect(within(drawer).getAllByText("claude-test")).toHaveLength(1);
   expect(within(drawer).getAllByText(oauthRequest.requestId)).toHaveLength(1);
+});
+
+test("keeps failed request details focused on the actual failure", async () => {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
+    },
+  });
+  const logs = requestLogs();
+  const failedRequest = {
+    ...logs.items[0],
+    statusCode: 503,
+    outcome: "failed" as const,
+    errorMessage: "upstream request failed",
+    firstTokenMs: null,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+  };
+  client.setQueryData(requestLogQueryKeys.list(), {
+    pages: [{ ...logs, items: [failedRequest] }],
+    pageParams: [null],
+  });
+  client.setQueryData(requestLogQueryKeys.detail(failedRequest.requestId), {
+    request: failedRequest,
+    attempts: [
+      {
+        attemptNo: 1,
+        routeTargetId: "target-1",
+        credentialId: "credential-1",
+        credentialLabel: "key3",
+        oauthAccountId: null,
+        oauthAccountLabel: null,
+        proxyProfileId: null,
+        proxyProfileLabel: null,
+        routingMode: "balanced",
+        failureScope: "exact_candidate",
+        retryDecision: "terminal",
+        startedAtMs: failedRequest.startedAtMs,
+        durationMs: failedRequest.latencyMs,
+        errorMessage: failedRequest.errorMessage,
+        statusCode: 503,
+        outcome: "failed",
+        transport: {
+          wireProfileId: "generic-rustls-hyper-v3",
+          wireProfileVersion: 3,
+          timeoutPolicyVersion: 1,
+          resolverMode: "proxy_remote",
+          proxyKind: "socks5",
+          connectTimeoutMs: 10_000,
+          readTimeoutMs: 300_000,
+          poolIdleTimeoutMs: 50_000,
+          routingGeneration: 1,
+          authenticationVersion: 1,
+          trafficClass: "data_plane",
+        },
+        streamTiming: null,
+      },
+    ],
+    telemetry: logs.telemetry,
+  });
+
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <AdminRealtimeProvider authenticated={false}>
+          <RequestLogManagement />
+        </AdminRealtimeProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  fireEvent.doubleClick(screen.getByRole("row", { name: "查看请求 claude-test" }));
+  const drawer = await screen.findByRole("dialog", { name: "请求详情" });
+  expect(within(drawer).getAllByText("upstream request failed")).toHaveLength(1);
+  expect(within(drawer).queryByText("首 Token 延迟")).not.toBeInTheDocument();
+  expect(within(drawer).queryByText("输入 Token")).not.toBeInTheDocument();
+  expect(within(drawer).queryByText("输出 Token")).not.toBeInTheDocument();
+  expect(within(drawer).queryByText("TPS")).not.toBeInTheDocument();
+  expect(within(drawer).queryByText(/Route/)).not.toBeInTheDocument();
+  expect(within(drawer).queryByText(/key3/)).not.toBeInTheDocument();
+  expect(within(drawer).queryByText(/generic-rustls/)).not.toBeInTheDocument();
 });
 
 function requestLogs(): RequestLogList {

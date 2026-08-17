@@ -26,6 +26,8 @@ test("renders only visible request rows and selects a row without expanding it",
   const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
   const firstRow = within(viewport).getByRole("row", { name: "查看请求 model-1" });
   fireEvent.click(firstRow);
+  expect(onSelect).not.toHaveBeenCalled();
+  fireEvent.doubleClick(firstRow);
   expect(onSelect).toHaveBeenCalledWith("request-1");
   expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
   expect(within(viewport).queryByText("model-200")).not.toBeInTheDocument();

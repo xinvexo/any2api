@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import { SYSTEM_LOG_ADMIN_OPERATIONS_STORAGE_KEY } from "../model/system-log-admin-operations-preference";
-import { SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY } from "../model/system-log-auto-refresh-preference";
 import { SystemLogManagement } from "./SystemLogManagement";
 
 const { useSystemLogsMock } = vi.hoisted(() => ({
@@ -34,11 +33,9 @@ vi.mock("@/shared/realtime", () => ({
 
 beforeEach(() => {
   window.localStorage.removeItem(SYSTEM_LOG_ADMIN_OPERATIONS_STORAGE_KEY);
-  window.localStorage.removeItem(SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY);
   useSystemLogsMock.mockReset();
   useSystemLogsMock.mockImplementation(
     (
-      _autoRefresh: boolean,
       showAdminOperations: boolean,
     ) => {
       const data = showAdminOperations
@@ -55,7 +52,6 @@ beforeEach(() => {
         isFetchingNextPage: false,
         isError: false,
         hasNextPage: false,
-        pendingCount: 0,
         refreshLatest: vi.fn().mockResolvedValue(undefined),
         applyPending: vi.fn(),
         fetchNextPage: vi.fn(),
@@ -67,12 +63,13 @@ beforeEach(() => {
 test("hides admin operations through a fresh server-side feed", async () => {
   render(<SystemLogManagement />);
 
+  expect(screen.queryByRole("switch", { name: "自动刷新" })).not.toBeInTheDocument();
   const filter = screen.getByRole("switch", { name: "显示管理操作" });
   expect(filter).toBeChecked();
 
   fireEvent.click(filter);
   await waitFor(() => {
-    expect(useSystemLogsMock).toHaveBeenLastCalledWith(true, false, true);
+    expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true);
   });
   expect(filter).not.toBeChecked();
   expect(window.localStorage.getItem(SYSTEM_LOG_ADMIN_OPERATIONS_STORAGE_KEY)).toBe("false");
@@ -84,5 +81,49 @@ test("restores the persisted admin activity preference", () => {
   render(<SystemLogManagement />);
 
   expect(screen.getByRole("switch", { name: "显示管理操作" })).not.toBeChecked();
-  expect(useSystemLogsMock).toHaveBeenLastCalledWith(true, false, true);
+  expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true);
 });
+
+test("returns to the latest feed without rendering a new-log banner", async () => {
+  const applyPending = vi.fn();
+  useSystemLogsMock.mockReturnValue({
+    data: { pages: [], pageParams: [] },
+    items: [systemLog()],
+    isPending: false,
+    isFetching: false,
+    isFetchingNextPage: false,
+    isError: false,
+    hasNextPage: false,
+    refreshLatest: vi.fn().mockResolvedValue(undefined),
+    applyPending,
+    fetchNextPage: vi.fn(),
+  });
+  render(<SystemLogManagement />);
+
+  const viewport = screen.getByRole("rowgroup", { name: "系统日志表格数据" });
+  viewport.scrollTop = 100;
+  fireEvent.scroll(viewport);
+
+  expect(screen.queryByText(/条新日志/)).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "回到顶部" }));
+  expect(applyPending).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(viewport.scrollTop).toBe(0));
+});
+
+function systemLog() {
+  return {
+    requestId: "request-1",
+    startedAtMs: 1_700_000_000_000,
+    configRevision: 1,
+    clientIp: "127.0.0.1",
+    method: "GET",
+    path: "/v1/models",
+    uri: "/v1/models",
+    httpVersion: "HTTP/1.1",
+    statusCode: 200,
+    durationMs: 2,
+    responseBytes: 128,
+    outcome: "completed" as const,
+    exchangeCaptured: true,
+  };
+}

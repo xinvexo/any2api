@@ -11,6 +11,10 @@ import {
 import { SystemLogVirtualTable } from "./SystemLogVirtualTable";
 import { cn } from "@/shared/lib/cn";
 import { IntersectionSentinel } from "@/shared/ui/IntersectionSentinel";
+import {
+  listEntryAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 interface SystemLogListProps {
   items: readonly SystemLog[];
@@ -21,6 +25,7 @@ interface SystemLogListProps {
   onSelect: (requestId: string) => void;
   onFollowingLatestChange: (following: boolean) => void;
   onLoadMore: () => void;
+  entryAnimations?: ReadonlyMap<string, ListEntryAnimation>;
 }
 
 export function SystemLogList({
@@ -32,12 +37,13 @@ export function SystemLogList({
   onSelect,
   onFollowingLatestChange,
   onLoadMore,
+  entryAnimations,
 }: SystemLogListProps) {
   const mobileTopRef = useRef<HTMLDivElement>(null);
   const previousFollowingRef = useRef(followingLatest);
   const handleMobileLatest = useCallback(
     (visible: boolean) => {
-      if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      if (isMobileViewport()) {
         onFollowingLatestChange(visible);
       }
     },
@@ -47,9 +53,12 @@ export function SystemLogList({
     (visible: boolean) => { if (visible) onLoadMore(); },
     [onLoadMore],
   );
-
   useEffect(() => {
-    if (followingLatest && !previousFollowingRef.current) {
+    if (
+      followingLatest &&
+      !previousFollowingRef.current &&
+      isMobileViewport()
+    ) {
       mobileTopRef.current?.scrollIntoView?.({ block: "start" });
     }
     previousFollowingRef.current = followingLatest;
@@ -65,7 +74,12 @@ export function SystemLogList({
       >
         <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
         {items.map((log) => (
-          <SystemLogCard key={log.requestId} log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
+          <div
+            key={log.requestId}
+            className={listEntryAnimationClass(entryAnimations?.get(log.requestId))}
+          >
+            <SystemLogCard log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
+          </div>
         ))}
         <IntersectionSentinel enabled={hasMore && !loadingMore} rootMargin="400px 0px" onVisibilityChange={handleHistoryVisible} />
         {loadingMore ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
@@ -79,23 +93,40 @@ export function SystemLogList({
         onSelect={onSelect}
         onFollowingLatestChange={onFollowingLatestChange}
         onLoadMore={onLoadMore}
+        entryAnimations={entryAnimations}
       />
     </>
+  );
+}
+
+function isMobileViewport() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(max-width: 767px)").matches
   );
 }
 
 function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: boolean; onSelect: (requestId: string) => void }) {
   return (
     <div role="listitem">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         aria-pressed={selected}
         aria-label={`查看完整请求 ${log.uri}`}
+        title="双击查看详情"
         className={cn(
-          "focus-ring block min-h-[4.5rem] w-full min-w-0 rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left transition-colors",
+          "focus-ring block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
           selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
         )}
-        onClick={() => onSelect(log.requestId)}
+        onDoubleClick={() => onSelect(log.requestId)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(log.requestId);
+          }
+        }}
       >
       <div className="flex min-w-0 items-center gap-2">
         <time className="shrink-0 text-[11px] tabular-nums text-tertiary" dateTime={new Date(log.startedAtMs).toISOString()}>
@@ -111,7 +142,7 @@ function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: 
         <span className="shrink-0">{formatBytes(log.responseBytes)}</span>
         <span className="shrink-0">{outcomeLabel(log.outcome)}</span>
       </div>
-      </button>
+      </div>
     </div>
   );
 }

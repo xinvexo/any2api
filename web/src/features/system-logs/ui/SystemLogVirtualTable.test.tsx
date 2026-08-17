@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 import type { SystemLog } from "../api/system-log-contracts";
 import { SystemLogVirtualTable } from "./SystemLogVirtualTable";
 
 test("renders only the visible system log rows", async () => {
   const items = Array.from({ length: 200 }, (_, index) => systemLog(index + 1));
+  const onSelect = vi.fn();
   render(
     <div className="h-[320px]">
       <SystemLogVirtualTable
@@ -14,7 +15,7 @@ test("renders only the visible system log rows", async () => {
         followingLatest
         hasMore={false}
         loadingMore={false}
-        onSelect={() => {}}
+        onSelect={onSelect}
         onFollowingLatestChange={() => {}}
         onLoadMore={() => {}}
       />
@@ -25,6 +26,13 @@ test("renders only the visible system log rows", async () => {
   expect(within(viewport).getByText("/system/1")).toBeInTheDocument();
   expect(within(viewport).queryByText("/system/200")).not.toBeInTheDocument();
   expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
+
+  const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
+  expect(firstRow).not.toBeNull();
+  fireEvent.click(firstRow!);
+  expect(onSelect).not.toHaveBeenCalled();
+  fireEvent.doubleClick(firstRow!);
+  expect(onSelect).toHaveBeenCalledWith("request-1");
 
   viewport.scrollTop = 7_800;
   fireEvent.scroll(viewport);

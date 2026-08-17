@@ -122,6 +122,60 @@ body {
   }
 }
 
+@keyframes log-entry-arrive {
+  0% {
+    opacity: 0;
+    background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    opacity: 1;
+    background-color: transparent;
+    box-shadow: inset 0 0 0 transparent;
+  }
+}
+
+@keyframes log-entry-complete {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 transparent;
+  }
+}
+
+@keyframes log-entry-processing {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+.log-entry-arrive {
+  animation: log-entry-arrive 520ms ease-out both;
+}
+
+.log-entry-complete {
+  animation: log-entry-complete 720ms ease-out both;
+}
+
+.log-entry-processing {
+  animation: log-entry-processing 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .log-entry-arrive,
+  .log-entry-complete,
+  .log-entry-processing {
+    animation: none;
+  }
+}
+
 /* Route tabs stay horizontally swipeable on narrow screens without painting a rail.
  * Keep this rule unlayered so it can override the unlayered global scrollbar styles. */
 .page-tabs {

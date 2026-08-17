@@ -1,7 +1,6 @@
 import { RefreshCw } from "lucide-react";
 
 import type { RequestAttempt, RequestLogDetail } from "../api/request-log-contracts";
-import { attemptDiagnosticSummary } from "../model/attempt-diagnostics";
 import {
   getRequestLogErrorMessage,
   isRequestLogNotFound,
@@ -18,10 +17,9 @@ import {
   resultBadgeLabel,
   resultTone,
   shouldShowAttemptTimeline,
-  upstreamSource,
+  upstreamCredentialDisplay,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
-import { RequestAttemptDiagnostics } from "./RequestAttemptDiagnostics";
 import { Button } from "@/shared/ui/Button";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 
@@ -66,22 +64,13 @@ function RequestLogDrawerContent({
 }: {
   detail: RequestLogDetail;
 }) {
-  const { request, attempts, telemetry } = detail;
+  const { request, attempts } = detail;
   const success = isSuccessOutcome(request.outcome);
-  const source = upstreamSource(request);
   const showAttemptTimeline = shouldShowAttemptTimeline(
     request.outcome,
     request.attemptCount,
   );
-  const sourceMetric =
-    source.kind === "oauth"
-      ? { label: "OAuth 账号", value: source.displayName }
-      : source.kind === "api_key"
-        ? {
-            label: "上游 API Key",
-            value: request.credentialLabel?.trim() || source.shortId,
-          }
-        : { label: "上游凭据", value: "未记录" };
+  const sourceMetric = upstreamCredentialDisplay(request);
   return (
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -105,16 +94,17 @@ function RequestLogDrawerContent({
         <Metric label="思考级别" value={request.thinkingLevel ?? "未设置"} />
         <Metric label="HTTP 状态" value={String(request.statusCode)} />
         <Metric label="总耗时" value={formatDurationMs(request.latencyMs)} />
-        <Metric label="首 Token 延迟" value={formatDurationMs(request.firstTokenMs)} />
-        <Metric label="输入 Token" value={formatNullableMetric(request.inputTokens)} />
-        <Metric label="输出 Token" value={formatNullableMetric(request.outputTokens)} />
-        <Metric label="缓存命中 Token" value={formatNullableMetric(request.cacheReadTokens)} />
-        <Metric label="缓存写入 Token" value={formatNullableMetric(request.cacheCreationTokens)} />
-        <Metric label="TPS" value={success ? formatTps(outputTps(request)) : "未记录"} />
-        <Metric label="Attempt" value={String(request.attemptCount)} />
-        {source.kind === "api_key" ? (
-          <Metric label="Provider Endpoint" value={request.providerEndpointName ?? shortId(request.providerEndpointId)} />
+        {success ? (
+          <>
+            <Metric label="首 Token 延迟" value={formatDurationMs(request.firstTokenMs)} />
+            <Metric label="输入 Token" value={formatNullableMetric(request.inputTokens)} />
+            <Metric label="输出 Token" value={formatNullableMetric(request.outputTokens)} />
+            <Metric label="缓存命中 Token" value={formatNullableMetric(request.cacheReadTokens)} />
+            <Metric label="缓存写入 Token" value={formatNullableMetric(request.cacheCreationTokens)} />
+            <Metric label="TPS" value={formatTps(outputTps(request))} />
+          </>
         ) : null}
+        <Metric label="尝试次数" value={String(request.attemptCount)} />
         <Metric label={sourceMetric.label} value={sourceMetric.value} />
         <Metric label="出口代理" value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)} />
       </dl>
@@ -126,23 +116,13 @@ function RequestLogDrawerContent({
         </section>
       ) : null}
 
-      <section className="border-t border-subtle pt-5">
-        <h3 className="text-[14px] font-semibold">日志遥测</h3>
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-[12px] sm:grid-cols-4">
-          <Metric label="排队" value={telemetry.queuedRecords.toLocaleString()} />
-          <Metric label="写入中" value={telemetry.inFlightRecords.toLocaleString()} />
-          <Metric label="已丢弃" value={telemetry.droppedRecords.toLocaleString()} />
-          <Metric label="已持久化" value={telemetry.persistedRecords.toLocaleString()} />
-        </dl>
-      </section>
-
       {showAttemptTimeline ? <section className="border-t border-subtle pt-5">
-        <h3 className="text-[14px] font-semibold">Attempt 时间线</h3>
+        <h3 className="text-[14px] font-semibold">请求尝试</h3>
         {attempts.length === 0 ? (
-          <p className="mt-2 text-[12px] text-secondary">没有可展示的 Attempt</p>
+          <p className="mt-2 text-[12px] text-secondary">没有可展示的尝试</p>
         ) : (
           <ol className="mt-3 space-y-2">
-            {attempts.map((attempt) => <AttemptRow key={attempt.attemptNo} attempt={attempt} />)}
+            {attempts.map((attempt) => <AttemptRow key={attempt.attemptNo} attempt={attempt} requestErrorMessage={request.errorMessage} />)}
           </ol>
         )}
       </section> : null}
@@ -150,10 +130,14 @@ function RequestLogDrawerContent({
   );
 }
 
-function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
+function AttemptRow({
+  attempt,
+  requestErrorMessage,
+}: {
+  attempt: RequestAttempt;
+  requestErrorMessage: string | null;
+}) {
   const success = isSuccessOutcome(attempt.outcome);
-  const diagnostic = attemptDiagnosticSummary(attempt);
-  const source = upstreamSource(attempt);
   return (
     <li className="rounded-[8px] bg-surface-muted/55 px-3 py-2.5 text-[12px]">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -164,12 +148,9 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
           {formatDurationMs(attempt.durationMs)}
         </span>
       </div>
-      <p className="mt-1 break-all text-[11px] text-tertiary">
-        {source.kindLabel} {source.displayName} · Route {shortId(attempt.routeTargetId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
-      </p>
-      {attempt.errorMessage ? <p className="mt-1 break-all text-[11px] text-danger">{attempt.errorMessage}</p> : null}
-      {diagnostic ? <p className="mt-1 break-words text-[11px] text-secondary">{diagnostic}</p> : null}
-      <RequestAttemptDiagnostics attempt={attempt} compact />
+      {attempt.errorMessage && attempt.errorMessage !== requestErrorMessage ? (
+        <p className="mt-1 break-all text-[11px] text-danger">{attempt.errorMessage}</p>
+      ) : null}
     </li>
   );
 }

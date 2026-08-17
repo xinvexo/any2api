@@ -254,7 +254,6 @@ export function useRequestLogs(filters: RequestLogFilters, followingLatest: bool
     isFetching: query.isFetching || isRefreshing,
     isError: query.isError || scopedFailure !== null,
     error: query.error ?? scopedFailure,
-    pendingCount: pending?.scope === scope ? pending.count : 0,
     refreshLatest,
     applyPending,
   };

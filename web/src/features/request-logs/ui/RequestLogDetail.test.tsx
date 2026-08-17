@@ -24,9 +24,6 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(await screen.findByText("失败 · HTTP 404")).toBeInTheDocument();
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
-  expect(
-    screen.getAllByText("负载均衡 · 失败范围：当前候选 · 决策：重新选路"),
-  ).toHaveLength(2);
   expect(screen.getByText("失败 · 未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
@@ -34,8 +31,9 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("120")).toBeInTheDocument();
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
-  expect(screen.getAllByText("generic-rustls-hyper-v2 · wire v2").length).toBeGreaterThan(0);
-  expect(screen.getAllByText("上游首帧")[0]?.nextElementSibling).toHaveTextContent("4 ms");
+  expect(screen.getByText("frapi · Primary credential")).toBeInTheDocument();
+  expect(screen.queryByText(/负载均衡/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/generic-rustls-hyper-v2/)).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`/api/admin/request-logs/${requestId}`);
 });
@@ -45,7 +43,7 @@ test("renders an attempt empty state", async () => {
 
   renderDetail();
 
-  expect(await screen.findByText("没有可展示的 Attempt")).toBeInTheDocument();
+  expect(await screen.findByText("没有可展示的尝试")).toBeInTheDocument();
 });
 
 test("keeps unavailable token telemetry distinct from real zero values", async () => {
@@ -83,6 +81,9 @@ test("renders a failed stream separately from its HTTP 200 handshake", async () 
   expect(await screen.findByText("失败 200")).toBeInTheDocument();
   expect(screen.getByText("失败 · HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("HTTP 状态").nextElementSibling).toHaveTextContent("200");
+  expect(screen.getAllByText("upstream response stream reported a failure event")).toHaveLength(1);
+  expect(screen.queryByText("Token 统计")).not.toBeInTheDocument();
+  expect(screen.queryByText("首 Token 延迟（TTFT）")).not.toBeInTheDocument();
 });
 
 test("renders OpenAI Images protocol and operation labels", async () => {

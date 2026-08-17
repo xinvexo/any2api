@@ -22,7 +22,7 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
 }: ActiveRequestLogRowProps) {
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <article role="listitem" className="min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
+    <article role="listitem" className="log-entry-processing min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
       <div className="flex min-w-0 items-center gap-2">
         <time
           className="shrink-0 text-[11px] tabular-nums text-tertiary"
@@ -52,7 +52,7 @@ export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <div role="row" className={cn(requestLogGridClass, "h-11 border-b border-subtle/50 bg-accent/5 text-[12px]")}>
+    <div role="row" className={cn(requestLogGridClass, "log-entry-processing h-11 border-b border-subtle/50 bg-accent/5 text-[12px]")}>
       <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
       <Cell>

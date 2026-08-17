@@ -37,7 +37,6 @@ interface PendingLatest {
 type SyncFailure = { scope: boolean; error: Error };
 
 export function useSystemLogs(
-  autoRefresh: boolean,
   showAdminOperations: boolean,
   followingLatest: boolean,
 ) {
@@ -184,15 +183,11 @@ export function useSystemLogs(
     queueSyncRun();
   }, [queueSyncRun]);
 
-  useAdminEvent("system_logs_changed", autoRefresh, scheduleSync);
+  useAdminEvent("system_logs_changed", true, scheduleSync);
 
   useEffect(() => {
     scheduleSync();
   }, [scheduleSync, showAdminOperations]);
-
-  useEffect(() => {
-    if (autoRefresh) scheduleSync();
-  }, [autoRefresh, scheduleSync]);
 
   useEffect(() => {
     followingRef.current = followingLatest;
@@ -285,7 +280,6 @@ export function useSystemLogs(
     isFetching: query.isFetching || isRefreshing,
     isError: query.isError || scopedFailure !== null,
     error: query.error ?? scopedFailure,
-    pendingCount: pending?.scope === showAdminOperations ? pending.count : 0,
     refreshLatest,
     applyPending,
   };

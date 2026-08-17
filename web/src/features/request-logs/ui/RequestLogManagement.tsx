@@ -1,9 +1,12 @@
-import { ArrowUp, RefreshCw, ScrollText } from "lucide-react";
+import { RefreshCw, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 import { hasActiveRequestLogFilters } from "../api/request-log-filter-contracts";
-import { isActiveRequestLog } from "../model/request-log-feed";
+import {
+  isActiveRequestLog,
+  type RequestLogFeedItem,
+} from "../model/request-log-feed";
 import { getRequestLogErrorMessage } from "../model/request-log-error";
 import { useRequestLogs } from "../model/use-request-logs";
 import { ActiveRequestLogCard } from "./ActiveRequestLogRow";
@@ -15,7 +18,12 @@ import { notify } from "@/shared/notifications";
 import { useAdminRealtimeStatus } from "@/shared/realtime";
 import { Button } from "@/shared/ui/Button";
 import { IntersectionSentinel } from "@/shared/ui/IntersectionSentinel";
+import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
 import { Surface } from "@/shared/ui/Surface";
+import {
+  listEntryAnimationClass,
+  useListEntryAnimations,
+} from "@/shared/ui/useListEntryAnimations";
 
 export function RequestLogManagement() {
   const [filters, setFilters] = useState<RequestLogFilters>({});
@@ -25,7 +33,19 @@ export function RequestLogManagement() {
   const query = useRequestLogs(filters, followingLatest);
   const realtime = useAdminRealtimeStatus();
   const nowMs = useActiveClock(query.activeTotal > 0);
-  const { fetchNextPage, hasNextPage, isFetchingNextPage, refreshLatest } = query;
+  const entryAnimations = useListEntryAnimations(
+    query.items,
+    requestEntryId,
+    requestEntryState,
+    `${filters.outcome ?? ""}\u0000${filters.publicModel ?? ""}\u0000${filters.gatewayApiKeyId ?? ""}\u0000${query.data ? "ready" : "loading"}`,
+  );
+  const {
+    applyPending,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refreshLatest,
+  } = query;
 
   const refreshLogs = useCallback(async () => {
     setFollowingLatest(true);
@@ -45,16 +65,10 @@ export function RequestLogManagement() {
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const handleMobileLatest = useCallback((visible: boolean) => {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+    if (isMobileViewport()) {
       setFollowingLatest(visible);
     }
   }, []);
-
-  const followPending = () => {
-    setFollowingLatest(true);
-    query.applyPending();
-    mobileTopRef.current?.scrollIntoView?.({ block: "start" });
-  };
 
   const changeFilters = (next: RequestLogFilters) => {
     setSelectedId(null);
@@ -63,11 +77,17 @@ export function RequestLogManagement() {
     setFilters(next);
   };
 
+  const scrollToTop = useCallback(() => {
+    setFollowingLatest(true);
+    applyPending();
+    mobileTopRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [applyPending]);
+
   if (query.isPending && !query.data) {
     return <Surface className="flex min-h-56 items-center justify-center p-7 text-sm text-secondary" aria-busy="true">正在读取请求日志</Surface>;
   }
 
-  if (!query.data || !query.telemetry || !query.filterOptions) {
+  if (!query.data || !query.filterOptions) {
     return (
       <Surface className="p-6" role="alert">
         <p className="font-semibold">无法读取请求日志</p>
@@ -82,13 +102,12 @@ export function RequestLogManagement() {
   return (
     <div className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden" aria-busy={query.isFetching}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
-        <p className="mr-auto text-[12px] text-secondary">
-          队列 <Count>{query.telemetry.queuedRecords}</Count>
-          <Divider />写入中 <Count>{query.telemetry.inFlightRecords}</Count>
-          <Divider />丢弃 <Count>{query.telemetry.droppedRecords}</Count>
-          {query.activeTotal > 0 ? <><Divider />进行中 <Count accent>{query.activeTotal}</Count></> : null}
-          {!realtime.connected ? <><Divider /><span className="text-warning">实时连接中断</span></> : null}
-        </p>
+        <div className="mr-auto flex items-center gap-3 text-[12px] text-secondary">
+          {query.activeTotal > 0 ? (
+            <span>进行中 <span className="tabular-nums text-accent-copy">{query.activeTotal}</span></span>
+          ) : null}
+          {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
+        </div>
         <RequestLogFilterBar filters={filters} options={query.filterOptions} onChange={changeFilters} />
         <Button variant="ghost" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage}>
           <RefreshCw size={14} className={query.isFetching && !query.isFetchingNextPage ? "animate-spin" : undefined} />刷新
@@ -99,12 +118,6 @@ export function RequestLogManagement() {
         <Surface className="mt-3 shrink-0 border-warning/40 p-4 text-sm text-secondary" role="status">
           同步失败，当前仍显示最近一次有效数据：{getRequestLogErrorMessage(query.error)}
         </Surface>
-      ) : null}
-
-      {query.pendingCount > 0 ? (
-        <button type="button" className="focus-ring mx-auto mt-3 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white shadow-sm" onClick={followPending}>
-          <ArrowUp size={13} />有 {query.pendingCount} 条新日志 · 回到最新
-        </button>
       ) : null}
 
       <div className="pt-3 md:min-h-0 md:flex-1">
@@ -119,13 +132,18 @@ export function RequestLogManagement() {
               aria-label="请求日志列表"
             >
               <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
-              {query.items.map((item) =>
-                isActiveRequestLog(item) ? (
-                  <ActiveRequestLogCard key={item.requestId} log={item} nowMs={nowMs} />
-                ) : (
-                  <RequestLogCard key={item.requestId} log={item} selected={selectedId === item.requestId} onSelect={setSelectedId} />
-                ),
-              )}
+              {query.items.map((item) => (
+                <div
+                  key={item.requestId}
+                  className={listEntryAnimationClass(entryAnimations.get(item.requestId))}
+                >
+                  {isActiveRequestLog(item) ? (
+                    <ActiveRequestLogCard log={item} nowMs={nowMs} />
+                  ) : (
+                    <RequestLogCard log={item} selected={selectedId === item.requestId} onSelect={setSelectedId} />
+                  )}
+                </div>
+              ))}
               <IntersectionSentinel
                 enabled={query.hasNextPage && !query.isFetchingNextPage}
                 rootMargin="400px 0px"
@@ -143,10 +161,13 @@ export function RequestLogManagement() {
               onSelect={setSelectedId}
               onFollowingLatestChange={setFollowingLatest}
               onLoadMore={loadMore}
+              entryAnimations={entryAnimations}
             />
           </>
         )}
       </div>
+
+      <ScrollToTopButton visible={!followingLatest} onClick={scrollToTop} />
 
       <RequestLogDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
@@ -167,10 +188,18 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   return <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center"><ScrollText size={22} className="text-tertiary" /><p className="mt-3 text-[13px] font-medium">{filtered ? "没有匹配的请求日志" : "还没有请求日志"}</p><p className="mt-1 text-[12px] text-secondary">通过网关完成一次请求后，记录会出现在这里。</p></div>;
 }
 
-function Count({ children, accent = false }: { children: number; accent?: boolean }) {
-  return <span className={`tabular-nums ${accent ? "text-accent-copy" : "text-primary"}`}>{children}</span>;
+function requestEntryId(item: RequestLogFeedItem) {
+  return item.requestId;
 }
 
-function Divider() {
-  return <span className="mx-1.5 text-tertiary">·</span>;
+function requestEntryState(item: RequestLogFeedItem) {
+  return isActiveRequestLog(item) ? "processing" : item.outcome;
+}
+
+function isMobileViewport() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(max-width: 767px)").matches
+  );
 }

@@ -2,7 +2,6 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
-import { attemptDiagnosticSummary } from "../model/attempt-diagnostics";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
   formatTps,
@@ -12,9 +11,9 @@ import {
   proxyDisplayName,
   resultBadgeLabel,
   resultTone,
+  upstreamCredentialDisplay,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
-import { RequestAttemptDiagnostics } from "./RequestAttemptDiagnostics";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -107,9 +106,8 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="客户端 IP" value={request.clientIp} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="HTTP 状态" value={String(request.statusCode)} />
-          <Detail label="Attempt" value={String(request.attemptCount)} />
-          <Detail label="错误消息" value={request.errorMessage ?? "无"} />
-          <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
+          <Detail label="尝试次数" value={String(request.attemptCount)} />
+          <Detail {...upstreamCredentialDisplay(request)} />
           <Detail
             label="出口代理"
             value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)}
@@ -125,36 +123,38 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           </div>
         ) : null}
 
-        <div className="mt-6 border-t border-subtle pt-5">
-          <h3 className="font-semibold">Token 遥测</h3>
-          <p className="mt-1 text-sm text-secondary">
-            首 Token 延迟由本机在首个内容帧交付时测量；Token 计数仅取上游协议明确返回的字段，非流式请求不估算延迟。
-          </p>
-          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <Detail
-              label="首 Token 延迟（TTFT）"
-              value={formatMetric(request.firstTokenMs, " ms")}
-            />
-            <Detail label="输入 Token" value={formatMetric(request.inputTokens)} />
-            <Detail label="输出 Token" value={formatMetric(request.outputTokens)} />
-            <Detail label="缓存命中 Token" value={formatMetric(request.cacheReadTokens)} />
-            <Detail label="缓存写入 Token" value={formatMetric(request.cacheCreationTokens)} />
-            <Detail label="TPS" value={formatTps(outputTps(request))} />
-          </dl>
-        </div>
+        {isSuccessOutcome(request.outcome) ? (
+          <div className="mt-6 border-t border-subtle pt-5">
+            <h3 className="font-semibold">Token 统计</h3>
+            <p className="mt-1 text-sm text-secondary">
+              首 Token 延迟由本机在首个内容帧交付时测量；Token 计数仅取上游协议明确返回的字段，非流式请求不估算延迟。
+            </p>
+            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <Detail
+                label="首 Token 延迟（TTFT）"
+                value={formatMetric(request.firstTokenMs, " ms")}
+              />
+              <Detail label="输入 Token" value={formatMetric(request.inputTokens)} />
+              <Detail label="输出 Token" value={formatMetric(request.outputTokens)} />
+              <Detail label="缓存命中 Token" value={formatMetric(request.cacheReadTokens)} />
+              <Detail label="缓存写入 Token" value={formatMetric(request.cacheCreationTokens)} />
+              <Detail label="TPS" value={formatTps(outputTps(request))} />
+            </dl>
+          </div>
+        ) : null}
       </Surface>
 
       <Surface className="overflow-hidden">
         <div className="border-b border-subtle px-5 py-4">
-          <h2 className="font-semibold">Attempt 时间线</h2>
-          <p className="mt-1 text-sm text-secondary">每次上游选择与最终结果按发生顺序记录。</p>
+          <h2 className="font-semibold">请求尝试</h2>
+          <p className="mt-1 text-sm text-secondary">每次尝试的结果按发生顺序记录。</p>
         </div>
         {attempts.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-secondary">没有可展示的 Attempt</p>
+          <p className="px-5 py-8 text-center text-sm text-secondary">没有可展示的尝试</p>
         ) : (
           <div className="divide-y divide-subtle">
             {attempts.map((attempt) => (
-              <AttemptRow key={attempt.attemptNo} attempt={attempt} />
+              <AttemptRow key={attempt.attemptNo} attempt={attempt} requestErrorMessage={request.errorMessage} />
             ))}
           </div>
         )}
@@ -163,9 +163,14 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
   );
 }
 
-function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
+function AttemptRow({
+  attempt,
+  requestErrorMessage,
+}: {
+  attempt: RequestAttempt;
+  requestErrorMessage: string | null;
+}) {
   const success = isSuccessOutcome(attempt.outcome);
-  const diagnostic = attemptDiagnosticSummary(attempt);
   const result =
     attempt.outcome === "cancelled"
       ? "已取消"
@@ -183,18 +188,11 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
         <p className={success ? "font-semibold" : "font-semibold text-danger"}>
           {result}
         </p>
-        <p className="mt-1 break-all text-xs text-tertiary">
-          {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
-        </p>
-        {diagnostic ? (
-          <p className="mt-1 break-words text-xs text-secondary">{diagnostic}</p>
-        ) : null}
-        {attempt.errorMessage ? (
+        {attempt.errorMessage && attempt.errorMessage !== requestErrorMessage ? (
           <p className="mt-1 break-all text-xs text-danger [overflow-wrap:anywhere]">
             {attempt.errorMessage}
           </p>
         ) : null}
-        <RequestAttemptDiagnostics attempt={attempt} />
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
         <p>{attempt.statusCode ?? "未收到上游状态"}</p>
@@ -224,10 +222,6 @@ function protocolLabel(value: RequestLogProtocol) {
     case "openai_responses":
       return "OpenAI Responses";
   }
-}
-
-function shortId(value: string | null) {
-  return value ? value.slice(0, 8) + "…" : "未记录";
 }
 
 function formatMetric(value: number | null, suffix = "") {

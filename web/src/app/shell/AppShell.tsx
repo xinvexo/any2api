@@ -164,7 +164,7 @@ export function AppShell() {
           )}
           aria-label="应用侧栏"
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2 sm:pt-2.5">
             <AppNavigation collapsed={collapsed} />
           </div>
         </aside>
