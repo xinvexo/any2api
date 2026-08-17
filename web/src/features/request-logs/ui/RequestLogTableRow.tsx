@@ -98,8 +98,8 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
       title="双击查看详情"
       className={cn(
         requestLogGridClass,
-        "focus-ring h-11 cursor-pointer border-b border-subtle/50 text-[12px] outline-none transition-colors",
-        selected ? "bg-accent/10" : "hover:bg-surface-muted/45",
+        "focus-ring relative isolate h-11 cursor-pointer rounded-[8px] border-b border-subtle/50 text-[12px] outline-none before:pointer-events-none before:absolute before:inset-1 before:z-[-1] before:rounded-[8px] before:content-[''] before:transition-colors",
+        selected ? "before:bg-accent/10" : "hover:before:bg-surface-muted/45",
       )}
       onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => {

@@ -6,6 +6,7 @@ import {
   isRequestLogNotFound,
 } from "../model/request-log-error";
 import {
+  attemptErrorMessage,
   formatDurationMs,
   formatLogTime,
   formatTps,
@@ -109,20 +110,25 @@ function RequestLogDrawerContent({
         <Metric label="出口代理" value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)} />
       </dl>
 
-      {request.errorMessage ? (
-        <section className="rounded-[8px] border border-danger/20 bg-danger/5 px-3 py-3">
-          <h3 className="text-[12px] font-semibold text-danger">错误信息</h3>
-          <p className="mt-1 break-all text-[12px] text-primary [overflow-wrap:anywhere]">{request.errorMessage}</p>
-        </section>
-      ) : null}
-
       {showAttemptTimeline ? <section className="border-t border-subtle pt-5">
         <h3 className="text-[14px] font-semibold">请求尝试</h3>
         {attempts.length === 0 ? (
-          <p className="mt-2 text-[12px] text-secondary">没有可展示的尝试</p>
+          <div className="mt-2 space-y-1 text-[12px]">
+            <p className="text-secondary">没有可展示的尝试</p>
+            {request.errorMessage ? (
+              <p className="break-all text-danger [overflow-wrap:anywhere]">{request.errorMessage}</p>
+            ) : null}
+          </div>
         ) : (
           <ol className="mt-3 space-y-2">
-            {attempts.map((attempt) => <AttemptRow key={attempt.attemptNo} attempt={attempt} requestErrorMessage={request.errorMessage} />)}
+            {attempts.map((attempt, index) => (
+              <AttemptRow
+                key={attempt.attemptNo}
+                attempt={attempt}
+                requestErrorMessage={request.errorMessage}
+                isFinalAttempt={index === attempts.length - 1}
+              />
+            ))}
           </ol>
         )}
       </section> : null}
@@ -133,11 +139,20 @@ function RequestLogDrawerContent({
 function AttemptRow({
   attempt,
   requestErrorMessage,
+  isFinalAttempt,
 }: {
   attempt: RequestAttempt;
   requestErrorMessage: string | null;
+  isFinalAttempt: boolean;
 }) {
   const success = isSuccessOutcome(attempt.outcome);
+  const source = upstreamCredentialDisplay(attempt).value;
+  const proxy = proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel);
+  const error = attemptErrorMessage(
+    attempt.errorMessage,
+    requestErrorMessage,
+    isFinalAttempt,
+  );
   return (
     <li className="rounded-[8px] bg-surface-muted/55 px-3 py-2.5 text-[12px]">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -148,10 +163,26 @@ function AttemptRow({
           {formatDurationMs(attempt.durationMs)}
         </span>
       </div>
-      {attempt.errorMessage && attempt.errorMessage !== requestErrorMessage ? (
-        <p className="mt-1 break-all text-[11px] text-danger">{attempt.errorMessage}</p>
+      <dl className="mt-2 grid gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-2">
+        <AttemptMetric label="上游" value={source} />
+        <AttemptMetric label="出口代理" value={proxy} />
+      </dl>
+      {error ? (
+        <p className="mt-2 break-all text-[11px] text-danger [overflow-wrap:anywhere]">
+          <span className="font-semibold">错误原因：</span>
+          {error}
+        </p>
       ) : null}
     </li>
+  );
+}
+
+function AttemptMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-tertiary">{label}</dt>
+      <dd className="mt-0.5 break-all text-primary">{value}</dd>
+    </div>
   );
 }
 

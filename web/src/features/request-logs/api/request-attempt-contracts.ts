@@ -46,6 +46,8 @@ export interface RequestAttemptStreamTiming {
 export interface RequestAttempt {
   attemptNo: number;
   routeTargetId: string | null;
+  providerEndpointId: string | null;
+  providerEndpointName: string | null;
   credentialId: string | null;
   credentialLabel: string | null;
   oauthAccountId: string | null;
@@ -74,6 +76,8 @@ export function parseRequestAttempt(value: unknown): RequestAttempt {
   return {
     attemptNo: readPositiveInteger(record.attempt_no),
     routeTargetId: readNullableString(record.route_target_id),
+    providerEndpointId: readNullableString(record.provider_endpoint_id),
+    providerEndpointName: readNullableDisplayString(record.provider_endpoint_name),
     credentialId: readNullableString(record.credential_id),
     credentialLabel: readNullableDisplayString(record.credential_label),
     oauthAccountId: readNullableString(record.oauth_account_id),

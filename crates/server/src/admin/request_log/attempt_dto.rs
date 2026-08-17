@@ -1,5 +1,6 @@
 use any2api_domain::{
-    RequestAttempt, RequestAttemptFailureScope, RequestAttemptRetryDecision,
+    CredentialId, OAuthAccountId, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
+    ProviderEndpointId, RequestAttempt, RequestAttemptFailureScope, RequestAttemptRetryDecision,
     RequestAttemptStreamTiming, RequestAttemptTransport, RequestRoutingMode,
 };
 use any2api_runtime::api::PublishedSnapshot;
@@ -11,6 +12,8 @@ use super::dto::RequestLogOutcome;
 pub(super) struct RequestAttemptResponse {
     attempt_no: u32,
     route_target_id: Option<String>,
+    provider_endpoint_id: Option<String>,
+    provider_endpoint_name: Option<String>,
     credential_id: Option<String>,
     credential_label: Option<String>,
     oauth_account_id: Option<String>,
@@ -32,6 +35,12 @@ pub(super) struct RequestAttemptResponse {
 impl RequestAttemptResponse {
     pub(super) fn from_attempt(value: RequestAttempt, snapshot: &PublishedSnapshot) -> Self {
         let outcome = RequestLogOutcome::from_attempt(&value);
+        let provider_endpoint = resolve_provider_endpoint(
+            value.credential_id,
+            value.oauth_account_id,
+            snapshot.provider_credentials(),
+            snapshot.provider_endpoints(),
+        );
         let credential_label = value.credential_id.and_then(|id| {
             snapshot
                 .provider_credentials()
@@ -53,6 +62,8 @@ impl RequestAttemptResponse {
         Self {
             attempt_no: value.attempt_no,
             route_target_id: value.route_target_id.map(|id| id.to_string()),
+            provider_endpoint_id: provider_endpoint.as_ref().map(|(id, _)| id.to_string()),
+            provider_endpoint_name: provider_endpoint.map(|(_, name)| name),
             credential_id: value.credential_id.map(|id| id.to_string()),
             credential_label,
             oauth_account_id: value.oauth_account_id.map(|id| id.to_string()),
@@ -73,6 +84,21 @@ impl RequestAttemptResponse {
             stream_timing: value.stream_timing.map(Into::into),
         }
     }
+}
+
+fn resolve_provider_endpoint(
+    credential_id: Option<CredentialId>,
+    oauth_account_id: Option<OAuthAccountId>,
+    credentials: &ProviderCredentialConfiguration,
+    endpoints: &ProviderEndpointConfiguration,
+) -> Option<(ProviderEndpointId, String)> {
+    if oauth_account_id.is_some() {
+        return None;
+    }
+    let credential = credentials.get(credential_id?)?;
+    let endpoint_id = credential.provider_endpoint_id();
+    let endpoint = endpoints.get(endpoint_id)?;
+    Some((endpoint_id, endpoint.name().to_owned()))
 }
 
 #[derive(Serialize)]
@@ -130,11 +156,101 @@ impl From<RequestAttemptStreamTiming> for RequestAttemptStreamTimingResponse {
 #[cfg(test)]
 mod tests {
     use any2api_domain::{
-        ProxyKind, RequestAttemptStreamTiming, RequestAttemptTransport,
-        RequestTransportResolverMode, RequestTransportTrafficClass,
+        CredentialId, CredentialKind, CredentialSecretFingerprint, OAuthAccountId, ProtocolDialect,
+        ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,
+        ProviderEndpoint, ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId,
+        ProviderKind, ProxyConfiguration, ProxyKind, ProxyProfileId, RequestAttemptStreamTiming,
+        RequestAttemptTransport, RequestTransportResolverMode, RequestTransportTrafficClass,
     };
 
-    use super::{RequestAttemptStreamTimingResponse, RequestAttemptTransportResponse};
+    use super::{
+        RequestAttemptResponse, RequestAttemptStreamTimingResponse,
+        RequestAttemptTransportResponse, resolve_provider_endpoint,
+    };
+    use crate::admin::request_log::dto::RequestLogOutcome;
+
+    #[test]
+    fn api_key_attempt_resolves_endpoint_while_oauth_attempt_does_not() {
+        let endpoint_id = ProviderEndpointId::new();
+        let credential_id = CredentialId::new();
+        let endpoints = ProviderEndpointConfiguration::new(vec![
+            ProviderEndpoint::create(
+                endpoint_id,
+                ProviderEndpointDraft::new(
+                    "Codex upstream",
+                    ProviderKind::Codex,
+                    "https://api.example.com",
+                    ProtocolDialect::OpenAiResponses,
+                    None,
+                    true,
+                )
+                .expect("endpoint draft"),
+            )
+            .expect("endpoint"),
+        ])
+        .expect("endpoint configuration");
+        let credentials = ProviderCredentialConfiguration::new(
+            vec![ProviderCredential::create(
+                credential_id,
+                endpoint_id,
+                ProviderCredentialDraft::new(
+                    "Primary Codex",
+                    CredentialKind::ApiKey,
+                    ProxyProfileId::DIRECT,
+                    None,
+                    true,
+                )
+                .expect("credential draft"),
+                CredentialSecretFingerprint::new([0x5a; 32], Some("test".to_owned()))
+                    .expect("fingerprint"),
+            )],
+            &endpoints,
+            &ProxyConfiguration::initial(),
+        )
+        .expect("credential configuration");
+
+        let endpoint =
+            resolve_provider_endpoint(Some(credential_id), None, &credentials, &endpoints)
+                .expect("API key endpoint");
+        assert_eq!(endpoint.0, endpoint_id);
+        assert_eq!(endpoint.1, "Codex upstream");
+
+        assert_eq!(
+            resolve_provider_endpoint(
+                Some(credential_id),
+                Some(OAuthAccountId::new()),
+                &credentials,
+                &endpoints,
+            ),
+            None
+        );
+
+        let response = RequestAttemptResponse {
+            attempt_no: 1,
+            route_target_id: None,
+            provider_endpoint_id: Some(endpoint_id.to_string()),
+            provider_endpoint_name: Some(endpoint.1),
+            credential_id: Some(credential_id.to_string()),
+            credential_label: Some("Primary Codex".to_owned()),
+            oauth_account_id: None,
+            oauth_account_label: None,
+            proxy_profile_id: Some(ProxyProfileId::DIRECT.to_string()),
+            proxy_profile_label: Some("DIRECT".to_owned()),
+            routing_mode: None,
+            failure_scope: None,
+            retry_decision: None,
+            started_at_ms: 1,
+            duration_ms: 2,
+            error_message: None,
+            status_code: Some(200),
+            outcome: RequestLogOutcome::Success,
+            transport: None,
+            stream_timing: None,
+        };
+        let json = serde_json::to_value(response).expect("attempt response JSON");
+        assert_eq!(json["provider_endpoint_id"], endpoint_id.to_string());
+        assert_eq!(json["provider_endpoint_name"], "Codex upstream");
+    }
 
     #[test]
     fn transport_and_stream_diagnostics_use_the_current_nested_wire_contract() {

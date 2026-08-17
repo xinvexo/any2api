@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
+  attemptErrorMessage,
+  formatDurationMs,
   formatTps,
   isSuccessOutcome,
   operationLabel,
@@ -114,15 +116,6 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           />
         </dl>
 
-        {!isSuccessOutcome(request.outcome) && request.errorMessage ? (
-          <div className="mt-5 rounded-[12px] border border-danger/20 bg-danger/5 px-4 py-3">
-            <p className="text-xs font-semibold text-danger">返回错误消息</p>
-            <p className="mt-1 break-all text-sm font-medium text-primary [overflow-wrap:anywhere]">
-              {request.errorMessage}
-            </p>
-          </div>
-        ) : null}
-
         {isSuccessOutcome(request.outcome) ? (
           <div className="mt-6 border-t border-subtle pt-5">
             <h3 className="font-semibold">Token 统计</h3>
@@ -150,11 +143,21 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <p className="mt-1 text-sm text-secondary">每次尝试的结果按发生顺序记录。</p>
         </div>
         {attempts.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-secondary">没有可展示的尝试</p>
+          <div className="space-y-2 px-5 py-8 text-center text-sm">
+            <p className="text-secondary">没有可展示的尝试</p>
+            {request.errorMessage ? (
+              <p className="break-all text-danger [overflow-wrap:anywhere]">{request.errorMessage}</p>
+            ) : null}
+          </div>
         ) : (
           <div className="divide-y divide-subtle">
-            {attempts.map((attempt) => (
-              <AttemptRow key={attempt.attemptNo} attempt={attempt} requestErrorMessage={request.errorMessage} />
+            {attempts.map((attempt, index) => (
+              <AttemptRow
+                key={attempt.attemptNo}
+                attempt={attempt}
+                requestErrorMessage={request.errorMessage}
+                isFinalAttempt={index === attempts.length - 1}
+              />
             ))}
           </div>
         )}
@@ -166,11 +169,20 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
 function AttemptRow({
   attempt,
   requestErrorMessage,
+  isFinalAttempt,
 }: {
   attempt: RequestAttempt;
   requestErrorMessage: string | null;
+  isFinalAttempt: boolean;
 }) {
   const success = isSuccessOutcome(attempt.outcome);
+  const source = upstreamCredentialDisplay(attempt).value;
+  const proxy = proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel);
+  const error = attemptErrorMessage(
+    attempt.errorMessage,
+    requestErrorMessage,
+    isFinalAttempt,
+  );
   const result =
     attempt.outcome === "cancelled"
       ? "已取消"
@@ -188,15 +200,19 @@ function AttemptRow({
         <p className={success ? "font-semibold" : "font-semibold text-danger"}>
           {result}
         </p>
-        {attempt.errorMessage && attempt.errorMessage !== requestErrorMessage ? (
+        <dl className="mt-2 grid gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+          <Detail label="上游" value={source} />
+          <Detail label="出口代理" value={proxy} />
+        </dl>
+        {error ? (
           <p className="mt-1 break-all text-xs text-danger [overflow-wrap:anywhere]">
-            {attempt.errorMessage}
+            <span className="font-semibold">错误原因：</span>
+            {error}
           </p>
         ) : null}
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
-        <p>{attempt.statusCode ?? "未收到上游状态"}</p>
-        <p className="mt-1">{attempt.durationMs} ms</p>
+        <p>{formatDurationMs(attempt.durationMs)}</p>
       </div>
     </article>
   );

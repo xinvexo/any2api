@@ -25,13 +25,14 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
   expect(screen.getByText("失败 · 未收到上游状态")).toBeInTheDocument();
-  expect(screen.getByText("未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
   expect(screen.getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByText("120")).toBeInTheDocument();
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
   expect(screen.getByText("frapi · Primary credential")).toBeInTheDocument();
+  expect(screen.getByText("Upstream 1 · Credential 1")).toBeInTheDocument();
+  expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(1);
   expect(screen.queryByText(/负载均衡/)).not.toBeInTheDocument();
   expect(screen.queryByText(/generic-rustls-hyper-v2/)).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -39,11 +40,25 @@ test("loads a deep-linked request and renders attempts in order", async () => {
 });
 
 test("renders an attempt empty state", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(detailResponse([]));
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    detailResponse([], {
+      status_code: 400,
+      outcome: "failed",
+      error_message: "request validation failed",
+      attempt_count: 0,
+      first_token_ms: null,
+      input_tokens: null,
+      output_tokens: null,
+      cache_read_tokens: null,
+      cache_creation_tokens: null,
+    }),
+  );
 
   renderDetail();
 
   expect(await screen.findByText("没有可展示的尝试")).toBeInTheDocument();
+  expect(screen.getByText("request validation failed")).toBeInTheDocument();
+  expect(screen.queryByText("返回错误消息")).not.toBeInTheDocument();
 });
 
 test("keeps unavailable token telemetry distinct from real zero values", async () => {
@@ -67,7 +82,7 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
 test("renders a failed stream separately from its HTTP 200 handshake", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     detailResponse(
-      [attempt(1, 200, "upstream response stream reported a failure event", "failed")],
+      [attempt(1, 200, null, "failed")],
       {
         outcome: "failed",
         error_message: "upstream response stream reported a failure event",
@@ -82,6 +97,7 @@ test("renders a failed stream separately from its HTTP 200 handshake", async () 
   expect(screen.getByText("失败 · HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("HTTP 状态").nextElementSibling).toHaveTextContent("200");
   expect(screen.getAllByText("upstream response stream reported a failure event")).toHaveLength(1);
+  expect(screen.queryByText("返回错误消息")).not.toBeInTheDocument();
   expect(screen.queryByText("Token 统计")).not.toBeInTheDocument();
   expect(screen.queryByText("首 Token 延迟（TTFT）")).not.toBeInTheDocument();
 });
@@ -98,6 +114,27 @@ test("renders OpenAI Images protocol and operation labels", async () => {
 
   expect(await screen.findByText("OpenAI Images")).toBeInTheDocument();
   expect(screen.getByText("/v1/images/edits")).toBeInTheDocument();
+});
+
+test("identifies an OAuth account in the attempt that used it", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    detailResponse([
+      {
+        ...attempt(1, 429, "rate limit reached"),
+        provider_endpoint_id: null,
+        provider_endpoint_name: null,
+        credential_id: null,
+        credential_label: null,
+        oauth_account_id: "oauth-account-1",
+        oauth_account_label: "operator@example.com",
+      },
+    ]),
+  );
+
+  renderDetail();
+
+  expect(await screen.findByText("OAuth · operator@example.com")).toBeInTheDocument();
+  expect(screen.getByText("rate limit reached")).toBeInTheDocument();
 });
 
 test("renders a terminal not-found state without a retry action", async () => {
@@ -149,7 +186,7 @@ function renderWithQuery(children: React.ReactNode) {
 }
 
 function detailResponse(
-  attempts: ReturnType<typeof attempt>[],
+  attempts: Record<string, unknown>[],
   requestOverrides: Record<string, unknown> = {},
 ) {
   return new Response(
@@ -208,10 +245,12 @@ function attempt(
   statusCode: number | null,
   errorMessage: string | null,
   outcome = statusCode !== null && statusCode >= 200 && statusCode < 300 ? "success" : "failed",
-) {
+): Record<string, unknown> {
   return {
     attempt_no: attemptNo,
     route_target_id: `target-${attemptNo}`,
+    provider_endpoint_id: `endpoint-${attemptNo}`,
+    provider_endpoint_name: `Upstream ${attemptNo}`,
     credential_id: `credential-${attemptNo}`,
     credential_label: `Credential ${attemptNo}`,
     oauth_account_id: null,

@@ -1063,7 +1063,7 @@ revision、Gateway Key、协议与操作；请求解码和每次开始 Attempt �
 精确模型和 Gateway Key 筛选同时作用于活动投影；任何 `outcome=success|failed|cancelled` 筛选都只看
 最终日志并隐藏活动项。带 Cursor 的历史读取不返回活动项。
 
-管理 Web 的请求日志详情抽屉按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。普通 Web 的时间线只展示尝试序号、最终状态、耗时和不与请求级错误重复的错误正文，不展示 Route Target、单独 Credential 标签、负载均衡/失败决策或 Transport 实现诊断；最终请求汇总中的 API Key 来源必须组合 Provider Endpoint 名称与 Credential 标签，OAuth 来源只显示账号。列表行不得内联展开；桌面行与移动卡片都只在双击时打开右侧 Drawer/窄屏 Sheet，单击保留文本选择，键盘 Enter/Space 仍可打开。单条详情只在选择后按需读取并使用短生命周期缓存。
+管理 Web 的请求日志详情抽屉按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。普通 Web 不再另设与 Attempt 重复的请求级错误卡片；时间线必须在对应 Attempt 内展示尝试序号、HTTP 状态、耗时、面向操作员的上游来源、出口代理和真实错误正文。Provider API Key 来源必须组合 Provider Endpoint 名称与 Credential 标签，OAuth 来源显示账号；最终 Attempt 自身缺少错误正文时，才使用请求级错误作为回退，没有 Attempt 的本地失败则在时间线空状态中展示该错误。普通 Web 不展示 Route Target、负载均衡/失败决策或 Transport 实现诊断。最终请求汇总使用同一上游来源口径。列表行不得内联展开；桌面行与移动卡片都只在双击时打开右侧 Drawer/窄屏 Sheet，单击保留文本选择，键盘 Enter/Space 仍可打开。单条详情只在选择后按需读取并使用短生命周期缓存。
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 

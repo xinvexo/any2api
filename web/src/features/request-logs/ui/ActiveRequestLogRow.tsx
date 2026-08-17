@@ -52,7 +52,7 @@ export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <div role="row" className={cn(requestLogGridClass, "log-entry-processing h-11 border-b border-subtle/50 bg-accent/5 text-[12px]")}>
+    <div role="row" className={cn(requestLogGridClass, "log-entry-processing h-11 rounded-[8px] border-b border-subtle/50 bg-accent/5 text-[12px]")}>
       <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
       <Cell>

@@ -137,6 +137,8 @@ test("keeps failed request details focused on the actual failure", async () => {
       {
         attemptNo: 1,
         routeTargetId: "target-1",
+        providerEndpointId: "endpoint-claude",
+        providerEndpointName: "Claude",
         credentialId: "credential-1",
         credentialLabel: "key3",
         oauthAccountId: null,
@@ -183,12 +185,13 @@ test("keeps failed request details focused on the actual failure", async () => {
   fireEvent.doubleClick(screen.getByRole("row", { name: "查看请求 claude-test" }));
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getAllByText("upstream request failed")).toHaveLength(1);
+  expect(within(drawer).queryByText("错误信息")).not.toBeInTheDocument();
+  expect(within(drawer).getByText("Claude · key3")).toBeInTheDocument();
   expect(within(drawer).queryByText("首 Token 延迟")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("输入 Token")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("输出 Token")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("TPS")).not.toBeInTheDocument();
   expect(within(drawer).queryByText(/Route/)).not.toBeInTheDocument();
-  expect(within(drawer).queryByText(/key3/)).not.toBeInTheDocument();
   expect(within(drawer).queryByText(/generic-rustls/)).not.toBeInTheDocument();
 });
 

@@ -138,6 +138,15 @@ export function shouldShowAttemptTimeline(
   return !isSuccessOutcome(outcome) || attemptCount > 1;
 }
 
+/** Use the request-level error only when the final attempt did not record one. */
+export function attemptErrorMessage(
+  attemptMessage: string | null,
+  requestMessage: string | null,
+  isFinalAttempt: boolean,
+) {
+  return attemptMessage ?? (isFinalAttempt ? requestMessage : null);
+}
+
 /** Final stream result is independent from the initially committed HTTP status. */
 export function resultBadgeLabel(outcome: RequestLogOutcome, status: number) {
   if (outcome === "success") {

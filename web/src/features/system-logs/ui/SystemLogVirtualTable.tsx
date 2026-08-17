@@ -147,7 +147,7 @@ function SystemLogRow({ log, selected, onSelect }: { log: SystemLog; selected: b
       tabIndex={0}
       aria-selected={selected}
       title="双击查看详情"
-      className={cn(gridClass, "focus-ring h-11 cursor-pointer border-b border-subtle/50 text-[12px] outline-none transition-colors", selected ? "bg-accent/10" : "hover:bg-surface-muted/45")}
+      className={cn(gridClass, "focus-ring relative isolate h-11 cursor-pointer rounded-[8px] border-b border-subtle/50 text-[12px] outline-none before:pointer-events-none before:absolute before:inset-1 before:z-[-1] before:rounded-[8px] before:content-[''] before:transition-colors", selected ? "before:bg-accent/10" : "hover:before:bg-surface-muted/45")}
       onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
     >

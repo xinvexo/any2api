@@ -18,6 +18,8 @@ describe("request log contracts", () => {
         {
           attempt_no: 1,
           route_target_id: "target-1",
+          provider_endpoint_id: "endpoint-1",
+          provider_endpoint_name: "Codex upstream",
           credential_id: "credential-1",
           credential_label: "Primary credential",
           oauth_account_id: null,
@@ -57,6 +59,8 @@ describe("request log contracts", () => {
     });
     expect(detail.attempts[0]?.statusCode).toBe(200);
     expect(detail.attempts[0]).toMatchObject({
+      providerEndpointId: "endpoint-1",
+      providerEndpointName: "Codex upstream",
       routingMode: "balanced",
       failureScope: "authentication",
       retryDecision: "reselect",
@@ -105,6 +109,8 @@ describe("request log contracts", () => {
           {
             attempt_no: 1,
             route_target_id: null,
+            provider_endpoint_id: null,
+            provider_endpoint_name: null,
             credential_id: null,
             credential_label: null,
             oauth_account_id: "oauth-account-1",
@@ -180,6 +186,8 @@ describe("request log contracts", () => {
         {
           attempt_no: 1,
           route_target_id: null,
+          provider_endpoint_id: "endpoint-1",
+          provider_endpoint_name: "Codex upstream",
           credential_id: "credential-1",
           credential_label: "Primary credential",
           oauth_account_id: null,
@@ -216,6 +224,8 @@ describe("request log contracts", () => {
         {
           attempt_no: 1,
           route_target_id: null,
+          provider_endpoint_id: "endpoint-1",
+          provider_endpoint_name: "Codex upstream",
           credential_id: "credential-1",
           credential_label: "Primary credential",
           oauth_account_id: null,
@@ -371,6 +381,8 @@ function attempt() {
   return {
     attempt_no: 1,
     route_target_id: "target-1",
+    provider_endpoint_id: "endpoint-1",
+    provider_endpoint_name: "Codex upstream",
     credential_id: "credential-1",
     credential_label: "Primary credential",
     oauth_account_id: null,
