@@ -72,6 +72,20 @@ test("keeps live and transition effects on the inset row surface", () => {
 
   const activeRow = screen.getByText("请求中").closest("[role='row']");
   const completedRow = screen.getByRole("row", { name: "查看请求 model-1" });
+  const headers = screen.getAllByRole("columnheader");
+  expect(headers[6]).toHaveTextContent("总耗时");
+  expect(headers[7]).toHaveTextContent("首字");
+  expect(headers[8]).toHaveTextContent("输入");
+  expect(headers[9]).toHaveTextContent("缓存命中");
+  expect(headers[10]).toHaveTextContent("输出");
+  const activeCells = within(activeRow as HTMLElement).getAllByRole("cell");
+  expect(activeCells[6]).toHaveTextContent("1.00 s");
+  expect(activeCells[7]).toHaveTextContent("-");
+  const completedCells = within(completedRow).getAllByRole("cell");
+  expect(completedCells[6]).toHaveTextContent("10 ms");
+  expect(completedCells[7]).toHaveTextContent("2 ms");
+  expect(completedCells[9]).toHaveTextContent("0");
+  expect(completedCells[10]).toHaveTextContent("1");
   expect(activeRow).toHaveClass(
     "compact-row-surface",
     "log-entry-surface-arrive",

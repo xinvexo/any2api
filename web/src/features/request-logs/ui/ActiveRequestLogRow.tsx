@@ -83,8 +83,8 @@ export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
       <Cell className="font-medium text-primary">{model}</Cell>
       <Cell>{log.thinkingLevel ?? "-"}</Cell>
       <Cell><StatusBadge /></Cell>
-      <Cell className="tabular-nums text-secondary">-</Cell>
       <Cell className="tabular-nums text-secondary">{elapsed(log, nowMs)}</Cell>
+      <Cell className="tabular-nums text-secondary">-</Cell>
       <Cell className="text-secondary">-</Cell>
       <Cell className="text-secondary">-</Cell>
       <Cell className="text-secondary">-</Cell>

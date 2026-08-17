@@ -22,7 +22,7 @@ import {
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-2 " +
-  "[grid-template-columns:minmax(7.5rem,1.25fr)_minmax(6rem,0.85fr)_minmax(8rem,1.5fr)_minmax(7rem,1fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(3.5rem,0.55fr)]";
+  "[grid-template-columns:minmax(7.5rem,1.25fr)_minmax(6rem,0.85fr)_minmax(8rem,1.5fr)_minmax(7rem,1fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
 
 interface RequestLogRowProps {
   log: RequestLog;
@@ -137,11 +137,11 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
       <Cell className="font-medium text-primary" title={model}>{model}</Cell>
       <Cell>{log.thinkingLevel ?? "-"}</Cell>
       <Cell><ResultBadge log={log} /></Cell>
-      <Metric value={success ? formatDurationMs(log.firstTokenMs) : "-"} />
       <Metric value={formatDurationMs(log.latencyMs)} />
+      <Metric value={success ? formatDurationMs(log.firstTokenMs) : "-"} />
       <Metric value={success ? formatTokenCount(log.inputTokens) : "-"} />
-      <Metric value={success ? formatTokenCount(log.outputTokens) : "-"} />
       <Metric value={success ? formatTokenCount(log.cacheReadTokens) : "-"} />
+      <Metric value={success ? formatTokenCount(log.outputTokens) : "-"} />
       <Metric value={success ? formatTps(outputTps(log)) : "-"} />
     </div>
   );

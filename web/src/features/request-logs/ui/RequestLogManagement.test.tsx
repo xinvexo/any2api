@@ -36,9 +36,9 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   );
 
   expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
-  expect(screen.getByRole("columnheader", { name: "输入 Token" })).toBeInTheDocument();
-  expect(screen.getByRole("columnheader", { name: "输出 Token" })).toBeInTheDocument();
-  expect(screen.getByRole("columnheader", { name: "缓存命中 Token" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "输入" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "缓存命中" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
   expect(screen.getByRole("cell", { name: "203.0.113.8" })).toBeInTheDocument();
   expect(within(screen.getByRole("list", { name: "请求日志列表" })).getByText("claude-test")).toBeInTheDocument();
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);

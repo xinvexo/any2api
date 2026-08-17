@@ -78,13 +78,35 @@
   }
 }
 
-@keyframes log-entry-processing {
+@keyframes log-entry-processing-breathe {
   0%,
   100% {
-    background-color: color-mix(in srgb, var(--accent) 5%, transparent);
+    background-color: var(--log-entry-breathe-low);
   }
   50% {
-    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+    background-color: var(--log-entry-breathe-high);
+  }
+}
+
+@keyframes log-entry-processing-wave {
+  0% {
+    opacity: 0;
+    transform: translate3d(-100%, 0, 0);
+  }
+  10% {
+    opacity: 0.68;
+  }
+  74% {
+    opacity: 0.68;
+    transform: translate3d(0, 0, 0);
+  }
+  86% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-100%, 0, 0);
   }
 }
 
@@ -128,7 +150,59 @@
 }
 
 .log-entry-processing {
-  animation: log-entry-processing 2.4s ease-in-out infinite;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  animation: log-entry-processing-breathe 2.4s ease-in-out infinite;
+}
+
+.log-entry-processing,
+.log-entry-surface-processing {
+  --log-entry-breathe-low: color-mix(in srgb, var(--accent) 4%, transparent);
+  --log-entry-breathe-high: color-mix(in srgb, var(--accent) 9%, transparent);
+  --log-entry-wave-wash: color-mix(in srgb, var(--accent) 6%, transparent);
+  --log-entry-wave-near: color-mix(in srgb, var(--accent) 14%, transparent);
+  --log-entry-wave-peak: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+html[data-theme="dark"] .log-entry-processing,
+html[data-theme="dark"] .log-entry-surface-processing {
+  --log-entry-breathe-high: color-mix(in srgb, var(--accent) 7%, transparent);
+  --log-entry-wave-wash: color-mix(in srgb, var(--accent) 5%, transparent);
+  --log-entry-wave-near: color-mix(in srgb, var(--accent) 11%, transparent);
+  --log-entry-wave-peak: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.log-entry-processing::after,
+.log-entry-surface-processing::after {
+  position: absolute;
+  width: 100%;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--log-entry-wave-wash) 0%,
+    var(--log-entry-wave-wash) 70%,
+    var(--log-entry-wave-near) 84%,
+    var(--log-entry-wave-peak) 91%,
+    var(--log-entry-wave-near) 96%,
+    transparent 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  content: "";
+  will-change: opacity, transform;
+  animation: log-entry-processing-wave 2.4s linear infinite;
+}
+
+.log-entry-processing::after {
+  z-index: 2;
+  inset-block: 0;
+  left: 0;
+}
+
+.log-entry-processing > * {
+  position: relative;
+  z-index: 1;
 }
 
 .log-entry-surface-arrive {
@@ -144,23 +218,41 @@
 }
 
 .log-entry-surface-processing::before {
-  animation: log-entry-processing 2.4s ease-in-out infinite;
+  background-color: var(--log-entry-breathe-low);
+  animation: log-entry-processing-breathe 2.4s ease-in-out infinite;
+}
+
+.log-entry-surface-processing {
+  overflow: hidden;
+}
+
+.log-entry-surface-processing::after {
+  z-index: 1;
+  inset-block: 0.25rem;
+  left: 0.25rem;
+  width: calc(100% - 0.5rem);
 }
 
 .log-entry-surface-arrive.log-entry-surface-processing::before {
   animation:
     log-entry-surface-arrive 520ms ease-out both,
-    log-entry-processing 2.4s ease-in-out 520ms infinite;
+    log-entry-processing-breathe 2.4s ease-in-out 520ms infinite;
+}
+
+.log-entry-surface-arrive.log-entry-surface-processing::after {
+  animation-delay: 520ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .log-entry-arrive,
   .log-entry-complete,
   .log-entry-processing,
+  .log-entry-processing::after,
   .log-entry-surface-arrive,
   .log-entry-surface-arrive::before,
   .log-entry-surface-complete::before,
-  .log-entry-surface-processing::before {
+  .log-entry-surface-processing::before,
+  .log-entry-surface-processing::after {
     animation: none;
   }
 }

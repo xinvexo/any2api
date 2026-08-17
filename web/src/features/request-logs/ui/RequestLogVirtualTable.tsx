@@ -111,11 +111,11 @@ export function RequestLogVirtualTable({
             <Header>模型</Header>
             <Header>思考</Header>
             <Header>结果</Header>
-            <Header>首 Token</Header>
             <Header>总耗时</Header>
-            <Header>输入 Token</Header>
-            <Header>输出 Token</Header>
-            <Header>缓存命中 Token</Header>
+            <Header>首字</Header>
+            <Header>输入</Header>
+            <Header>缓存命中</Header>
+            <Header>输出</Header>
             <Header>TPS</Header>
           </div>
         </div>
