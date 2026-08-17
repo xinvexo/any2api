@@ -48,7 +48,55 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getByText("Gateway API Key")).toBeInTheDocument();
   expect(within(drawer).getByText("Provider Endpoint")).toBeInTheDocument();
+  expect(within(drawer).getByText("上游 API Key")).toBeInTheDocument();
+  expect(within(drawer).getByText("primary")).toBeInTheDocument();
   expect(within(drawer).getByText("日志遥测")).toBeInTheDocument();
+});
+
+test("does not show an endpoint placeholder for OAuth requests", async () => {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
+    },
+  });
+  const logs = requestLogs();
+  const oauthRequest = {
+    ...logs.items[0],
+    oauthAccountId: "oauth-account-1",
+    oauthAccountLabel: "marking.huge_20@icloud.com",
+    providerEndpointId: null,
+    providerEndpointName: null,
+    credentialId: null,
+    credentialLabel: null,
+  };
+  const oauthLogs = { ...logs, items: [oauthRequest] };
+  client.setQueryData(requestLogQueryKeys.list(), {
+    pages: [oauthLogs],
+    pageParams: [null],
+  });
+  client.setQueryData(requestLogQueryKeys.detail(oauthRequest.requestId), {
+    request: oauthRequest,
+    attempts: [],
+    telemetry: logs.telemetry,
+  });
+
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <AdminRealtimeProvider authenticated={false}>
+          <RequestLogManagement />
+        </AdminRealtimeProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(screen.getByRole("row", { name: "查看请求 claude-test" }));
+  const drawer = await screen.findByRole("dialog", { name: "请求详情" });
+  expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
+  expect(within(drawer).getByText("OAuth 账号")).toBeInTheDocument();
+  expect(within(drawer).getByText("marking.huge_20@icloud.com")).toBeInTheDocument();
+  expect(within(drawer).getAllByText("claude-test")).toHaveLength(1);
+  expect(within(drawer).getAllByText(oauthRequest.requestId)).toHaveLength(1);
 });
 
 function requestLogs(): RequestLogList {

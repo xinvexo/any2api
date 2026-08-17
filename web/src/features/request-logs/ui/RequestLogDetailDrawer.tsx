@@ -33,12 +33,10 @@ export function RequestLogDetailDrawer({
   onClose: () => void;
 }) {
   const query = useRequestLog(requestId ?? "");
-  const request = query.data?.request;
   return (
     <SideDrawer
       open={requestId !== null}
       title="请求详情"
-      description={request ? `${request.publicModel ?? "未解析模型"} · ${request.requestId}` : "正在读取请求详情"}
       onClose={onClose}
       wide
     >
@@ -75,6 +73,15 @@ function RequestLogDrawerContent({
     request.outcome,
     request.attemptCount,
   );
+  const sourceMetric =
+    source.kind === "oauth"
+      ? { label: "OAuth 账号", value: source.displayName }
+      : source.kind === "api_key"
+        ? {
+            label: "上游 API Key",
+            value: request.credentialLabel?.trim() || source.shortId,
+          }
+        : { label: "上游凭据", value: "未记录" };
   return (
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -105,8 +112,10 @@ function RequestLogDrawerContent({
         <Metric label="缓存写入 Token" value={formatNullableMetric(request.cacheCreationTokens)} />
         <Metric label="TPS" value={success ? formatTps(outputTps(request)) : "未记录"} />
         <Metric label="Attempt" value={String(request.attemptCount)} />
-        <Metric label="Provider Endpoint" value={request.providerEndpointName ?? shortId(request.providerEndpointId)} />
-        <Metric label="上游凭据" value={`${source.kindLabel} · ${source.displayName}`} />
+        {source.kind === "api_key" ? (
+          <Metric label="Provider Endpoint" value={request.providerEndpointName ?? shortId(request.providerEndpointId)} />
+        ) : null}
+        <Metric label={sourceMetric.label} value={sourceMetric.value} />
         <Metric label="出口代理" value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)} />
       </dl>
 
