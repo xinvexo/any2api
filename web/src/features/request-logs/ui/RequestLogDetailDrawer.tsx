@@ -7,6 +7,7 @@ import {
 } from "../model/request-log-error";
 import {
   attemptErrorMessage,
+  attemptResultLabel,
   formatDurationMs,
   formatLogTime,
   formatTps,
@@ -157,7 +158,7 @@ function AttemptRow({
     <li className="rounded-[8px] bg-surface-muted/55 px-3 py-2.5 text-[12px]">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <span className={success ? "font-semibold" : "font-semibold text-danger"}>
-          #{attempt.attemptNo} · {attempt.outcome === "cancelled" ? "已取消" : `HTTP ${attempt.statusCode ?? "-"}`}
+          #{attempt.attemptNo} · {attemptResultLabel(attempt)}
         </span>
         <span className="shrink-0 tabular-nums text-secondary">
           {formatDurationMs(attempt.durationMs)}

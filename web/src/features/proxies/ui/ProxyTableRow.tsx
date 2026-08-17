@@ -55,9 +55,9 @@ export function ProxyTableRow({
   return (
     <tr
       data-responsive-row="card"
-      className="compact-row-surface compact-row-surface-hover responsive-row-surface grid grid-cols-[minmax(0,1fr)_auto] rounded-[14px] bg-surface-muted/55 p-3 sm:table-row sm:rounded-none sm:bg-transparent sm:p-0"
+      className="desktop-table-card-row grid grid-cols-[minmax(0,1fr)_auto] rounded-[14px] bg-surface-muted/55 p-3 sm:table-row sm:rounded-none sm:bg-transparent sm:p-0"
     >
-      <td className="col-start-1 row-start-1 min-w-0 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
+      <td className="col-start-1 row-start-1 min-w-0 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <p className="min-w-0 break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">
             {proxy.name}
@@ -99,8 +99,8 @@ export function ProxyTableRow({
           <ProxyTestStatus testing={testing} result={testResult} error={testError} />
         </div>
       </td>
-      <td className="col-start-2 row-start-4 pt-1 align-middle sm:table-cell sm:py-2.5 sm:pl-3 sm:pr-0">
-        <div className="flex items-center justify-end gap-0.5">
+      <td className="col-start-2 row-start-4 pt-1 align-middle sm:table-cell sm:w-72 sm:min-w-72 sm:px-3 sm:py-2.5">
+        <div className="flex items-center justify-end gap-0.5 whitespace-nowrap sm:w-full">
           <RowActionButton
             label={`测试 ${proxy.name}`}
             title={`测试 ${proxy.name}`}

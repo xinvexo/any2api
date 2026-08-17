@@ -39,9 +39,9 @@ export function GatewayApiKeyTableRow({
     <tr
       data-floating-bounds
       data-responsive-row="card"
-      className="compact-row-surface compact-row-surface-hover responsive-row-surface grid grid-cols-1 rounded-[14px] bg-surface-muted/55 p-3 sm:table-row sm:rounded-none sm:bg-transparent sm:p-0"
+      className="desktop-table-card-row grid grid-cols-1 rounded-[14px] bg-surface-muted/55 p-3 sm:table-row sm:rounded-none sm:bg-transparent sm:p-0"
     >
-      <td className="min-w-0 pr-14 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
+      <td className="min-w-0 pr-14 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <p className="break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">
           {apiKey.name}
         </p>
@@ -66,8 +66,8 @@ export function GatewayApiKeyTableRow({
           {formatTimestamp(apiKey.createdAt)}
         </span>
       </td>
-      <td className="pt-1.5 align-middle sm:table-cell sm:py-2.5 sm:pl-3 sm:pr-0">
-        <div className="flex items-center justify-end gap-0.5 sm:gap-1.5">
+      <td className="pt-1.5 align-middle sm:table-cell sm:w-80 sm:min-w-80 sm:px-3 sm:py-2.5">
+        <div className="flex items-center justify-end gap-0.5 whitespace-nowrap sm:w-full sm:gap-1.5">
           <span
             className="absolute right-3 top-3 inline-flex h-7 items-center sm:static sm:h-7"
             title={apiKey.enabled ? "已启用" : "已停用"}

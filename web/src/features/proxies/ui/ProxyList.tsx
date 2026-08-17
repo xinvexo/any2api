@@ -100,13 +100,22 @@ export function ProxyList({
 
       <div className="sm:overflow-x-auto">
         <table
-          className="block w-full text-left text-[12px] sm:table sm:min-w-[840px] sm:border-collapse"
+          className="block w-full text-left text-[12px] sm:table sm:min-w-[72rem] sm:table-fixed sm:border-separate sm:border-spacing-x-0 sm:border-spacing-y-1"
           data-responsive-table="cards"
         >
           <caption className="sr-only">出口代理列表</caption>
+          <colgroup className="hidden sm:table-column-group">
+            <col className="w-40" />
+            <col className="w-20" />
+            <col />
+            <col className="w-32" />
+            <col className="w-32" />
+            <col className="w-[178px]" />
+            <col className="w-72" />
+          </colgroup>
           <thead className="hidden sm:table-header-group">
-            <tr className="border-b border-subtle text-[11px] text-tertiary whitespace-nowrap">
-              <th className="py-2 pr-3 font-medium">名称</th>
+            <tr className="text-[11px] text-tertiary whitespace-nowrap">
+              <th className="px-3 py-2 font-medium">名称</th>
               <th className="px-3 py-2 font-medium">类型</th>
               <th className="px-3 py-2 font-medium">地址</th>
               <th className="px-3 py-2 font-medium">状态</th>
@@ -114,7 +123,7 @@ export function ProxyList({
               <th className="w-[178px] min-w-[178px] max-w-[178px] px-3 py-2 font-medium">
                 连通性
               </th>
-              <th className="py-2 pl-3 text-right font-medium">操作</th>
+              <th className="px-3 py-2 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="grid gap-2 py-3 sm:table-row-group sm:py-0">
@@ -152,7 +161,7 @@ export function ProxyList({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle py-3 text-[12px] text-secondary">
+      <div className="flex flex-wrap items-center justify-between gap-2 py-3 text-[12px] text-secondary">
         <p>
           共 <span className="tabular-nums">{filtered.length}</span> 条
         </p>

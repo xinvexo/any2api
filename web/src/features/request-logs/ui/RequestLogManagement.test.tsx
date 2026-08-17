@@ -151,7 +151,7 @@ test("keeps failed request details focused on the actual failure", async () => {
         startedAtMs: failedRequest.startedAtMs,
         durationMs: failedRequest.latencyMs,
         errorMessage: failedRequest.errorMessage,
-        statusCode: 503,
+        statusCode: null,
         outcome: "failed",
         transport: {
           wireProfileId: "generic-rustls-hyper-v3",
@@ -185,6 +185,10 @@ test("keeps failed request details focused on the actual failure", async () => {
   fireEvent.doubleClick(screen.getByRole("row", { name: "查看请求 claude-test" }));
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getAllByText("upstream request failed")).toHaveLength(1);
+  expect(
+    within(drawer).getByText("#1 · 失败 · 未收到 HTTP 状态"),
+  ).toBeInTheDocument();
+  expect(within(drawer).queryByText("#1 · 失败 · HTTP 503")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("错误信息")).not.toBeInTheDocument();
   expect(within(drawer).getByText("Claude · key3")).toBeInTheDocument();
   expect(within(drawer).queryByText("首 Token 延迟")).not.toBeInTheDocument();

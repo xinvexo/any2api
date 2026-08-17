@@ -24,7 +24,7 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(await screen.findByText("失败 · HTTP 404")).toBeInTheDocument();
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
-  expect(screen.getByText("失败 · 未收到上游状态")).toBeInTheDocument();
+  expect(screen.getByText("失败 · 未收到 HTTP 状态")).toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
   expect(screen.getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByText("120")).toBeInTheDocument();

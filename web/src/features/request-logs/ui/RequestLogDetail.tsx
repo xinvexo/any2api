@@ -5,6 +5,7 @@ import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-cont
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
   attemptErrorMessage,
+  attemptResultLabel,
   formatDurationMs,
   formatTps,
   isSuccessOutcome,
@@ -183,14 +184,6 @@ function AttemptRow({
     requestErrorMessage,
     isFinalAttempt,
   );
-  const result =
-    attempt.outcome === "cancelled"
-      ? "已取消"
-      : attempt.statusCode === null
-        ? "失败 · 未收到上游状态"
-        : success
-          ? `HTTP ${attempt.statusCode}`
-          : `失败 · HTTP ${attempt.statusCode}`;
   return (
     <article className="grid gap-3 px-5 py-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-muted text-sm font-semibold tabular-nums">
@@ -198,7 +191,7 @@ function AttemptRow({
       </span>
       <div className="min-w-0">
         <p className={success ? "font-semibold" : "font-semibold text-danger"}>
-          {result}
+          {attemptResultLabel(attempt)}
         </p>
         <dl className="mt-2 grid gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
           <Detail label="上游" value={source} />

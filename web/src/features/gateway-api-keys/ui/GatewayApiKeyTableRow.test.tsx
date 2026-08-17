@@ -1,10 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
-import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
+import type {
+  GatewayApiKey,
+  GatewayApiKeyConfiguration,
+} from "../api/gateway-api-key-contracts";
+import { GatewayApiKeyList } from "./GatewayApiKeyList";
 import { GatewayApiKeyTableRow } from "./GatewayApiKeyTableRow";
 
-test("uses the shared compact desktop row surface", () => {
+test("uses a cell-backed desktop card without adding a table column", () => {
   render(
     <table>
       <tbody>
@@ -20,13 +24,39 @@ test("uses the shared compact desktop row surface", () => {
     </table>,
   );
 
-  expect(screen.getByRole("row")).toHaveClass(
-    "compact-row-surface",
-    "compact-row-surface-hover",
-    "responsive-row-surface",
-  );
+  const row = screen.getByRole("row");
+  expect(row).toHaveClass("desktop-table-card-row");
+  expect(row).not.toHaveClass("compact-row-surface");
   expect(screen.getByRole("row")).not.toHaveClass("sm:hover:bg-surface-muted/20");
   expect(screen.getByRole("row")).not.toHaveClass("sm:border-b");
+  expect(within(row).getAllByRole("cell")).toHaveLength(5);
+  expect(within(row).getAllByRole("cell")[2]).toHaveTextContent("2026/08/17");
+  expect(within(row).getAllByRole("cell")[3]).toHaveTextContent("2026/08/16");
+  expect(within(row).getAllByRole("cell")[4]).toHaveClass("sm:min-w-80");
+});
+
+test("shares one fixed five-column model between header and body", () => {
+  render(
+    <GatewayApiKeyList
+      configuration={configuration()}
+      pending={false}
+      refreshing={false}
+      actionError={null}
+      onCreate={vi.fn()}
+      onRefresh={vi.fn()}
+      onEdit={vi.fn()}
+      onToggleEnabled={vi.fn()}
+      onRotate={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  );
+
+  const table = screen.getByRole("table", { name: "网关密钥列表" });
+  expect(table).toHaveClass("sm:table-fixed", "sm:border-separate");
+  expect(table.querySelectorAll("colgroup > col")).toHaveLength(5);
+  expect(table.querySelectorAll("thead th")).toHaveLength(5);
+  expect(table.querySelectorAll("tbody td")).toHaveLength(5);
+  expect(countLabel()).not.toHaveClass("border-t");
 });
 
 function apiKey(): GatewayApiKey {
@@ -38,8 +68,8 @@ function apiKey(): GatewayApiKey {
     tokenVersion: 1,
     configVersion: 1,
     enabled: true,
-    createdAt: "2026-08-17 20:00:00",
-    lastUsedAt: null,
+    createdAt: "2026/08/16 20:00:00",
+    lastUsedAt: "2026/08/17 20:00:00",
     usage: {
       totalRequests: 0,
       successfulRequests: 0,
@@ -48,4 +78,14 @@ function apiKey(): GatewayApiKey {
       windowSlots: [],
     },
   };
+}
+
+function configuration(): GatewayApiKeyConfiguration {
+  return { configRevision: 1, items: [apiKey()] };
+}
+
+function countLabel() {
+  return screen.getByText(
+    (_, element) => element?.tagName === "P" && element.textContent === "共 1 条",
+  ).parentElement;
 }

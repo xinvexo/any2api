@@ -8,8 +8,8 @@
   z-index: -1;
   inset: 0.25rem;
   border-radius: 8px;
-  background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
-  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  background-color: color-mix(in srgb, var(--surface-muted) 36%, transparent);
+  box-shadow: none;
   pointer-events: none;
   content: "";
   transition:
@@ -18,13 +18,13 @@
 }
 
 .compact-row-surface-hover:hover::before {
-  background-color: color-mix(in srgb, var(--surface-hover) 65%, transparent);
-  box-shadow: inset 0 0 0 1px var(--border-strong);
+  background-color: color-mix(in srgb, var(--surface-hover) 62%, transparent);
+  box-shadow: var(--hairline-shadow);
 }
 
 .compact-row-surface-selected::before {
   background-color: color-mix(in srgb, var(--accent) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: none;
 }
 
 .compact-row-surface.focus-ring:focus-visible {
@@ -35,9 +35,22 @@
   box-shadow: var(--focus-ring);
 }
 
-@media (max-width: 39.999rem) {
-  .responsive-row-surface::before {
-    display: none;
+@media (min-width: 40rem) {
+  .desktop-table-card-row > td {
+    background-color: color-mix(in srgb, var(--surface-muted) 36%, transparent);
+    transition: background-color 150ms ease;
+  }
+
+  .desktop-table-card-row > td:first-child {
+    border-radius: 8px 0 0 8px;
+  }
+
+  .desktop-table-card-row > td:last-child {
+    border-radius: 0 8px 8px 0;
+  }
+
+  .desktop-table-card-row:hover > td {
+    background-color: color-mix(in srgb, var(--surface-hover) 62%, transparent);
   }
 }
 
@@ -81,8 +94,8 @@
     box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
   }
   100% {
-    background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
-    box-shadow: inset 0 0 0 1px var(--border-subtle);
+    background-color: color-mix(in srgb, var(--surface-muted) 36%, transparent);
+    box-shadow: none;
   }
 }
 
@@ -101,8 +114,8 @@
     box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
   }
   100% {
-    background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
-    box-shadow: inset 0 0 0 1px var(--border-subtle);
+    background-color: color-mix(in srgb, var(--surface-muted) 36%, transparent);
+    box-shadow: none;
   }
 }
 

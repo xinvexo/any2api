@@ -1,4 +1,5 @@
 import type {
+  RequestAttempt,
   RequestLog,
   RequestLogOperation,
   RequestLogOutcome,
@@ -145,6 +146,21 @@ export function attemptErrorMessage(
   isFinalAttempt: boolean,
 ) {
   return attemptMessage ?? (isFinalAttempt ? requestMessage : null);
+}
+
+/** Describe one upstream attempt without borrowing the request-level final status. */
+export function attemptResultLabel(
+  attempt: Pick<RequestAttempt, "outcome" | "statusCode">,
+) {
+  if (attempt.outcome === "cancelled") {
+    return "已取消";
+  }
+  if (attempt.statusCode === null) {
+    return "失败 · 未收到 HTTP 状态";
+  }
+  return attempt.outcome === "success"
+    ? `HTTP ${attempt.statusCode}`
+    : `失败 · HTTP ${attempt.statusCode}`;
 }
 
 /** Final stream result is independent from the initially committed HTTP status. */

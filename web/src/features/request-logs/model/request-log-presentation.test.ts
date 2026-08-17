@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  attemptResultLabel,
   operationLabel,
   protocolLabel,
   resultBadgeLabel,
@@ -73,6 +74,18 @@ test("renders a failed 200 stream from its final outcome", () => {
   expect(resultBadgeLabel("failed", 200)).toBe("失败 200");
   expect(resultTone("failed", 200)).toContain("text-danger");
   expect(resultBadgeLabel("success", 200)).toBe("成功");
+});
+
+test("labels attempts only from their own HTTP status", () => {
+  expect(attemptResultLabel({ outcome: "failed", statusCode: 429 })).toBe(
+    "失败 · HTTP 429",
+  );
+  expect(attemptResultLabel({ outcome: "failed", statusCode: null })).toBe(
+    "失败 · 未收到 HTTP 状态",
+  );
+  expect(attemptResultLabel({ outcome: "cancelled", statusCode: 499 })).toBe(
+    "已取消",
+  );
 });
 
 test("shows attempt flow for retries even when the final request succeeds", () => {
