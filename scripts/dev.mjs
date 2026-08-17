@@ -3,11 +3,11 @@
  * Local development runner with auto-reload.
  *
  * - Backend: `cargo run --package any2api --bin any2api`, restarts on Rust/migration changes
- * - Frontend: Vite HMR (`pnpm dev:server`), open the printed URL for instant UI refresh
+ * - Frontend: Vite HMR (`pnpm dev:web`), open the printed URL for instant UI refresh
  *
  * Usage (repo root):
  *   node scripts/dev.mjs
- *   pnpm --dir web dev:app
+ *   pnpm --dir web dev
  *
  * Open the Vite URL (default http://127.0.0.1:5173). `/api` is proxied to the backend.
  * Do not use the backend origin for UI work — that serves compile-time embedded assets.
@@ -271,11 +271,11 @@ function startWatchers() {
 }
 
 function startFrontend() {
-  log(`${color.bold("frontend")} pnpm dev:server (Vite HMR)`);
+  log(`${color.bold("frontend")} pnpm dev:web (Vite HMR)`);
   // Host/port/proxy come from web/vite.config.ts so HMR and /api proxy stay aligned.
   const child = spawnInherited(
     process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-    ["dev:server"],
+    ["dev:web"],
     webDir,
   );
   frontend = child;
@@ -315,8 +315,8 @@ async function shutdown(signal) {
 async function main() {
   ensureLayout();
   const apiBind = process.env.ANY2API_BIND?.trim() || "127.0.0.1:3210";
-  const uiOrigin = process.env.ANY2API_DEV_UI || "http://127.0.0.1:5173";
-  const apiOrigin = apiBind.includes("://") ? apiBind : `http://${apiBind}`;
+  const uiOrigin = "http://127.0.0.1:5173";
+  const apiOrigin = `http://${apiBind}`;
 
   log(color.bold("any2api development mode"));
   log(`workspace ${color.dim(root)}`);

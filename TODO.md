@@ -26,7 +26,7 @@
 3. 不预设现有架构、不变量或 ADR 正确。若其阻碍已证实的正确性、可靠性、性能或可维护性改进，先更新 `ARCHITECTURE.md` 和对应 ADR，再实现代码与迁移全部调用点。
 4. 在能够复现并证明行为的最低充分层级测试；只有跨模块、公开协议或真实 I/O 行为才增加契约/集成测试，禁止机械复制同一分支。安全、并发和资源生命周期仍保留与风险相称的回归覆盖。
 5. Schema 变化只追加连续前向 Migration，并提供带代表性数据的升级测试；不得修改既有 Migration/checksum。
-6. 前端变更运行 typecheck、lint、相关单测和生产构建，并用 `pnpm build:embedded` 同步内嵌产物、`pnpm check:embedded` 校验。
+6. 前端变更运行 typecheck、lint、相关单测，并用 `cargo xtask package` 完成生产构建、内嵌同步、复核与 release 二进制构建。
 7. 提交前运行受影响范围的 fmt、clippy、test 和架构门禁。
 
 ## 产品改进

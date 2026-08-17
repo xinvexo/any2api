@@ -9,10 +9,7 @@
   },
   "scripts": {
     "dev": "node ../scripts/dev.mjs",
-    "dev:app": "node ../scripts/dev.mjs",
     "dev:web": "vite",
-    "dev:server": "vite",
-    "dev:embed": "vite build --watch",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",

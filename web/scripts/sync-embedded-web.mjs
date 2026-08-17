@@ -7,7 +7,7 @@ const repository = resolve(webDirectory, "..");
 const source = join(webDirectory, "dist");
 const target = join(repository, "app", "any2api", "web-assets");
 
-export async function syncEmbeddedWeb() {
+async function syncEmbeddedWeb() {
   const sourceFiles = await files(source);
   if (!sourceFiles.includes("index.html")) {
     throw new Error("web/dist must contain index.html; run pnpm build first");
@@ -17,23 +17,21 @@ export async function syncEmbeddedWeb() {
   await mkdir(target, { recursive: true });
   await cp(source, target, { recursive: true });
   console.log(`synchronized ${sourceFiles.length} embedded web assets`);
-  return sourceFiles;
 }
 
-export async function checkEmbeddedWeb() {
+async function checkEmbeddedWeb() {
   const sourceFiles = await files(source);
   if (!sourceFiles.includes("index.html")) {
     throw new Error("web/dist must contain index.html; run pnpm build first");
   }
   await check(sourceFiles);
   console.log(`embedded web assets are current (${sourceFiles.length} files)`);
-  return sourceFiles;
 }
 
 async function check(expectedFiles) {
   const actualFiles = await files(target, true);
   if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
-    throw new Error("embedded web asset file list is stale; run pnpm build:embedded");
+    throw new Error("embedded web asset file list is stale; run cargo xtask package");
   }
   for (const path of expectedFiles) {
     const [expected, actual] = await Promise.all([
@@ -41,7 +39,7 @@ async function check(expectedFiles) {
       readFile(join(target, path)),
     ]);
     if (!expected.equals(actual)) {
-      throw new Error(`embedded web asset ${path} is stale; run pnpm build:embedded`);
+      throw new Error(`embedded web asset ${path} is stale; run cargo xtask package`);
     }
   }
 }
@@ -77,15 +75,14 @@ async function visit(root, directory, output) {
   }
 }
 
-const isCli = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isCli) {
-  const checkOnly = process.argv.includes("--check");
+const arguments_ = process.argv.slice(2);
+if (arguments_.length > 1 || (arguments_.length === 1 && arguments_[0] !== "--check")) {
+  console.error("usage: node scripts/sync-embedded-web.mjs [--check]");
+  process.exitCode = 1;
+} else {
   try {
-    if (checkOnly) {
-      await checkEmbeddedWeb();
-    } else {
-      await syncEmbeddedWeb();
-    }
+    if (arguments_[0] === "--check") await checkEmbeddedWeb();
+    else await syncEmbeddedWeb();
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

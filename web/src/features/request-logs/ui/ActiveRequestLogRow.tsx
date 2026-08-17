@@ -10,10 +10,18 @@ import {
 } from "../model/request-log-presentation";
 import { requestLogGridClass } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
+import {
+  listEntrySurfaceAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 interface ActiveRequestLogRowProps {
   log: ActiveRequestLog;
   nowMs: number;
+}
+
+interface ActiveRequestLogTableRowProps extends ActiveRequestLogRowProps {
+  animation?: ListEntryAnimation;
 }
 
 export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
@@ -48,11 +56,19 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
 export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
   log,
   nowMs,
-}: ActiveRequestLogRowProps) {
+  animation,
+}: ActiveRequestLogTableRowProps) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <div role="row" className={cn(requestLogGridClass, "log-entry-processing h-11 rounded-[8px] border-b border-subtle/50 bg-accent/5 text-[12px]")}>
+    <div
+      role="row"
+      className={cn(
+        requestLogGridClass,
+        "compact-row-surface log-entry-surface-processing h-11 rounded-[8px] text-[12px]",
+        listEntrySurfaceAnimationClass(animation),
+      )}
+    >
       <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
       <Cell>

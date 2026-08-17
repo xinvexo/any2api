@@ -39,7 +39,7 @@ export function GatewayApiKeyTableRow({
     <tr
       data-floating-bounds
       data-responsive-row="card"
-      className="relative grid grid-cols-1 rounded-[14px] bg-surface-muted/55 p-3 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:p-0 sm:last:border-b-0 sm:hover:bg-surface-muted/20"
+      className="compact-row-surface compact-row-surface-hover responsive-row-surface grid grid-cols-1 rounded-[14px] bg-surface-muted/55 p-3 sm:table-row sm:rounded-none sm:bg-transparent sm:p-0"
     >
       <td className="min-w-0 pr-14 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
         <p className="break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">

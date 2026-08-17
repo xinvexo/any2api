@@ -14,7 +14,7 @@ import {
 } from "../model/system-log-presentation";
 import { cn } from "@/shared/lib/cn";
 import {
-  listEntryAnimationClass,
+  listEntrySurfaceAnimationClass,
   type ListEntryAnimation,
 } from "@/shared/ui/useListEntryAnimations";
 
@@ -117,16 +117,16 @@ export function SystemLogVirtualTable({
               return (
                 <div
                   key={virtualRow.key}
-                  className={cn(
-                    "absolute left-0 top-0 w-full",
-                    listEntryAnimationClass(
-                      log ? entryAnimations?.get(log.requestId) : undefined,
-                    ),
-                  )}
+                  className="absolute left-0 top-0 w-full"
                   style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {log ? (
-                    <SystemLogRow log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
+                    <SystemLogRow
+                      log={log}
+                      selected={selectedId === log.requestId}
+                      animation={entryAnimations?.get(log.requestId)}
+                      onSelect={onSelect}
+                    />
                   ) : (
                     <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">{loadingMore ? "正在加载更早记录" : "继续滚动加载更早记录"}</div>
                   )}
@@ -140,14 +140,29 @@ export function SystemLogVirtualTable({
   );
 }
 
-function SystemLogRow({ log, selected, onSelect }: { log: SystemLog; selected: boolean; onSelect: (requestId: string) => void }) {
+function SystemLogRow({
+  log,
+  selected,
+  animation,
+  onSelect,
+}: {
+  log: SystemLog;
+  selected: boolean;
+  animation?: ListEntryAnimation;
+  onSelect: (requestId: string) => void;
+}) {
   return (
     <div
       role="row"
       tabIndex={0}
       aria-selected={selected}
       title="双击查看详情"
-      className={cn(gridClass, "focus-ring relative isolate h-11 cursor-pointer rounded-[8px] border-b border-subtle/50 text-[12px] outline-none before:pointer-events-none before:absolute before:inset-1 before:z-[-1] before:rounded-[8px] before:content-[''] before:transition-colors", selected ? "before:bg-accent/10" : "hover:before:bg-surface-muted/45")}
+      className={cn(
+        gridClass,
+        "compact-row-surface compact-row-surface-hover focus-ring h-11 cursor-pointer rounded-[8px] text-[12px] outline-none",
+        selected && "compact-row-surface-selected",
+        listEntrySurfaceAnimationClass(animation),
+      )}
       onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
     >

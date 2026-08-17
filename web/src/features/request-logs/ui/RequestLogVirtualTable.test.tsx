@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
-import type { RequestLog } from "../api/request-log-contracts";
+import type {
+  ActiveRequestLog,
+  RequestLog,
+} from "../api/request-log-contracts";
 import { RequestLogVirtualTable } from "./RequestLogVirtualTable";
 
 test("renders only visible request rows and selects a row without expanding it", async () => {
@@ -25,8 +28,11 @@ test("renders only visible request rows and selects a row without expanding it",
 
   const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
   const firstRow = within(viewport).getByRole("row", { name: "查看请求 model-1" });
-  expect(firstRow).toHaveClass("rounded-[8px]");
-  expect(firstRow).toHaveClass("before:inset-1", "hover:before:bg-surface-muted/45");
+  expect(firstRow).toHaveClass(
+    "compact-row-surface",
+    "compact-row-surface-hover",
+  );
+  expect(firstRow).not.toHaveClass("border-b");
   fireEvent.click(firstRow);
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.doubleClick(firstRow);
@@ -39,6 +45,44 @@ test("renders only visible request rows and selects a row without expanding it",
 
   await waitFor(() => expect(within(viewport).getByText("model-200")).toBeInTheDocument());
   expect(within(viewport).queryByText("model-1")).not.toBeInTheDocument();
+});
+
+test("keeps live and transition effects on the inset row surface", () => {
+  const active = activeRequestLog();
+  const completed = requestLog(1);
+  render(
+    <div className="h-[320px]">
+      <RequestLogVirtualTable
+        items={[active, completed]}
+        selectedId={null}
+        nowMs={active.startedAtMs + 1_000}
+        followingLatest
+        hasMore={false}
+        loadingMore={false}
+        onSelect={() => {}}
+        onFollowingLatestChange={() => {}}
+        onLoadMore={() => {}}
+        entryAnimations={new Map([
+          [active.requestId, "arrive"],
+          [completed.requestId, "complete"],
+        ])}
+      />
+    </div>,
+  );
+
+  const activeRow = screen.getByText("请求中").closest("[role='row']");
+  const completedRow = screen.getByRole("row", { name: "查看请求 model-1" });
+  expect(activeRow).toHaveClass(
+    "compact-row-surface",
+    "log-entry-surface-arrive",
+    "log-entry-surface-processing",
+  );
+  expect(completedRow).toHaveClass(
+    "compact-row-surface",
+    "log-entry-surface-complete",
+  );
+  expect(activeRow?.parentElement).not.toHaveClass("log-entry-arrive");
+  expect(completedRow.parentElement).not.toHaveClass("log-entry-complete");
 });
 
 function requestLog(index: number): RequestLog {
@@ -70,6 +114,31 @@ function requestLog(index: number): RequestLog {
     outputTokens: 1,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
+    isStream: true,
+  };
+}
+
+function activeRequestLog(): ActiveRequestLog {
+  return {
+    state: "processing",
+    requestId: "request-active",
+    startedAtMs: 1_700_000_000_000,
+    clientIp: "127.0.0.1",
+    configRevision: 1,
+    gatewayApiKeyId: "gateway-key-1",
+    ingressProtocol: "openai_responses",
+    operation: "responses",
+    publicModel: "model-active",
+    thinkingLevel: null,
+    providerEndpointId: null,
+    providerEndpointName: null,
+    credentialId: null,
+    credentialLabel: null,
+    oauthAccountId: null,
+    oauthAccountLabel: null,
+    proxyProfileId: null,
+    proxyProfileLabel: null,
+    attemptCount: 1,
     isStream: true,
   };
 }

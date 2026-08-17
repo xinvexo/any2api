@@ -1,0 +1,153 @@
+.compact-row-surface {
+  position: relative;
+  isolation: isolate;
+}
+
+.compact-row-surface::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0.25rem;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  pointer-events: none;
+  content: "";
+  transition:
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.compact-row-surface-hover:hover::before {
+  background-color: color-mix(in srgb, var(--surface-hover) 65%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.compact-row-surface-selected::before {
+  background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.compact-row-surface.focus-ring:focus-visible {
+  box-shadow: none;
+}
+
+.compact-row-surface:focus-visible::before {
+  box-shadow: var(--focus-ring);
+}
+
+@media (max-width: 39.999rem) {
+  .responsive-row-surface::before {
+    display: none;
+  }
+}
+
+@keyframes log-entry-arrive {
+  0% {
+    opacity: 0;
+    background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    opacity: 1;
+    background-color: transparent;
+    box-shadow: inset 0 0 0 transparent;
+  }
+}
+
+@keyframes log-entry-complete {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 transparent;
+  }
+}
+
+@keyframes log-entry-processing {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--accent) 5%, transparent);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+@keyframes log-entry-surface-arrive {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  100% {
+    background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
+    box-shadow: inset 0 0 0 1px var(--border-subtle);
+  }
+}
+
+@keyframes log-entry-surface-content-arrive {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes log-entry-surface-complete {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  100% {
+    background-color: color-mix(in srgb, var(--surface-muted) 55%, transparent);
+    box-shadow: inset 0 0 0 1px var(--border-subtle);
+  }
+}
+
+.log-entry-arrive {
+  animation: log-entry-arrive 520ms ease-out both;
+}
+
+.log-entry-complete {
+  animation: log-entry-complete 720ms ease-out both;
+}
+
+.log-entry-processing {
+  animation: log-entry-processing 2.4s ease-in-out infinite;
+}
+
+.log-entry-surface-arrive {
+  animation: log-entry-surface-content-arrive 520ms ease-out both;
+}
+
+.log-entry-surface-arrive::before {
+  animation: log-entry-surface-arrive 520ms ease-out both;
+}
+
+.log-entry-surface-complete::before {
+  animation: log-entry-surface-complete 720ms ease-out both;
+}
+
+.log-entry-surface-processing::before {
+  animation: log-entry-processing 2.4s ease-in-out infinite;
+}
+
+.log-entry-surface-arrive.log-entry-surface-processing::before {
+  animation:
+    log-entry-surface-arrive 520ms ease-out both,
+    log-entry-processing 2.4s ease-in-out 520ms infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .log-entry-arrive,
+  .log-entry-complete,
+  .log-entry-processing,
+  .log-entry-surface-arrive,
+  .log-entry-surface-arrive::before,
+  .log-entry-surface-complete::before,
+  .log-entry-surface-processing::before {
+    animation: none;
+  }
+}

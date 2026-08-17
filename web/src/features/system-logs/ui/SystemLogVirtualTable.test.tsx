@@ -18,6 +18,7 @@ test("renders only the visible system log rows", async () => {
         onSelect={onSelect}
         onFollowingLatestChange={() => {}}
         onLoadMore={() => {}}
+        entryAnimations={new Map([[items[0].requestId, "arrive"]])}
       />
     </div>,
   );
@@ -29,8 +30,13 @@ test("renders only the visible system log rows", async () => {
 
   const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
   expect(firstRow).not.toBeNull();
-  expect(firstRow).toHaveClass("rounded-[8px]");
-  expect(firstRow).toHaveClass("before:inset-1", "hover:before:bg-surface-muted/45");
+  expect(firstRow).toHaveClass(
+    "compact-row-surface",
+    "compact-row-surface-hover",
+    "log-entry-surface-arrive",
+  );
+  expect(firstRow).not.toHaveClass("border-b");
+  expect(firstRow?.parentElement).not.toHaveClass("log-entry-arrive");
   fireEvent.click(firstRow!);
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.doubleClick(firstRow!);

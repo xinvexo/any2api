@@ -489,6 +489,11 @@ web: typecheck + lint + unit test + production build
 e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳层契约
 ```
 
+完整应用打包不使用裸 `cargo build` 组合手工前端步骤。唯一入口是 `cargo xtask package`：默认从当前
+Web 源码执行生产构建、同步并复核 `app/any2api/web-assets`，随后以锁定依赖构建 release 二进制；
+`--target <triple>` 选择 Rust 目标。干净 checkout 的发布门禁使用同一命令的 `--check-assets` 模式，
+只读核对已提交内嵌资源后再构建。普通 Cargo 构建继续只读取已提交资源，不启动 Node/pnpm，也不修改工作树。
+
 `xtask architecture-check` 负责：
 
 - 检查 crate 依赖方向和循环依赖；
@@ -3359,6 +3364,11 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 提交的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与提交目录只允许普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 对整棵生成目录按原始字节追踪，避免跨平台换行转换改变同一哈希资源的内容。资源缺失、同步校验失败或重复规范路径直接使构建/CI 失败；不为被替换文件名保留兼容别名。
 
+需要包含当前前后端源码的正式本地二进制时运行 `cargo xtask package`，不得再要求操作者先手工构建
+Web、复制目录、再运行 Cargo。`pnpm build:embedded` 与 `pnpm check:embedded` 只作为打包编排和前端
+维护使用的低层原语。`build.rs` 始终只扫描内嵌目录并在 `OUT_DIR` 生成 Rust 清单，禁止调用 Node、pnpm、
+Vite、联网或写入源码树。
+
 完整决策见 `docs/adr/0027-embedded-web-assets.md`。
 
 ### 20.5 GitHub Release
@@ -3372,6 +3382,10 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
 Linux AMD64，不构建其他系统、架构或 musl 变体。
+
+Release 的源码到二进制阶段调用 `cargo xtask package --check-assets --target x86_64-unknown-linux-gnu`。
+该模式仍从当前源码构建 `web/dist`，但只读核对 checkout 中已提交的 `web-assets`，差异直接终止发布；
+归档、checksum 与上传继续属于工作流的发行物职责。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、配置、日志或 Secret。

@@ -14,6 +14,10 @@ import {
   upstreamSource,
 } from "../model/request-log-presentation";
 import { cn } from "@/shared/lib/cn";
+import {
+  listEntrySurfaceAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
@@ -24,6 +28,10 @@ interface RequestLogRowProps {
   log: RequestLog;
   selected: boolean;
   onSelect: (requestId: string) => void;
+}
+
+interface RequestLogTableRowProps extends RequestLogRowProps {
+  animation?: ListEntryAnimation;
 }
 
 export const RequestLogCard = memo(function RequestLogCard({
@@ -85,7 +93,8 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
   log,
   selected,
   onSelect,
-}: RequestLogRowProps) {
+  animation,
+}: RequestLogTableRowProps) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
@@ -98,8 +107,9 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
       title="双击查看详情"
       className={cn(
         requestLogGridClass,
-        "focus-ring relative isolate h-11 cursor-pointer rounded-[8px] border-b border-subtle/50 text-[12px] outline-none before:pointer-events-none before:absolute before:inset-1 before:z-[-1] before:rounded-[8px] before:content-[''] before:transition-colors",
-        selected ? "before:bg-accent/10" : "hover:before:bg-surface-muted/45",
+        "compact-row-surface compact-row-surface-hover focus-ring h-11 cursor-pointer rounded-[8px] text-[12px] outline-none",
+        selected && "compact-row-surface-selected",
+        listEntrySurfaceAnimationClass(animation),
       )}
       onDoubleClick={() => onSelect(log.requestId)}
       onKeyDown={(event) => {

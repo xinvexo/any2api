@@ -22,7 +22,7 @@ fn main() {
     collect(&root, &root, &mut assets);
     assert!(
         assets.contains_key("index.html"),
-        "embedded web assets must contain index.html; run `pnpm build:embedded` in web"
+        "embedded web assets must contain index.html; run `cargo xtask package` from the workspace root"
     );
 
     let generated = render(&assets);
@@ -34,7 +34,7 @@ fn main() {
 fn collect(root: &Path, directory: &Path, assets: &mut BTreeMap<String, PathBuf>) {
     let entries = fs::read_dir(directory).unwrap_or_else(|error| {
         panic!(
-            "failed to read embedded web assets {}: {error}; run `pnpm build:embedded` in web",
+            "failed to read embedded web assets {}: {error}; run `cargo xtask package` from the workspace root",
             directory.display()
         )
     });

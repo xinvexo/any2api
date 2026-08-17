@@ -15,10 +15,7 @@ import {
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
-import {
-  listEntryAnimationClass,
-  type ListEntryAnimation,
-} from "@/shared/ui/useListEntryAnimations";
+import type { ListEntryAnimation } from "@/shared/ui/useListEntryAnimations";
 
 interface RequestLogVirtualTableProps {
   items: readonly RequestLogFeedItem[];
@@ -137,19 +134,23 @@ export function RequestLogVirtualTable({
               return (
                 <div
                   key={virtualRow.key}
-                  className={cn(
-                    "absolute left-0 top-0 w-full",
-                    listEntryAnimationClass(
-                      item ? entryAnimations?.get(item.requestId) : undefined,
-                    ),
-                  )}
+                  className="absolute left-0 top-0 w-full"
                   style={{ height: REQUEST_LOG_ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {item ? (
                     isActiveRequestLog(item) ? (
-                      <ActiveRequestLogTableRow log={item} nowMs={nowMs} />
+                      <ActiveRequestLogTableRow
+                        log={item}
+                        nowMs={nowMs}
+                        animation={entryAnimations?.get(item.requestId)}
+                      />
                     ) : (
-                      <RequestLogTableRow log={item} selected={selectedId === item.requestId} onSelect={onSelect} />
+                      <RequestLogTableRow
+                        log={item}
+                        selected={selectedId === item.requestId}
+                        onSelect={onSelect}
+                        animation={entryAnimations?.get(item.requestId)}
+                      />
                     )
                   ) : (
                     <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">

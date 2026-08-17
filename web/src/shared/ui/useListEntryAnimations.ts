@@ -92,3 +92,11 @@ export function listEntryAnimationClass(animation: ListEntryAnimation | undefine
   if (animation === "complete") return "log-entry-complete";
   return undefined;
 }
+
+export function listEntrySurfaceAnimationClass(
+  animation: ListEntryAnimation | undefined,
+) {
+  if (animation === "arrive") return "log-entry-surface-arrive";
+  if (animation === "complete") return "log-entry-surface-complete";
+  return undefined;
+}

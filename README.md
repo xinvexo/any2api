@@ -4,15 +4,18 @@ any2api is a personal, self-hosted AI API aggregation proxy. One process combine
 
 The project is intentionally single-node. It does not provide registration, tenants, billing, subscriptions, API key sales, or distributed scheduling.
 
-## Build And Run
+## Package And Run
 
-The repository pins Rust 1.90.0. The management Web application is embedded in the binary, so a normal Rust build does not require Node.js.
+The repository pins Rust 1.90.0. A complete package build requires Node.js 22.12+, pnpm 11.13.1, and Rust. The single packaging command builds the current Web source, synchronizes the embedded assets, and then builds the release binary:
 
 ```sh
-cargo build --locked --release -p any2api
+pnpm --dir web install --frozen-lockfile
+cargo xtask package
 ANY2API_DATA_DIR=/var/lib/any2api ./target/release/any2api
 ./target/release/any2api --version
 ```
+
+`cargo build --locked --release -p any2api` remains available for Rust-only verification and uses the committed embedded Web snapshot. It does not regenerate the current Web source; use `cargo xtask package` for a distributable binary.
 
 The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after startup. On a new data directory, the process prints a one-time administrator setup token. Enter that token in the local Web UI, or set `ANY2API_ADMIN_PASSWORD` only for first-run password initialization.
 
@@ -36,8 +39,9 @@ ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 Run the `Release` workflow manually from GitHub Actions and enter the release version without the `v` prefix (for
 example, `0.0.2`). That workflow input is the release's sole product-version source: it determines the binary's reported
 version, the matching `v<version>` tag, and the release asset names. The Cargo package version is Rust package metadata
-and does not need to match. Before packaging, the workflow runs the built binary and requires its exact `--version`
-output to match the input. It then publishes the Linux AMD64 archive and checksum.
+and does not need to match. Before packaging, the workflow runs
+`cargo xtask package --check-assets --target x86_64-unknown-linux-gnu`, then requires the built binary's exact
+`--version` output to match the input. It publishes the Linux AMD64 archive and checksum.
 
 An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly
 check the latest official release, and install it on a supported Linux AMD64 GNU release build. The installer downloads
@@ -126,7 +130,7 @@ Provider API keys and OAuth accounts remain separate management records, but eli
 
 ## Development
 
-Node.js 22.12+ and pnpm 10.17 are required only when changing the Web application.
+Node.js 22.12+ and pnpm 11.13.1 are required when changing the Web application or producing a complete package.
 
 ```sh
 cd web
