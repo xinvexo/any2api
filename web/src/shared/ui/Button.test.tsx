@@ -58,11 +58,15 @@ test("keeps compact icon and row actions in the same interaction palette", () =>
     "active:bg-danger/18",
   );
   expect(screen.getByRole("button", { name: "编辑" })).toHaveClass(
-    "bg-control",
+    "bg-transparent",
+    "text-primary",
+    "hover:bg-control-hover",
     "active:bg-control-active",
   );
   expect(screen.getByRole("button", { name: "停用" })).toHaveClass(
-    "bg-danger/10",
-    "active:bg-danger/18",
+    "bg-transparent",
+    "text-danger",
+    "hover:bg-danger/10",
+    "active:bg-danger/14",
   );
 });
