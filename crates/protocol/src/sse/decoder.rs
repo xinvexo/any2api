@@ -1,45 +1,61 @@
-use bytes::BytesMut;
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 
 use crate::{ProtocolError, api::SseFrame};
 
-#[derive(Debug)]
 pub struct SseDecoder {
-    buffer: BytesMut,
+    buffer: PayloadBuffer,
     max_frame_bytes: usize,
-    scan_from: usize,
+    frame_ready: bool,
 }
 
 impl SseDecoder {
     #[must_use]
     pub fn new(max_frame_bytes: usize) -> Self {
+        let max_frame_bytes = max_frame_bytes.max(1);
         Self {
-            buffer: BytesMut::new(),
-            max_frame_bytes: max_frame_bytes.max(1),
-            scan_from: 0,
+            buffer: PayloadBuffer::new(max_frame_bytes.saturating_add(1)),
+            max_frame_bytes,
+            frame_ready: false,
         }
     }
 
-    pub fn push(&mut self, chunk: &[u8]) {
-        self.buffer.extend_from_slice(chunk);
+    /// Consumes at most one frame prefix. A zero-byte consume means a trailing
+    /// bare CR became a complete delimiter after inspecting the next byte.
+    pub fn push(&mut self, chunk: &[u8]) -> Result<usize, ProtocolError> {
+        if chunk.is_empty() || self.frame_ready {
+            return Ok(0);
+        }
+        let input = &chunk[..self.next_input_limit().min(chunk.len())];
+        let event_end = event_end_after_append(self.buffer.as_slice(), input);
+        let consumed = event_end.unwrap_or(input.len());
+        self.buffer
+            .extend_from_slice(&input[..consumed])
+            .map_err(buffer_error)?;
+        self.frame_ready = event_end.is_some();
+        Ok(consumed)
     }
 
     pub fn next_input_limit(&self) -> usize {
+        if self.frame_ready {
+            return 0;
+        }
         self.max_frame_bytes
             .saturating_sub(self.buffer.len())
             .saturating_add(1)
     }
 
     pub fn next_frame(&mut self) -> Result<Option<SseFrame>, ProtocolError> {
-        let Some(end) = find_event_end(&self.buffer, self.scan_from) else {
-            self.scan_from = self.buffer.len().saturating_sub(3);
+        if !self.frame_ready {
             self.check_buffer_limit()?;
             return Ok(None);
-        };
-        if end > self.max_frame_bytes {
-            return Err(frame_limit_error());
         }
-        self.scan_from = 0;
-        Ok(Some(SseFrame(self.buffer.split_to(end).freeze())))
+        self.check_buffer_limit()?;
+        let buffer = std::mem::replace(
+            &mut self.buffer,
+            PayloadBuffer::new(self.max_frame_bytes.saturating_add(1)),
+        );
+        self.frame_ready = false;
+        Ok(Some(SseFrame(buffer.freeze().into_bytes())))
     }
 
     pub fn finish(&mut self) -> Result<Option<SseFrame>, ProtocolError> {
@@ -47,7 +63,12 @@ impl SseDecoder {
             return Ok(None);
         }
         self.check_buffer_limit()?;
-        Ok(Some(SseFrame(self.buffer.split().freeze())))
+        let buffer = std::mem::replace(
+            &mut self.buffer,
+            PayloadBuffer::new(self.max_frame_bytes.saturating_add(1)),
+        );
+        self.frame_ready = false;
+        Ok(Some(SseFrame(buffer.freeze().into_bytes())))
     }
 
     fn check_buffer_limit(&self) -> Result<(), ProtocolError> {
@@ -57,6 +78,10 @@ impl SseDecoder {
             Ok(())
         }
     }
+}
+
+fn buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("SSE frame allocation failed".into())
 }
 
 fn frame_limit_error() -> ProtocolError {
@@ -74,6 +99,26 @@ fn find_event_end(bytes: &[u8], start: usize) -> Option<usize> {
         }
     }
     None
+}
+
+fn event_end_after_append(buffer: &[u8], input: &[u8]) -> Option<usize> {
+    const BOUNDARY_BYTES: usize = 3;
+    const PREFIX_BYTES: usize = 4;
+
+    let tail = &buffer[buffer.len().saturating_sub(BOUNDARY_BYTES)..];
+    let prefix = &input[..input.len().min(PREFIX_BYTES)];
+    let mut boundary = [0_u8; BOUNDARY_BYTES + PREFIX_BYTES];
+    boundary[..tail.len()].copy_from_slice(tail);
+    boundary[tail.len()..tail.len() + prefix.len()].copy_from_slice(prefix);
+    let crossing = find_event_end(&boundary[..tail.len() + prefix.len()], 0)
+        .filter(|end| *end >= tail.len())
+        .map(|end| end - tail.len());
+    let within_input = find_event_end(input, 0);
+    match (crossing, within_input) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(end), None) | (None, Some(end)) => Some(end),
+        (None, None) => None,
+    }
 }
 
 fn line_ending_len(bytes: &[u8], index: usize) -> Option<usize> {

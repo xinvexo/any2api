@@ -118,13 +118,16 @@ mod tests {
     fn every_explicit_openai_failure_has_evidence_but_only_exact_overload_overrides_safety() {
         let exact = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n",
-        ));
+        ))
+        .expect("exact payload");
         let generic = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"server_error\",\"message\":\"busy\"}}\n\n",
-        ));
+        ))
+        .expect("generic payload");
         let overload_in_second_declared_location = parse_event_payload(&Bytes::from_static(
             b"event: response.failed\ndata: {\"type\":\"response.failed\",\"error\":{\"code\":\"server_error\"},\"response\":{\"error\":{\"code\":\"server_is_overloaded\"}}}\n\n",
-        ));
+        ))
+        .expect("nested overload payload");
         let exact = openai_stream(&exact, StreamTermination::Failed).expect("exact evidence");
         assert_eq!(
             exact.retry_safety_override(),
@@ -156,13 +159,16 @@ mod tests {
     fn anthropic_safety_override_requires_declared_structured_types() {
         let overloaded = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
-        ));
+        ))
+        .expect("overload payload");
         let rate_limited = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
-        ));
+        ))
+        .expect("rate limit payload");
         let prose = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"rate_limit_error\"}}\n\n",
-        ));
+        ))
+        .expect("prose payload");
         let overloaded =
             anthropic_stream(&overloaded, StreamTermination::Failed).expect("overload evidence");
         assert_eq!(

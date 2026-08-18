@@ -85,7 +85,7 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        let payload = parse_event_payload(&frame.0);
+        let payload = parse_event_payload(&frame.0)?;
         let telemetry = telemetry::event(&payload);
         let termination = termination::classify(&payload);
         let upstream_failure = crate::upstream_failure::anthropic_stream(&payload, termination);

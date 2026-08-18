@@ -16,7 +16,7 @@ use std::{
 
 use memmap2::{MmapMut, MmapOptions};
 
-const MAPPED_ALLOCATION_THRESHOLD_BYTES: usize = 256 * 1024;
+const MAPPED_ALLOCATION_THRESHOLD_BYTES: usize = 64 * 1024;
 const ZSTD_ALLOCATION_ALIGNMENT: usize = 16;
 
 enum Allocation {
@@ -83,7 +83,7 @@ unsafe extern "C" fn allocate(opaque: *mut c_void, size: usize) -> *mut c_void {
     // SAFETY: zstd receives this pointer from `AllocatorState::custom_memory`;
     // the owning box outlives the zstd context and all callbacks.
     let state = unsafe { opaque.as_ref() };
-    let allocation = if size >= MAPPED_ALLOCATION_THRESHOLD_BYTES {
+    let allocation = if uses_mapped_storage(size) {
         MmapOptions::new()
             .len(size)
             .map_anon()
@@ -115,6 +115,10 @@ unsafe extern "C" fn allocate(opaque: *mut c_void, size: usize) -> *mut c_void {
     }
 }
 
+const fn uses_mapped_storage(size: usize) -> bool {
+    size >= MAPPED_ALLOCATION_THRESHOLD_BYTES
+}
+
 fn allocate_heap(state: &AllocatorState, size: usize) -> std::io::Result<Allocation> {
     let layout = Layout::from_size_align(size.max(1), ZSTD_ALLOCATION_ALIGNMENT).map_err(|_| {
         state.failed.store(true, Ordering::Release);
@@ -141,5 +145,18 @@ unsafe extern "C" fn free(opaque: *mut c_void, address: *mut c_void) {
     let state = unsafe { opaque.as_ref() };
     if let Ok(mut allocations) = state.allocations.lock() {
         allocations.remove(&(address.as_ptr() as usize));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAPPED_ALLOCATION_THRESHOLD_BYTES, uses_mapped_storage};
+
+    #[test]
+    fn zstd_workspace_threshold_maps_medium_and_large_allocations() {
+        assert!(!uses_mapped_storage(MAPPED_ALLOCATION_THRESHOLD_BYTES - 1));
+        assert!(uses_mapped_storage(MAPPED_ALLOCATION_THRESHOLD_BYTES));
+        assert!(uses_mapped_storage(95_984));
+        assert!(uses_mapped_storage(2_490_432));
     }
 }

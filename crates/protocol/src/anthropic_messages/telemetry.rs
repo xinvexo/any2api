@@ -149,7 +149,7 @@ mod tests {
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
 
     fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
-        super::event(&parse_event_payload(bytes))
+        super::event(&parse_event_payload(bytes).expect("event payload"))
     }
 
     fn response(body: &[u8]) -> crate::api::ProtocolResponseTelemetry {

@@ -16,7 +16,10 @@ use futures_util::{
 };
 use tokio::sync::watch;
 
-use crate::{http_access_log::ExcludeFromHttpAccessLog, state::AppState};
+use crate::{
+    http_access_log::ExcludeFromHttpAccessLog, request_lifecycle::allow_memory_reclamation,
+    state::AppState,
+};
 
 use super::realtime::OverviewSnapshot;
 
@@ -62,6 +65,7 @@ async fn subscribe(State(state): State<AppState>) -> Response {
         .headers_mut()
         .insert("x-accel-buffering", HeaderValue::from_static("no"));
     response.extensions_mut().insert(ExcludeFromHttpAccessLog);
+    allow_memory_reclamation(&mut response);
     response
 }
 

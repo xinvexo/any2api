@@ -4,14 +4,26 @@ use super::{SseDecoder, parse_event_payload, rewrite_known_model};
 use crate::api::{SseEventPayload, SseFrame};
 
 fn rewrite(frame: SseFrame, public_model: &str) -> SseFrame {
-    let payload = parse_event_payload(&frame.0);
+    let payload = parse_event_payload(&frame.0).expect("event payload");
     rewrite_known_model(frame.0, payload, public_model).expect("rewrite")
 }
 
 fn data_json(frame: &SseFrame) -> serde_json::Value {
-    match parse_event_payload(&frame.0) {
+    match parse_event_payload(&frame.0).expect("event payload") {
         SseEventPayload::Json(data) => data.to_value().expect("event JSON"),
         other => panic!("expected JSON payload, got {other:?}"),
+    }
+}
+
+fn push_chunk(decoder: &mut SseDecoder, mut chunk: &[u8], frames: &mut Vec<SseFrame>) {
+    while !chunk.is_empty() {
+        let consumed = decoder.push(chunk).expect("SSE input");
+        chunk = &chunk[consumed..];
+        let frame_count = frames.len();
+        while let Some(frame) = decoder.next_frame().expect("SSE frame") {
+            frames.push(frame);
+        }
+        assert!(consumed > 0 || frames.len() > frame_count);
     }
 }
 
@@ -26,10 +38,7 @@ fn decoder_handles_arbitrary_chunks_all_line_endings_and_multiline_data() {
         b"\ndata: [DONE]\r\n\r".as_slice(),
         b"\n".as_slice(),
     ] {
-        decoder.push(chunk);
-        while let Some(frame) = decoder.next_frame().expect("SSE frame") {
-            frames.push(frame);
-        }
+        push_chunk(&mut decoder, chunk, &mut frames);
     }
     assert_eq!(frames.len(), 2);
     assert_eq!(
@@ -40,7 +49,7 @@ fn decoder_handles_arbitrary_chunks_all_line_endings_and_multiline_data() {
         frames[1].0,
         Bytes::from_static(b"event: done\r\ndata: [DONE]\r\n\r\n")
     );
-    match parse_event_payload(&frames[0].0) {
+    match parse_event_payload(&frames[0].0).expect("event payload") {
         SseEventPayload::Json(data) => {
             assert_eq!(data.event_name(), Some("test"));
             assert_eq!(
@@ -57,10 +66,7 @@ fn decoder_handles_single_byte_chunks() {
     let mut decoder = SseDecoder::new(1024);
     let mut frames = Vec::new();
     for byte in b"data: one\n\ndata: two\n\n" {
-        decoder.push(std::slice::from_ref(byte));
-        while let Some(frame) = decoder.next_frame().expect("SSE frame") {
-            frames.push(frame);
-        }
+        push_chunk(&mut decoder, std::slice::from_ref(byte), &mut frames);
     }
 
     assert_eq!(frames.len(), 2);
@@ -71,7 +77,7 @@ fn decoder_handles_single_byte_chunks() {
 #[test]
 fn decoder_flushes_an_eof_frame_without_a_trailing_blank_line() {
     let mut decoder = SseDecoder::new(1024);
-    decoder.push(b"data: {\"ok\":true}");
+    decoder.push(b"data: {\"ok\":true}").expect("SSE input");
     assert!(decoder.next_frame().expect("frame").is_none());
     let frame = decoder.finish().expect("finish").expect("final frame");
     assert_eq!(frame.0, Bytes::from_static(b"data: {\"ok\":true}"));
@@ -80,7 +86,7 @@ fn decoder_flushes_an_eof_frame_without_a_trailing_blank_line() {
 #[test]
 fn decoder_rejects_a_frame_larger_than_its_limit() {
     let mut decoder = SseDecoder::new(8);
-    decoder.push(b"data: oversized\n\n");
+    decoder.push(b"data: oversized\n\n").expect("SSE input");
     let error = decoder.next_frame().expect_err("oversized frame must fail");
 
     assert!(error.to_string().contains("configured limit"));
@@ -89,11 +95,13 @@ fn decoder_rejects_a_frame_larger_than_its_limit() {
 #[test]
 fn decoder_preserves_complete_frames_before_a_later_limit_error() {
     let mut decoder = SseDecoder::new(12);
-    decoder.push(b"data: ok\n\ndata: oversized\n\n");
+    let input = b"data: ok\n\ndata: oversized\n\n";
+    let consumed = decoder.push(input).expect("first SSE input");
     let frame = decoder
         .next_frame()
         .expect("first frame")
         .expect("complete first frame");
+    decoder.push(&input[consumed..]).expect("second SSE input");
     let error = decoder
         .next_frame()
         .expect_err("later oversized frame must fail");
@@ -157,15 +165,15 @@ fn model_rewrite_preserves_done_and_non_json_events() {
 #[test]
 fn payload_parser_distinguishes_done_from_empty_heartbeats() {
     assert_eq!(
-        parse_event_payload(&Bytes::from_static(b"data: [DONE]\n\n")),
+        parse_event_payload(&Bytes::from_static(b"data: [DONE]\n\n")).expect("done payload"),
         SseEventPayload::Done
     );
     assert_eq!(
-        parse_event_payload(&Bytes::from_static(b": keep-alive\n\n")),
+        parse_event_payload(&Bytes::from_static(b": keep-alive\n\n")).expect("heartbeat payload"),
         SseEventPayload::Empty
     );
     assert_eq!(
-        parse_event_payload(&Bytes::from_static(b"data: \n\n")),
+        parse_event_payload(&Bytes::from_static(b"data: \n\n")).expect("empty payload"),
         SseEventPayload::Empty
     );
 }
@@ -173,7 +181,7 @@ fn payload_parser_distinguishes_done_from_empty_heartbeats() {
 #[test]
 fn payload_parser_follows_sse_field_semantics() {
     let frame = Bytes::from_static(b"event: first\nevent: last \ndata:  {\"ok\":1}\n\n");
-    match parse_event_payload(&frame) {
+    match parse_event_payload(&frame).expect("event payload") {
         SseEventPayload::Json(data) => {
             assert_eq!(data.event_name(), Some("last "));
             assert_eq!(data.data().as_ref(), b" {\"ok\":1}");
@@ -181,7 +189,7 @@ fn payload_parser_follows_sse_field_semantics() {
         other => panic!("expected JSON payload, got {other:?}"),
     }
     assert_eq!(
-        parse_event_payload(&Bytes::from_static(b"data\ndata\n\n")),
+        parse_event_payload(&Bytes::from_static(b"data\ndata\n\n")).expect("text payload"),
         SseEventPayload::NonJson
     );
 }
@@ -189,8 +197,32 @@ fn payload_parser_follows_sse_field_semantics() {
 #[test]
 fn payload_parser_reports_invalid_utf8_as_non_json_without_failing_the_stream() {
     assert_eq!(
-        parse_event_payload(&Bytes::from_static(b"data: \"\xff\"\n\n")),
+        parse_event_payload(&Bytes::from_static(b"data: \"\xff\"\n\n"))
+            .expect("invalid UTF-8 payload"),
         SseEventPayload::NonJson
+    );
+}
+
+#[test]
+fn decoder_and_multiline_parser_preserve_a_large_frame() {
+    let content = "x".repeat(300 * 1024);
+    let frame = format!(
+        "event: chunk\ndata: {{\"text\":\"{content}\",\ndata: \"model\":\"upstream\"}}\n\n"
+    );
+    let mut decoder = SseDecoder::new(frame.len());
+    let mut frames = Vec::new();
+
+    for chunk in frame.as_bytes().chunks(8191) {
+        push_chunk(&mut decoder, chunk, &mut frames);
+    }
+
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].0.as_ref(), frame.as_bytes());
+    let rewritten = rewrite(frames.pop().expect("large frame"), "public");
+    assert_eq!(data_json(&rewritten)["model"], "public");
+    assert_eq!(
+        data_json(&rewritten)["text"].as_str(),
+        Some(content.as_str())
     );
 }
 
@@ -210,11 +242,16 @@ mod properties {
         let mut sizes = chunk_sizes.iter().copied().cycle();
         while !rest.is_empty() {
             let take = sizes.next().unwrap_or(1).clamp(1, rest.len());
-            let (chunk, remaining) = rest.split_at(take);
+            let (mut chunk, remaining) = rest.split_at(take);
             rest = remaining;
-            decoder.push(chunk);
-            while let Some(frame) = decoder.next_frame().expect("frame within limit") {
-                frames.push(frame.0.to_vec());
+            while !chunk.is_empty() {
+                let consumed = decoder.push(chunk).expect("input within limit");
+                chunk = &chunk[consumed..];
+                let frame_count = frames.len();
+                while let Some(frame) = decoder.next_frame().expect("frame within limit") {
+                    frames.push(frame.0.to_vec());
+                }
+                assert!(consumed > 0 || frames.len() > frame_count);
             }
         }
         if let Some(frame) = decoder.finish().expect("finish within limit") {
@@ -251,7 +288,7 @@ mod properties {
         fn payload_parse_is_total_over_arbitrary_frames(
             input in proptest::collection::vec(any::<u8>(), 0..300),
         ) {
-            match parse_event_payload(&Bytes::from(input)) {
+            match parse_event_payload(&Bytes::from(input)).expect("bounded event allocation") {
                 SseEventPayload::Empty
                 | SseEventPayload::Done
                 | SseEventPayload::NonJson => {}

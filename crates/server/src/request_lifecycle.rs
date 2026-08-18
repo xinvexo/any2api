@@ -21,7 +21,7 @@ pub(crate) async fn track(
     request: Request,
     next: Next,
 ) -> Response {
-    let Some(guard) = lifecycle.track_request() else {
+    let Some(mut guard) = lifecycle.track_request() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let forced = lifecycle.clone();
@@ -30,7 +30,27 @@ pub(crate) async fn track(
         () = forced.forced() => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         response = next.run(request) => response,
     };
+    release_memory_reclamation_blocker(&response, &mut guard);
     response.map(|body| Body::new(TrackedBody::new(body, guard, lifecycle)))
+}
+
+#[derive(Clone, Copy)]
+struct DoesNotBlockMemoryReclamation;
+
+pub(crate) fn allow_memory_reclamation(response: &mut Response) {
+    response
+        .extensions_mut()
+        .insert(DoesNotBlockMemoryReclamation);
+}
+
+fn release_memory_reclamation_blocker(response: &Response, guard: &mut ActiveRequestGuard) {
+    if response
+        .extensions()
+        .get::<DoesNotBlockMemoryReclamation>()
+        .is_some()
+    {
+        guard.release_memory_reclamation_blocker();
+    }
 }
 
 struct TrackedBody {
@@ -122,7 +142,7 @@ mod tests {
     use axum::body::{Body, Bytes, HttpBody};
     use http_body::Frame;
 
-    use super::TrackedBody;
+    use super::{TrackedBody, allow_memory_reclamation, release_memory_reclamation_blocker};
 
     #[test]
     fn request_guard_is_held_until_the_response_body_is_dropped() {
@@ -131,6 +151,24 @@ mod tests {
         let body = TrackedBody::new(Body::from("ok"), guard, lifecycle.clone());
 
         assert_eq!(lifecycle.active_requests(), 1);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 1);
+        drop(body);
+        assert_eq!(lifecycle.active_requests(), 0);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
+    }
+
+    #[test]
+    fn marked_response_releases_only_the_memory_reclamation_blocker() {
+        let lifecycle = ProcessLifecycle::new();
+        let mut guard = lifecycle.track_request().expect("request guard");
+        let mut response = axum::response::Response::new(Body::empty());
+        allow_memory_reclamation(&mut response);
+
+        release_memory_reclamation_blocker(&response, &mut guard);
+        let body = TrackedBody::new(Body::empty(), guard, lifecycle.clone());
+
+        assert_eq!(lifecycle.active_requests(), 1);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
         drop(body);
         assert_eq!(lifecycle.active_requests(), 0);
     }
@@ -149,6 +187,7 @@ mod tests {
         assert!(frame.expect("cancellation frame").is_err());
         assert!(dropped.load(Ordering::Acquire));
         assert_eq!(lifecycle.active_requests(), 0);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
     }
 
     struct PendingBody(Arc<AtomicBool>);

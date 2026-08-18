@@ -39,3 +39,10 @@ reason = "OAuth quota refresh, cached snapshots, and live catalog refresh share 
 adr = "docs/adr/0158-live-oauth-model-discovery.md"
 owner = "maintainer"
 expires_at = "2026-11-16"
+
+[[exceptions]]
+path = "crates/protocol/src/raw_json.rs"
+reason = "Raw JSON validation, top-level field indexing, and allocation-aware wire rewriting remain one byte-preserving codec boundary"
+adr = "docs/adr/0119-cross-platform-transient-memory-reclamation.md"
+owner = "maintainer"
+expires_at = "2026-11-19"

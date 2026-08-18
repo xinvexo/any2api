@@ -51,11 +51,19 @@ impl GuardedBody {
                 return false;
             };
             let take = self.decoder.next_input_limit().min(chunk.len());
-            let input = chunk.split_to(take);
+            let consumed = match self.decoder.push(&chunk[..take]) {
+                Ok(consumed) => consumed,
+                Err(error) => {
+                    self.set_pending_error(PendingStreamError::invalid_response(format!(
+                        "upstream SSE frame was invalid: {error}"
+                    )));
+                    return true;
+                }
+            };
+            chunk = chunk.slice(consumed..);
             if !chunk.is_empty() {
                 self.buffered_chunk = Some(chunk);
             }
-            self.decoder.push(&input);
         }
     }
 

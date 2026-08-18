@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::BTreeMap, fmt, ops::Range};
 
 use any2api_domain::ProtocolOperation;
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use bytes::Bytes;
 use serde::{
     Deserialize, Deserializer,
@@ -78,8 +79,8 @@ impl RawJsonPayload {
             return Ok(self.body.clone());
         }
 
-        let mut encoded = Vec::with_capacity(self.body.len());
-        encoded.push(b'{');
+        let mut encoded = output_buffer(self.body.len())?;
+        encoded.extend_from_slice(b"{").map_err(buffer_error)?;
         let mut first = true;
         for (name, range) in &self.fields {
             if name == "stream" && !operation.allows_stream() {
@@ -87,13 +88,15 @@ impl RawJsonPayload {
             }
             write_field_prefix(&mut encoded, &mut first, name)?;
             if name == "model" {
-                serde_json::to_writer(&mut encoded, upstream_model).map_err(|_| encode_error())?;
+                serde_json::to_writer(&mut encoded, upstream_model).map_err(json_encode_error)?;
             } else {
-                encoded.extend_from_slice(&self.body[range.clone()]);
+                encoded
+                    .extend_from_slice(&self.body[range.clone()])
+                    .map_err(buffer_error)?;
             }
         }
-        encoded.push(b'}');
-        Ok(Bytes::from(encoded))
+        encoded.extend_from_slice(b"}").map_err(buffer_error)?;
+        Ok(encoded.freeze().into_bytes())
     }
 
     pub(crate) fn replace_raw_field(
@@ -104,22 +107,26 @@ impl RawJsonPayload {
         if !self.fields.contains_key(field) {
             return Ok(());
         }
-        let mut encoded = Vec::with_capacity(self.body.len().max(replacement.len()));
-        encoded.push(b'{');
+        let mut encoded = output_buffer(self.body.len().max(replacement.len()))?;
+        encoded.extend_from_slice(b"{").map_err(buffer_error)?;
         let mut first = true;
         let mut fields = BTreeMap::new();
         for (name, range) in &self.fields {
             write_field_prefix(&mut encoded, &mut first, name)?;
             let start = encoded.len();
             if name == field {
-                encoded.extend_from_slice(replacement);
+                encoded
+                    .extend_from_slice(replacement)
+                    .map_err(buffer_error)?;
             } else {
-                encoded.extend_from_slice(&self.body[range.clone()]);
+                encoded
+                    .extend_from_slice(&self.body[range.clone()])
+                    .map_err(buffer_error)?;
             }
             fields.insert(name.clone(), start..encoded.len());
         }
-        encoded.push(b'}');
-        self.body = Bytes::from(encoded);
+        encoded.extend_from_slice(b"}").map_err(buffer_error)?;
+        self.body = encoded.freeze().into_bytes();
         self.fields = fields;
         self.has_duplicate_fields = false;
         Ok(())
@@ -309,30 +316,69 @@ pub(crate) fn subslice_range(outer: &[u8], inner: &[u8]) -> Option<Range<usize>>
 
 /// Rebuild `source` with each non-overlapping, ascending span replaced by
 /// `replacement`; every other byte is forwarded verbatim.
-pub(crate) fn splice_ranges(source: &[u8], spans: &[Range<usize>], replacement: &[u8]) -> Bytes {
-    let mut output = Vec::with_capacity(source.len() + spans.len() * replacement.len());
+pub(crate) fn splice_ranges(
+    source: &[u8],
+    spans: &[Range<usize>],
+    replacement: &[u8],
+) -> Result<Bytes, ProtocolError> {
+    let removed_bytes = spans.iter().try_fold(0_usize, |total, span| {
+        total.checked_add(span.len()).ok_or_else(encode_error)
+    })?;
+    let replacement_bytes = spans
+        .len()
+        .checked_mul(replacement.len())
+        .ok_or_else(encode_error)?;
+    let output_len = source
+        .len()
+        .checked_sub(removed_bytes)
+        .and_then(|length| length.checked_add(replacement_bytes))
+        .ok_or_else(encode_error)?;
+    let mut output =
+        PayloadBuffer::with_capacity_hint(Some(output_len), output_len).map_err(buffer_error)?;
     let mut cursor = 0;
     for span in spans {
-        output.extend_from_slice(&source[cursor..span.start]);
-        output.extend_from_slice(replacement);
+        output
+            .extend_from_slice(&source[cursor..span.start])
+            .map_err(buffer_error)?;
+        output
+            .extend_from_slice(replacement)
+            .map_err(buffer_error)?;
         cursor = span.end;
     }
-    output.extend_from_slice(&source[cursor..]);
-    Bytes::from(output)
+    output
+        .extend_from_slice(&source[cursor..])
+        .map_err(buffer_error)?;
+    Ok(output.freeze().into_bytes())
 }
 
 fn write_field_prefix(
-    encoded: &mut Vec<u8>,
+    encoded: &mut PayloadBuffer,
     first: &mut bool,
     name: &str,
 ) -> Result<(), ProtocolError> {
     if !*first {
-        encoded.push(b',');
+        encoded.extend_from_slice(b",").map_err(buffer_error)?;
     }
     *first = false;
-    serde_json::to_writer(&mut *encoded, name).map_err(|_| encode_error())?;
-    encoded.push(b':');
+    serde_json::to_writer(&mut *encoded, name).map_err(json_encode_error)?;
+    encoded.extend_from_slice(b":").map_err(buffer_error)?;
     Ok(())
+}
+
+fn output_buffer(expected_len: usize) -> Result<PayloadBuffer, ProtocolError> {
+    PayloadBuffer::with_capacity_hint(Some(expected_len), usize::MAX).map_err(buffer_error)
+}
+
+fn buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("protocol payload allocation failed".into())
+}
+
+fn json_encode_error(error: serde_json::Error) -> ProtocolError {
+    if error.is_io() {
+        buffer_error(PayloadBufferError::AllocationFailed)
+    } else {
+        encode_error()
+    }
 }
 
 fn invalid_json() -> ProtocolError {
@@ -414,5 +460,23 @@ mod tests {
                 .expect("stream removal"),
             Bytes::from_static(br#"{"input":"hello","model":"gpt","z":0}"#)
         );
+    }
+
+    #[test]
+    fn large_raw_rewrite_preserves_opaque_content() {
+        let content = "x".repeat(300 * 1024);
+        let body = Bytes::from(format!(
+            "{{\"model\":\"public\",\"input\":\"{content}\",\"stream\":true}}"
+        ));
+        let payload = RawJsonPayload::parse(body).expect("raw JSON");
+
+        let encoded = payload
+            .encode(ProtocolOperation::ResponsesCompact, "upstream")
+            .expect("large rewrite");
+        let value: serde_json::Value = serde_json::from_slice(&encoded).expect("rewritten JSON");
+
+        assert_eq!(value["model"], "upstream");
+        assert_eq!(value["input"].as_str(), Some(content.as_str()));
+        assert!(value.get("stream").is_none());
     }
 }

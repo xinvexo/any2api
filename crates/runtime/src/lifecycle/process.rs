@@ -3,7 +3,7 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -43,6 +43,7 @@ pub struct ProcessLifecycle {
 struct LifecycleInner {
     phase: AtomicU8,
     request_activity: AtomicU64,
+    memory_reclamation_blockers: Arc<AtomicUsize>,
     requests: TaskTracker,
     background: TaskTracker,
     draining: CancellationToken,
@@ -56,6 +57,7 @@ impl ProcessLifecycle {
             inner: Arc::new(LifecycleInner {
                 phase: AtomicU8::new(RUNNING),
                 request_activity: AtomicU64::new(0),
+                memory_reclamation_blockers: Arc::new(AtomicUsize::new(0)),
                 requests: TaskTracker::new(),
                 background: TaskTracker::new(),
                 draining: CancellationToken::new(),
@@ -104,12 +106,17 @@ impl ProcessLifecycle {
         if self.phase() != ShutdownPhase::Running {
             return None;
         }
+        let memory_reclamation =
+            MemoryReclamationBlocker::new(Arc::clone(&self.inner.memory_reclamation_blockers));
         let token = self.inner.requests.token();
         if self.phase() != ShutdownPhase::Running {
             return None;
         }
         self.inner.request_activity.fetch_add(1, Ordering::Relaxed);
-        Some(ActiveRequestGuard { _token: token })
+        Some(ActiveRequestGuard {
+            _token: token,
+            memory_reclamation,
+        })
     }
 
     #[must_use]
@@ -120,6 +127,13 @@ impl ProcessLifecycle {
     #[must_use]
     pub fn request_activity_epoch(&self) -> u64 {
         self.inner.request_activity.load(Ordering::Relaxed)
+    }
+
+    #[must_use]
+    pub fn memory_reclamation_blockers(&self) -> usize {
+        self.inner
+            .memory_reclamation_blockers
+            .load(Ordering::Acquire)
     }
 
     pub async fn wait_for_requests(&self) {
@@ -208,6 +222,10 @@ impl fmt::Debug for ProcessLifecycle {
             .debug_struct("ProcessLifecycle")
             .field("phase", &self.phase())
             .field("active_requests", &self.active_requests())
+            .field(
+                "memory_reclamation_blockers",
+                &self.memory_reclamation_blockers(),
+            )
             .field("background_tasks", &self.background_task_count())
             .finish()
     }
@@ -215,6 +233,40 @@ impl fmt::Debug for ProcessLifecycle {
 
 pub struct ActiveRequestGuard {
     _token: TaskTrackerToken,
+    memory_reclamation: MemoryReclamationBlocker,
+}
+
+impl ActiveRequestGuard {
+    pub fn release_memory_reclamation_blocker(&mut self) {
+        self.memory_reclamation.release();
+    }
+}
+
+struct MemoryReclamationBlocker {
+    counter: Option<Arc<AtomicUsize>>,
+}
+
+impl MemoryReclamationBlocker {
+    fn new(counter: Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::AcqRel);
+        Self {
+            counter: Some(counter),
+        }
+    }
+
+    fn release(&mut self) {
+        let Some(counter) = self.counter.take() else {
+            return;
+        };
+        let previous = counter.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "memory reclamation blocker underflow");
+    }
+}
+
+impl Drop for MemoryReclamationBlocker {
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +281,7 @@ mod tests {
     async fn request_guard_keeps_draining_open_until_drop() {
         let lifecycle = ProcessLifecycle::new();
         let guard = lifecycle.track_request().expect("running request");
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 1);
         assert!(lifecycle.begin_draining());
         assert_eq!(lifecycle.phase(), ShutdownPhase::Draining);
 
@@ -238,6 +291,7 @@ mod tests {
                 .is_err()
         );
         drop(guard);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
         lifecycle.wait_for_requests().await;
     }
 
@@ -258,6 +312,7 @@ mod tests {
 
         assert!(lifecycle.track_request().is_none());
         assert_eq!(lifecycle.request_activity_epoch(), 0);
+        assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
     }
 
     #[test]
@@ -267,10 +322,17 @@ mod tests {
         assert_eq!(observer.request_activity_epoch(), 0);
 
         let first = lifecycle.track_request().expect("first request");
-        let second = lifecycle.track_request().expect("second request");
+        let mut second = lifecycle.track_request().expect("second request");
         assert_eq!(observer.request_activity_epoch(), 2);
+        assert_eq!(observer.memory_reclamation_blockers(), 2);
+
+        second.release_memory_reclamation_blocker();
+        assert_eq!(observer.active_requests(), 2);
+        assert_eq!(observer.memory_reclamation_blockers(), 1);
         drop((first, second));
         assert_eq!(observer.request_activity_epoch(), 2);
+        assert_eq!(observer.active_requests(), 0);
+        assert_eq!(observer.memory_reclamation_blockers(), 0);
     }
 
     #[tokio::test]

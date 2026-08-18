@@ -23,7 +23,7 @@ async fn run(lifecycle: ProcessLifecycle) {
             _ = ticker.tick() => {
                 if !state.should_reclaim(
                     lifecycle.request_activity_epoch(),
-                    lifecycle.active_requests(),
+                    lifecycle.memory_reclamation_blockers(),
                 ) {
                     continue;
                 }
@@ -41,8 +41,8 @@ struct ReclaimState {
 }
 
 impl ReclaimState {
-    fn should_reclaim(&mut self, request_activity: u64, active_requests: usize) -> bool {
-        if active_requests != 0 || request_activity == self.last_reclaimed_activity {
+    fn should_reclaim(&mut self, request_activity: u64, reclamation_blockers: usize) -> bool {
+        if reclamation_blockers != 0 || request_activity == self.last_reclaimed_activity {
             return false;
         }
         self.last_reclaimed_activity = request_activity;
@@ -55,7 +55,7 @@ mod tests {
     use super::ReclaimState;
 
     #[test]
-    fn reclaims_each_activity_epoch_once_and_only_while_idle() {
+    fn reclaims_each_activity_epoch_once_without_reclamation_blockers() {
         let mut state = ReclaimState::default();
         assert!(!state.should_reclaim(0, 0));
         assert!(!state.should_reclaim(1, 1));

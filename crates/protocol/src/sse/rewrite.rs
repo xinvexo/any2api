@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use bytes::Bytes;
 
 use crate::{
@@ -36,10 +37,10 @@ pub(crate) fn rewrite_known_model(
             &bytes,
             &frame_spans,
             replacement.as_bytes(),
-        )));
+        )?));
     }
-    let spliced = splice_ranges(data.data(), &spans, replacement.as_bytes());
-    Ok(SseFrame(rebuild_frame(&bytes, &spliced)))
+    let spliced = splice_ranges(data.data(), &spans, replacement.as_bytes())?;
+    Ok(SseFrame(rebuild_frame(&bytes, &spliced)?))
 }
 
 /// Byte ranges of every `model` string value that must change: the top-level
@@ -86,8 +87,13 @@ fn push_model_span(
 /// Rare path for events whose data spanned several `data:` lines: the joined
 /// buffer no longer aliases the frame, so re-emit the frame with the spliced
 /// data split back into lines.
-fn rebuild_frame(bytes: &[u8], data: &[u8]) -> Bytes {
-    let mut output = Vec::with_capacity(bytes.len() + data.len());
+fn rebuild_frame(bytes: &[u8], data: &[u8]) -> Result<Bytes, ProtocolError> {
+    let expected_len = bytes
+        .len()
+        .checked_add(data.len())
+        .ok_or_else(|| ProtocolError::Internal("SSE event size overflowed".into()))?;
+    let mut output = PayloadBuffer::with_capacity_hint(Some(expected_len), usize::MAX)
+        .map_err(payload_buffer_error)?;
     let mut data_written = false;
     let mut offset = 0;
     while offset < bytes.len() {
@@ -98,9 +104,15 @@ fn rebuild_frame(bytes: &[u8], data: &[u8]) -> Bytes {
             if !data_written {
                 data_written = true;
                 for piece in data.split(|byte| *byte == b'\n') {
-                    output.extend_from_slice(b"data: ");
-                    output.extend_from_slice(piece);
-                    output.push(b'\n');
+                    output
+                        .extend_from_slice(b"data: ")
+                        .map_err(payload_buffer_error)?;
+                    output
+                        .extend_from_slice(piece)
+                        .map_err(payload_buffer_error)?;
+                    output
+                        .extend_from_slice(b"\n")
+                        .map_err(payload_buffer_error)?;
                 }
             }
             continue;
@@ -108,11 +120,21 @@ fn rebuild_frame(bytes: &[u8], data: &[u8]) -> Bytes {
         if line.is_empty() {
             continue;
         }
-        output.extend_from_slice(line);
-        output.push(b'\n');
+        output
+            .extend_from_slice(line)
+            .map_err(payload_buffer_error)?;
+        output
+            .extend_from_slice(b"\n")
+            .map_err(payload_buffer_error)?;
     }
-    output.push(b'\n');
-    Bytes::from(output)
+    output
+        .extend_from_slice(b"\n")
+        .map_err(payload_buffer_error)?;
+    Ok(output.freeze().into_bytes())
+}
+
+fn payload_buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("SSE event allocation failed".into())
 }
 
 fn is_data_line(line: &[u8]) -> bool {

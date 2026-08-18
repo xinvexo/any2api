@@ -1,5 +1,6 @@
 use std::ops::Range;
 
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use bytes::Bytes;
 use serde::de::IgnoredAny;
 use serde_json::Value;
@@ -42,7 +43,7 @@ impl SseJsonData {
 /// Classify a complete SSE frame without copying it: field lines are scanned
 /// in place, the last `event:` field wins, and a lone `data:` line is borrowed
 /// straight from the frame allocation.
-pub(crate) fn parse_event_payload(frame: &Bytes) -> SseEventPayload {
+pub(crate) fn parse_event_payload(frame: &Bytes) -> Result<SseEventPayload, ProtocolError> {
     let bytes = frame.as_ref();
     let mut event_name = None;
     let mut first_data: Option<Range<usize>> = None;
@@ -64,26 +65,39 @@ pub(crate) fn parse_event_payload(frame: &Bytes) -> SseEventPayload {
         }
     }
     let Some(first) = first_data else {
-        return SseEventPayload::Empty;
+        return Ok(SseEventPayload::Empty);
     };
     let event_name = event_name.map(|range| frame.slice(range));
     if extra_data.is_empty() {
         if first.is_empty() {
-            return SseEventPayload::Empty;
+            return Ok(SseEventPayload::Empty);
         }
-        return classify_data(event_name, frame.slice(first));
+        return Ok(classify_data(event_name, frame.slice(first)));
     }
-    let mut joined = Vec::with_capacity(
-        extra_data
-            .iter()
-            .fold(first.len() + extra_data.len(), |sum, line| sum + line.len()),
-    );
-    joined.extend_from_slice(&bytes[first]);
+    let joined_len = extra_data.iter().try_fold(first.len(), |total, line| {
+        total
+            .checked_add(1)
+            .and_then(|total| total.checked_add(line.len()))
+            .ok_or_else(|| ProtocolError::Internal("SSE event size overflowed".into()))
+    })?;
+    let mut joined = PayloadBuffer::with_capacity_hint(Some(joined_len), joined_len)
+        .map_err(payload_buffer_error)?;
+    joined
+        .extend_from_slice(&bytes[first])
+        .map_err(payload_buffer_error)?;
     for line in extra_data {
-        joined.push(b'\n');
-        joined.extend_from_slice(&bytes[line]);
+        joined
+            .extend_from_slice(b"\n")
+            .map_err(payload_buffer_error)?;
+        joined
+            .extend_from_slice(&bytes[line])
+            .map_err(payload_buffer_error)?;
     }
-    classify_data(event_name, Bytes::from(joined))
+    Ok(classify_data(event_name, joined.freeze().into_bytes()))
+}
+
+fn payload_buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("SSE event allocation failed".into())
 }
 
 fn classify_data(event_name: Option<Bytes>, data: Bytes) -> SseEventPayload {

@@ -119,3 +119,23 @@ fn matching_model_reuses_the_upstream_wire_bytes() {
         encode_response(decoded_response(body.clone()), "public").expect("egress response");
     assert_eq!(encoded.body.as_ptr(), body.as_ptr());
 }
+
+#[test]
+fn large_structured_response_is_encoded_with_the_public_model() {
+    let content = "x".repeat(300 * 1024);
+    let response = DecodedUpstreamResponse {
+        status: http::StatusCode::OK,
+        headers: HeaderMap::new(),
+        payload: DecodedResponsePayload::StructuredJson(json!({
+            "model": "upstream",
+            "output": content,
+        })),
+        telemetry: Default::default(),
+    };
+
+    let encoded = encode_response(response, "public").expect("egress response");
+    let value: serde_json::Value = serde_json::from_slice(&encoded.body).expect("response JSON");
+
+    assert_eq!(value["model"], "public");
+    assert_eq!(value["output"].as_str(), Some(content.as_str()));
+}

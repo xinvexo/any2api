@@ -1,6 +1,7 @@
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, RequestBodyEncoding, bound_thinking_level,
 };
+use any2api_payload_buffer::PayloadBuffer;
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, Uri, header};
 use serde_json::Value;
@@ -327,9 +328,7 @@ pub(crate) fn encode_response(
             {
                 *model = public;
             }
-            serde_json::to_vec(&parsed).map(Bytes::from).map_err(|_| {
-                ProtocolError::InvalidPayload("egress response could not be encoded".into())
-            })?
+            encode_structured_response(&parsed)?
         }
     };
     Ok(EgressResponse {
@@ -352,5 +351,17 @@ fn rewrite_body_model(body: Bytes, public_model: &str) -> Result<Bytes, Protocol
     let replacement = serde_json::to_string(public_model).map_err(|_| {
         ProtocolError::InvalidPayload("egress response could not be encoded".into())
     })?;
-    Ok(splice_ranges(&body, &[range], replacement.as_bytes()))
+    splice_ranges(&body, &[range], replacement.as_bytes())
+}
+
+fn encode_structured_response(value: &Value) -> Result<Bytes, ProtocolError> {
+    let mut body = PayloadBuffer::new(usize::MAX);
+    serde_json::to_writer(&mut body, value).map_err(|error| {
+        if error.is_io() {
+            ProtocolError::Internal("protocol payload allocation failed".into())
+        } else {
+            ProtocolError::InvalidPayload("egress response could not be encoded".into())
+        }
+    })?;
+    Ok(body.freeze().into_bytes())
 }
