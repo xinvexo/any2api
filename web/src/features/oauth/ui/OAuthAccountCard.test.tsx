@@ -37,12 +37,14 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
     "text-danger",
   );
   expect(expiredBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-danger/20",
+    "border-0",
+    "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-danger/10",
     "via-danger/[0.035]",
     "to-surface",
   );
+  expect(expiredBadge.closest("[data-floating-bounds]")).not.toHaveClass("shadow-hairline");
   expect(screen.queryByText("状态")).not.toBeInTheDocument();
   const updatedAt = screen.getByText(/最后更新 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
   expect(within(updatedAt.parentElement!).getByRole("button", {
@@ -74,7 +76,8 @@ test("gives an exhausted account a warning gradient", () => {
   const exhaustedBadge = screen.getByLabelText("账号状态：耗尽");
   expect(exhaustedBadge).toHaveClass("bg-warning/12", "text-warning");
   expect(exhaustedBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-warning/20",
+    "border-0",
+    "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-warning/10",
     "via-warning/[0.035]",
@@ -106,7 +109,8 @@ test("gives a healthy account a success gradient", () => {
   const healthyBadge = screen.getByLabelText("账号状态：正常");
   expect(healthyBadge).toHaveClass("bg-success/10", "text-success");
   expect(healthyBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-success/20",
+    "border-0",
+    "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-success/10",
     "via-success/[0.035]",

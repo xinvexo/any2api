@@ -14,9 +14,12 @@ test("renders model cards and filters by exact model name and finite route statu
   expect(screen.queryByRole("heading", { name: "路由检查" })).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "精确模型搜索" }).closest("header"))
     .toHaveClass("min-h-8", "border-b", "pb-3");
-  expect(screen.getByRole("listitem", { name: "available-model 路由" })).toHaveClass(
-    "rounded-[8px]",
+  const route = screen.getByRole("listitem", { name: "available-model 路由" });
+  expect(route).toHaveClass(
+    "rounded-[14px]",
+    "bg-surface-muted/45",
   );
+  expect(route).not.toHaveClass("border", "border-subtle");
   expect(screen.getByText("未发布")).toBeInTheDocument();
 
   fireEvent.change(screen.getByRole("textbox", { name: "精确模型搜索" }), {

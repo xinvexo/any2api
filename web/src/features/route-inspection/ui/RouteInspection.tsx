@@ -144,7 +144,7 @@ function RouteItem({ item }: { item: RouteInspectionItem }) {
     <article
       role="listitem"
       aria-label={`${item.publicModel} 路由`}
-      className="min-w-0 rounded-[8px] border border-subtle bg-surface p-4"
+      className="min-w-0 rounded-[14px] bg-surface-muted/45 p-4"
     >
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">

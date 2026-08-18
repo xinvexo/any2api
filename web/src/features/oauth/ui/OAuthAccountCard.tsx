@@ -49,18 +49,18 @@ export function OAuthAccountCard({
     <Surface
       data-floating-bounds
       className={cn(
-        "flex h-full min-w-0 flex-col overflow-hidden p-0 shadow-hairline",
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-0 bg-surface-muted/45 p-0",
         "transition-opacity duration-150",
         hasDangerBackground && [
-          "border-danger/20 bg-linear-to-b",
+          "bg-linear-to-b",
           "from-danger/10 via-danger/[0.035] to-surface",
         ],
         hasExhaustedBackground && [
-          "border-warning/20 bg-linear-to-b",
+          "bg-linear-to-b",
           "from-warning/10 via-warning/[0.035] to-surface",
         ],
         hasHealthyBackground && [
-          "border-success/20 bg-linear-to-b",
+          "bg-linear-to-b",
           "from-success/10 via-success/[0.035] to-surface",
         ],
         !presentation.enabled && "opacity-[0.72]",

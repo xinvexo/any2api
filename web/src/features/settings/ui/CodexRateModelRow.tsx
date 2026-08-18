@@ -32,7 +32,7 @@ export function CodexRateModelRow({
 
   return (
     <section
-      className="min-w-0 rounded-[8px] border border-subtle bg-surface/35 p-3"
+      className="min-w-0 rounded-[14px] bg-surface-muted/45 p-3"
       aria-label={`${modelLabel} 费率`}
     >
       <div className="flex items-end gap-2">
