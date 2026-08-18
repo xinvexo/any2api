@@ -226,6 +226,7 @@ dependencies = [
  "any2api-payload-buffer",
  "any2api-runtime",
  "any2api-updater",
+ "any2api-zstd-workspace",
  "argon2",
  "async-trait",
  "axum",
@@ -317,6 +318,18 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "any2api-zstd-workspace"
+version = "0.1.0"
+dependencies = [
+ "any2api-payload-buffer",
+ "bytes",
+ "memmap2",
+ "thiserror 2.0.20",
+ "zstd",
+ "zstd-sys",
 ]
 
 [[package]]

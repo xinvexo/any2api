@@ -1,0 +1,25 @@
+[package]
+name = "any2api-zstd-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+any2api-payload-buffer = { path = "../payload-buffer" }
+bytes.workspace = true
+memmap2.workspace = true
+thiserror.workspace = true
+zstd-sys.workspace = true
+
+[dev-dependencies]
+zstd.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

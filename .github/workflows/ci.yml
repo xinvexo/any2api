@@ -48,7 +48,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:tooling
-      - run: cargo test --locked -p any2api-payload-buffer -p any2api-memory-reclaimer
+      - run: cargo test --locked -p any2api-payload-buffer -p any2api-memory-reclaimer -p any2api-zstd-workspace
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: pnpm build
       - run: git diff --exit-code web/src/shared/api/generated/

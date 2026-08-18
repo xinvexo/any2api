@@ -290,8 +290,10 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - Composition Root 在发生过请求活动且当前活动请求为零时，低频调用平台原生的进程堆压力释放：Linux
   GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用
   `HeapSetInformation(NULL, HeapOptimizeResources, ...)` 并传入当前版本的初始化参数结构；不提供该能力的
-  平台保持安全 no-op。原生 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate，其他 Workspace
-  继续禁止 unsafe；macOS/Windows 原生 CI 必须实际运行映射与回收基础测试后再链接 release 二进制。
+  平台保持安全 no-op。进程堆压力释放 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate；zstd
+  native workspace FFI 只允许存在于独立、可审计的 `zstd-workspace` crate，其他 Workspace 继续禁止
+  unsafe。两个 crate 都不向业务层暴露指针或 unsafe API；macOS/Windows 原生 CI 必须实际运行映射、zstd
+  workspace 与回收基础测试后再链接 release 二进制。
 - SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
   回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
 
@@ -360,6 +362,7 @@ any2api/
 │  ├─ domain/                    # ID、路由、错误、状态和领域不变量
 │  ├─ payload-buffer/            # 小堆/大匿名映射聚合与精确所有权计量
 │  ├─ memory-reclaimer/          # Linux/macOS/Windows 进程堆压力释放 FFI 边界
+│  ├─ zstd-workspace/             # zstd 大块 native workspace 的跨平台映射分配边界
 │  ├─ protocol/
 │  │  └─ src/
 │  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
@@ -464,9 +467,10 @@ transport -> domain
 storage   -> domain
 payload-buffer -> 独立的跨平台临时字节所有权原语；不依赖业务 crate
 memory-reclaimer -> 独立的跨平台进程堆压力释放端口
+zstd-workspace -> payload-buffer；独立的跨平台 zstd native workspace 所有权端口
 runtime   -> domain + payload-buffer + protocol + provider + transport + storage 的公开接口
 updater   -> 独立的 GitHub Release、文件替换与进程重启请求端口
-server    -> domain + payload-buffer + runtime + updater 的公开接口
+server    -> domain + payload-buffer + runtime + updater + zstd-workspace 的公开接口
 app       -> memory-reclaimer + server + runtime + updater + 所有具体 Adapter
 ```
 

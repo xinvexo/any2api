@@ -10,6 +10,7 @@ any2api-domain = { path = "../domain" }
 any2api-payload-buffer = { path = "../payload-buffer" }
 any2api-runtime = { path = "../runtime" }
 any2api-updater = { path = "../updater" }
+any2api-zstd-workspace = { path = "../zstd-workspace" }
 argon2.workspace = true
 async-trait.workspace = true
 axum.workspace = true
@@ -27,11 +28,11 @@ tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-zstd.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
 ts-rs.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

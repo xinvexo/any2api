@@ -1,16 +1,11 @@
-use std::{
-    io::{Cursor, Read},
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
-use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use any2api_runtime::api::{ProcessLifecycle, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES};
+use any2api_zstd_workspace::{DecodeError as WorkspaceDecodeError, Decoder as WorkspaceDecoder};
 use axum::body::Bytes;
 use tokio::sync::Semaphore;
 
 const MIN_CONCURRENT_ZSTD_DECODES: usize = 2;
-const ZSTD_DECODE_CHUNK_BYTES: usize = 16 * 1024;
 const ZSTD_QUEUE_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn default_decode_limit() -> usize {
@@ -72,48 +67,17 @@ impl ZstdDecoder {
 }
 
 fn decode(bytes: Bytes) -> Result<Bytes, ZstdDecodeError> {
-    let limit = u64::try_from(STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    let mut decoded = PayloadBuffer::with_capacity_hint(
-        Some(bytes.len()),
-        STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
-    )
-    .map_err(map_buffer_error)?;
-    {
-        let decoder = zstd::stream::read::Decoder::new(Cursor::new(bytes))
-            .map_err(|_| ZstdDecodeError::Invalid)?;
-        let mut limited = decoder.take(limit);
-        let mut chunk = [0_u8; ZSTD_DECODE_CHUNK_BYTES];
-        loop {
-            let remaining = STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES
-                .saturating_add(1)
-                .saturating_sub(decoded.len());
-            if remaining == 0 {
-                return Err(ZstdDecodeError::TooLarge);
-            }
-            let read_capacity = remaining.min(chunk.len());
-            let read = limited
-                .read(&mut chunk[..read_capacity])
-                .map_err(|_| ZstdDecodeError::Invalid)?;
-            if read == 0 {
-                break;
-            }
-            if decoded.len().saturating_add(read) > STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES {
-                return Err(ZstdDecodeError::TooLarge);
-            }
-            decoded
-                .extend_from_slice(&chunk[..read])
-                .map_err(map_buffer_error)?;
-        }
-    }
-    Ok(decoded.freeze().into_bytes())
+    let mut decoder = WorkspaceDecoder::try_new().ok_or(ZstdDecodeError::AllocationFailed)?;
+    decoder
+        .decode(bytes.as_ref(), STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES)
+        .map_err(map_workspace_error)
 }
 
-fn map_buffer_error(error: PayloadBufferError) -> ZstdDecodeError {
+fn map_workspace_error(error: WorkspaceDecodeError) -> ZstdDecodeError {
     match error {
-        PayloadBufferError::TooLarge => ZstdDecodeError::TooLarge,
-        PayloadBufferError::AllocationFailed => ZstdDecodeError::AllocationFailed,
+        WorkspaceDecodeError::Invalid => ZstdDecodeError::Invalid,
+        WorkspaceDecodeError::TooLarge => ZstdDecodeError::TooLarge,
+        WorkspaceDecodeError::AllocationFailed => ZstdDecodeError::AllocationFailed,
     }
 }
 
@@ -165,6 +129,22 @@ mod tests {
             decode(Bytes::from_static(b"not-zstd")),
             Err(ZstdDecodeError::Invalid)
         );
+    }
+
+    #[test]
+    fn concatenated_frames_are_decoded_and_trailing_garbage_is_rejected() {
+        let first = zstd::stream::encode_all(&b"first"[..], 3).expect("encode first frame");
+        let second = zstd::stream::encode_all(&b"second"[..], 3).expect("encode second frame");
+        let mut concatenated = first.clone();
+        concatenated.extend_from_slice(&second);
+        assert_eq!(
+            decode(Bytes::from(concatenated)).expect("decode concatenated frames"),
+            Bytes::from_static(b"firstsecond")
+        );
+
+        let mut damaged = first;
+        damaged.extend_from_slice(b"trailing garbage");
+        assert_eq!(decode(Bytes::from(damaged)), Err(ZstdDecodeError::Invalid));
     }
 
     #[test]

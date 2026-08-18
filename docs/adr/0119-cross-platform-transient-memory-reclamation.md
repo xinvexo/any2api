@@ -37,7 +37,7 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
    捕获把该所有权直接移动到 move-only 的 `HttpAccessLog`，Writer 再把批次按值交给 Storage，SQLite 绑定
    只借用同一字节，不再深拷贝完整前缀；ADR-0114 的遥测准入继续按该真实分配量计费。捕获扩容失败时
    停止继续捕获并把日志标记为截断，不能让可丢失日志改写或中断代理 Body。
-5. 新增独立 `memory-reclaimer` crate 作为唯一原生 FFI 边界。Composition Root 每 30 秒检查一次：只有自
+5. 新增独立 `memory-reclaimer` crate 作为进程堆压力释放的原生 FFI 边界。Composition Root 每 30 秒检查一次：只有自
    上次回收后发生过 HTTP 请求且检查时活动请求为零，才在 blocking 线程调用一次平台能力；没有新活动时
    不重复空转回收。
    - Linux GNU：`malloc_trim(0)`；
@@ -45,15 +45,19 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
    - Windows：`HeapSetInformation(NULL, HeapOptimizeResources, ...)`，参数使用 version 1、flags 0 的
      `HEAP_OPTIMIZE_RESOURCES_INFORMATION`；
    - 其他目标：安全 no-op。
-6. Workspace 继续全局 `forbid(unsafe_code)`。只有 `memory-reclaimer` 不继承该 forbid，并在 crate 级
-   `deny(unsafe_code)` 下对三个短小平台调用逐处写明 Safety、局部允许；它不暴露指针或 unsafe API。
+6. Workspace 继续全局 `forbid(unsafe_code)`。`memory-reclaimer` 与新增的 `zstd-workspace` 不继承该
+   forbid，并在各自 crate 级 `deny(unsafe_code)` 下对局部平台/库边界逐处写明 Safety、局部允许；两个
+   crate 都不暴露指针或 unsafe API。`zstd-workspace` 使用 zstd `ZSTD_customMem` 回调：小型元数据仍可
+   使用系统堆，达到 `256 KiB` 的 native allocation 改由跨平台匿名映射持有，并在 zstd free 回调中解除
+   对应映射；因此不依赖 `MALLOC_ARENA_MAX`、THP 或机器规格参数，也保留 zstd legacy frame 能力。
 7. SQLite 写池继续固定一条连接并由 60 秒周期遥测维护复用。读池仍允许突发时扩展到 8 条，但显式设置
    60 秒 idle timeout，使长期闲置的读连接及其辅助线程/缓存退出；这属于池生命周期，不是请求准入或
    服务器规格限制。写池使用相同 idle timeout 的原生 Linux A/B 会与周期维护形成关闭/重连抖动，且没有
    降低最终 RSS，因此不保留该改动。
-8. CI 除 Linux 全套门禁外，使用 macOS 与 Windows 原生 runner 实际运行 `payload-buffer` 与
-   `memory-reclaimer` 基础测试，再完整链接 release 二进制，防止平台符号、cfg、原生调用或匿名映射支持
-   回归。RSS 结论使用隔离进程和固定工作负载验证，不把一次性 benchmark 脚本提交为产品运行逻辑。
+8. CI 除 Linux 全套门禁外，使用 macOS 与 Windows 原生 runner 实际运行 `payload-buffer`、
+   `memory-reclaimer` 与 `zstd-workspace` 基础测试，再完整链接 release 二进制，防止平台符号、cfg、原生
+   调用或匿名映射支持回归。RSS 结论使用隔离进程和固定工作负载验证，不把一次性 benchmark 脚本提交为
+   产品运行逻辑。
 9. 同协议 buffered JSON 响应走 raw direct decode：完整语法仍使用 `IgnoredAny` 校验，token usage、Responses
    Continuation ID 和顶层 model 只从 wire bytes 借用扫描，不 materialize 完整 `serde_json::Value`。只有
    Protocol Bridge 确实需要结构转换时才使用原有 structured decode；Bridge 完成后继续由 ingress adapter
@@ -61,6 +65,9 @@ size class 和后续复用保留脏页。因此这不是全量日志仍被内存
 10. `payload-buffer` 是不携带协议、Provider、调度或 HTTP 语义的基础所有权原语，因此 `protocol` 与
     `provider` 可以直接依赖它完成各自序列化边界；该依赖不得反向引入 Runtime 规则。所有调用方继续服从
     自己已有的输入/输出硬上限，不由该 crate 新增按机器规格、进程 RSS 或并发量变化的限制。
+11. `zstd-workspace` 只负责 zstd context 的创建、custom allocator 生命周期和 streaming decode 的线性
+    字节输出；Server 继续负责 blocking permit、请求取消和公开错误映射。zstd native workspace 的映射
+    分配不改变现有解压并发数、请求硬上限、legacy 兼容性或 HTTP 错误契约。
 
 ## 后果
 

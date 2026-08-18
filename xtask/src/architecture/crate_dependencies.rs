@@ -52,6 +52,7 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
         | "any2api-payload-buffer"
         | "any2api-updater"
         | "xtask" => BTreeSet::new(),
+        "any2api-zstd-workspace" => BTreeSet::from(["any2api-payload-buffer"]),
         "any2api-protocol" | "any2api-provider" => {
             BTreeSet::from(["any2api-domain", "any2api-payload-buffer"])
         }
@@ -69,6 +70,7 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
             "any2api-payload-buffer",
             "any2api-runtime",
             "any2api-updater",
+            "any2api-zstd-workspace",
         ]),
         "any2api" => BTreeSet::from([
             "any2api-domain",
