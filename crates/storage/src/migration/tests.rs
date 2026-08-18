@@ -253,7 +253,7 @@ fn migrator_through(maximum_version: i64) -> Migrator {
 
 async fn migrate_through(connection: &mut SqliteConnection, maximum_version: i64) {
     migrator_through(maximum_version)
-        .run_direct(connection)
+        .run_direct(None, connection, false)
         .await
         .expect("migration subset");
 }

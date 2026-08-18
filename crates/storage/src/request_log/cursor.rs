@@ -90,7 +90,7 @@ pub(super) async fn list(
 }
 
 fn push_window_predicates(
-    query: &mut QueryBuilder<'_, Sqlite>,
+    query: &mut QueryBuilder<Sqlite>,
     since_ms: i64,
     filter: &RequestLogFilter,
     anchor: Option<&LogCursorPosition>,
@@ -108,7 +108,7 @@ fn push_window_predicates(
     Ok(())
 }
 
-fn push_filter_predicates(query: &mut QueryBuilder<'_, Sqlite>, filter: &RequestLogFilter) {
+fn push_filter_predicates(query: &mut QueryBuilder<Sqlite>, filter: &RequestLogFilter) {
     if let Some(outcome) = filter.outcome() {
         match outcome {
             RequestLogOutcomeFilter::Success => {

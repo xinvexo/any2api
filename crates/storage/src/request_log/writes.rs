@@ -3,7 +3,7 @@ use any2api_domain::{
     RequestAttemptRetryDecision, RequestLog, RequestQuotaCost, RequestRoutingMode,
     RequestTelemetryPosition, RetrySafety,
 };
-use sqlx::SqliteConnection;
+use sqlx::{AssertSqlSafe, SqliteConnection};
 
 use crate::error::StorageError;
 
@@ -224,9 +224,9 @@ pub(super) async fn delete_oldest_before(
 ) -> Result<u64, StorageError> {
     let victims = "SELECT request_id FROM request_logs \
          WHERE started_at_ms < ? ORDER BY started_at_ms ASC, request_id ASC LIMIT ?";
-    let result = sqlx::query(&format!(
+    let result = sqlx::query(AssertSqlSafe(format!(
         "DELETE FROM request_logs WHERE request_id IN ({victims})"
-    ))
+    )))
     .bind(to_i64(cutoff_ms)?)
     .bind(to_i64(limit)?)
     .execute(connection)
@@ -241,9 +241,9 @@ pub(super) async fn delete_oldest(
     let victims = "SELECT request_id FROM request_logs \
          INDEXED BY request_logs_started_idx \
          ORDER BY started_at_ms ASC, request_id ASC LIMIT ?";
-    let result = sqlx::query(&format!(
+    let result = sqlx::query(AssertSqlSafe(format!(
         "DELETE FROM request_logs WHERE request_id IN ({victims})"
-    ))
+    )))
     .bind(to_i64(limit)?)
     .execute(connection)
     .await?;

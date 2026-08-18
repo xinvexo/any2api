@@ -41,7 +41,7 @@ async fn reliability_setting_migration_rejects_each_removed_override_and_preserv
             .expect("removed override");
 
         migrator_through(35)
-            .run_direct(&mut connection)
+            .run_direct(None, &mut connection, false)
             .await
             .expect_err("removed reliability override must reject migration");
 

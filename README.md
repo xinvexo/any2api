@@ -6,7 +6,7 @@ The project is intentionally single-node. It does not provide registration, tena
 
 ## Build, Package, And Run
 
-The repository pins Rust 1.90.0. A complete application build requires Node.js 22.12+, pnpm 11.13.1, and Rust. Install the workspace dependencies and build the production Web application together with the Rust executable from the repository root:
+The repository pins Rust 1.97.1. A complete application build requires Node.js 24.19+, pnpm 11.22.0, and Rust. Install the workspace dependencies and build the production Web application together with the Rust executable from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -134,7 +134,7 @@ Provider API keys and OAuth accounts remain separate management records, but eli
 
 ## Development
 
-Node.js 22.12+ and pnpm 11.13.1 are required when changing the Web application or producing a complete package.
+Node.js 24.19+ and pnpm 11.22.0 are required when changing the Web application or producing a complete package.
 
 ```sh
 pnpm install --frozen-lockfile

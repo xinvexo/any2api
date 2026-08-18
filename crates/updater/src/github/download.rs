@@ -19,6 +19,7 @@ pub(crate) fn client() -> Result<Client, UpdateError> {
 }
 
 fn build_client(https_only: bool, read_timeout: Duration) -> Result<Client, UpdateError> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     Client::builder()
         .user_agent(format!("any2api/{}", crate::BUILD_VERSION))
         .https_only(https_only)
@@ -139,7 +140,11 @@ where
     file.sync_all()
         .await
         .map_err(|error| download_failed(format!("failed to sync update archive: {error}")))?;
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(encode_hex(&digest.finalize()))
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 async fn read_bounded(

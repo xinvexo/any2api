@@ -145,9 +145,11 @@ impl ActiveRequestRegistry {
     ) {
         let removed = {
             let mut entries = self.entries.lock().expect("active request registry");
-            request_ids
-                .into_iter()
-                .fold(false, |removed, id| entries.remove(id).is_some() || removed)
+            let mut removed = false;
+            for id in request_ids {
+                removed |= entries.remove(id).is_some();
+            }
+            removed
         };
         if removed && notify {
             self.changes.active_requests_changed();

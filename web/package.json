@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "packageManager": "pnpm@11.13.1",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24.19.0"
   },
   "scripts": {
     "dev": "vite",
@@ -15,36 +15,36 @@
     "build": "tsc -b && vite build"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.101.2",
-    "@tanstack/react-virtual": "^3.14.8",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-virtual": "^3.14.9",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.25.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
-    "@playwright/test": "^1.61.1",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^24.10.10",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
-    "eslint": "^9.39.2",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.3",
-    "globals": "^17.7.0",
-    "jsdom": "^29.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "5.9.3",
-    "typescript-eslint": "^8.64.0",
-    "vite": "^8.1.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1",
     "vitest": "^4.1.10"
   }
 }

@@ -1,4 +1,5 @@
 use any2api_domain::{HttpAccessLogSummary, LogBatch, LogCursor, LogCursorPosition};
+use sqlx::AssertSqlSafe;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
@@ -44,7 +45,7 @@ pub(super) async fn list(
                  AND ({admin_operations_predicate}) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT 1"
             );
-            let row = sqlx::query_as::<_, (i64, String)>(&statement)
+            let row = sqlx::query_as::<_, (i64, String)>(AssertSqlSafe(statement))
                 .bind(since_ms)
                 .fetch_optional(&mut *transaction)
                 .await?;
@@ -72,7 +73,7 @@ pub(super) async fn list(
                  AND (started_at_ms, request_id) < (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
             );
-            sqlx::query_as::<_, HttpAccessLogSummaryRow>(&statement)
+            sqlx::query_as::<_, HttpAccessLogSummaryRow>(AssertSqlSafe(statement))
                 .bind(since_ms)
                 .bind(anchor_started_at_ms)
                 .bind(anchor.request_id())
@@ -91,7 +92,7 @@ pub(super) async fn list(
                  AND (started_at_ms, request_id) <= (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
             );
-            sqlx::query_as::<_, HttpAccessLogSummaryRow>(&statement)
+            sqlx::query_as::<_, HttpAccessLogSummaryRow>(AssertSqlSafe(statement))
                 .bind(since_ms)
                 .bind(anchor_started_at_ms)
                 .bind(anchor.request_id())

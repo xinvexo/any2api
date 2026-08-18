@@ -139,7 +139,7 @@ fn validate_manifest_files(assets: &BTreeMap<String, PathBuf>, manifest: &AssetM
         bundle.update(b"\n");
     }
     assert_eq!(
-        format!("{:x}", bundle.finalize()),
+        hex_bytes(&bundle.finalize()),
         manifest.bundle_sha256,
         "Web asset bundle digest mismatch"
     );
@@ -219,7 +219,11 @@ fn require_regular_directory(path: &Path, label: &str) {
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    hex_bytes(&Sha256::digest(bytes))
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn render(assets: &BTreeMap<String, PathBuf>) -> String {

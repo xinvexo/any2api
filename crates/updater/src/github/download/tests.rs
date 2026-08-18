@@ -11,7 +11,7 @@ use tokio::{
 
 use crate::api::UpdateErrorKind;
 
-use super::{build_client, download_archive_from};
+use super::{build_client, download_archive_from, encode_hex};
 
 #[tokio::test]
 async fn continuous_progress_can_outlive_one_read_timeout_window() {
@@ -33,7 +33,7 @@ async fn continuous_progress_can_outlive_one_read_timeout_window() {
 
     assert!(started.elapsed() > Duration::from_millis(250));
     assert_eq!(tokio::fs::read(archive).await.expect("archive"), expected);
-    assert_eq!(digest, format!("{:x}", Sha256::digest(&expected)));
+    assert_eq!(digest, encode_hex(&Sha256::digest(&expected)));
     assert_eq!(progress.last(), Some(&(expected.len() as u64)));
 }
 

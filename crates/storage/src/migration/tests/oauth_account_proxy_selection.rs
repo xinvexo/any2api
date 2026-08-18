@@ -51,7 +51,7 @@ async fn existing_oauth_accounts_become_global_and_can_select_an_exact_profile()
     .expect("OAuth model");
 
     MIGRATOR
-        .run_direct(&mut *connection)
+        .run_direct(None, &mut *connection, false)
         .await
         .expect("proxy selection migration");
 

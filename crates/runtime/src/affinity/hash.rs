@@ -2,7 +2,7 @@ use std::{fmt, hash::Hash};
 
 use any2api_domain::{ModelRouteId, ProtocolDialect};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;

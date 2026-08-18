@@ -1,4 +1,4 @@
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{AssertSqlSafe, Connection, SqliteConnection};
 
 use crate::{
     gateway_api_key::GATEWAY_API_KEY_USAGE_SUMMARY_SQL,
@@ -285,8 +285,8 @@ async fn assert_final_outcome_aggregate_results(connection: &mut SqliteConnectio
 
 async fn assert_covering_query_plans(
     connection: &mut SqliteConnection,
-    upstream_sql: &str,
-    gateway_sql: &str,
+    upstream_sql: &'static str,
+    gateway_sql: &'static str,
 ) {
     let upstream = query_plan(connection, upstream_sql).await;
     assert!(
@@ -322,13 +322,15 @@ async fn index_columns(connection: &mut SqliteConnection, index: &str) -> Vec<St
         .expect("index columns")
 }
 
-async fn query_plan(connection: &mut SqliteConnection, statement: &str) -> String {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(&format!("EXPLAIN QUERY PLAN {statement}"))
-        .fetch_all(connection)
-        .await
-        .expect("query plan")
-        .into_iter()
-        .map(|(_, _, _, detail)| detail)
-        .collect::<Vec<_>>()
-        .join("\n")
+async fn query_plan(connection: &mut SqliteConnection, statement: &'static str) -> String {
+    sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {statement}"
+    )))
+    .fetch_all(connection)
+    .await
+    .expect("query plan")
+    .into_iter()
+    .map(|(_, _, _, detail)| detail)
+    .collect::<Vec<_>>()
+    .join("\n")
 }

@@ -3,6 +3,7 @@ use any2api_domain::{
     gateway_auth_rejected_capacity,
 };
 use async_trait::async_trait;
+use sqlx::AssertSqlSafe;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
@@ -139,7 +140,9 @@ impl HttpAccessLogRepository for SqliteStore {
             .fetch_one(&mut *connection)
             .await?;
         let statement = format!("PRAGMA incremental_vacuum({pages})");
-        sqlx::query(&statement).fetch_all(&mut *connection).await?;
+        sqlx::query(AssertSqlSafe(statement))
+            .fetch_all(&mut *connection)
+            .await?;
         let page_count_after: i64 = sqlx::query_scalar("PRAGMA page_count")
             .fetch_one(&mut *connection)
             .await?;

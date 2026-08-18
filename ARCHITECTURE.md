@@ -3448,7 +3448,7 @@ Node、pnpm、Vite、联网或写入源码树。
 `--version` 输出，避免 Tag、资产名和运行时版本分叉；构建阶段不得持有 checkout 持久化的仓库写凭据，
 发布 Token 只注入最终发布步骤。
 
-构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
+构建使用 Rust 1.97.1 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 的源码到二进制阶段调用根命令 `pnpm package --target x86_64-unknown-linux-gnu`。

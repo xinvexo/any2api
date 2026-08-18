@@ -102,7 +102,7 @@ async fn stored_count(store: &SqliteStore) -> u64 {
     u64::try_from(count).expect("non-negative request log count")
 }
 
-async fn explain(store: &SqliteStore, statement: &str) -> Vec<String> {
+async fn explain(store: &SqliteStore, statement: &'static str) -> Vec<String> {
     sqlx::query_as::<_, (i64, i64, i64, String)>(statement)
         .fetch_all(store.pool())
         .await

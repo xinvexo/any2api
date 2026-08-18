@@ -1,4 +1,4 @@
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{AssertSqlSafe, Connection, SqliteConnection};
 
 use crate::http_access_log::{HIDE_ADMIN_OPERATIONS_PREDICATE, SYSTEM_LOG_RETENTION_PREDICATE};
 
@@ -232,7 +232,7 @@ async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
 }
 
 async fn query_plan(connection: &mut SqliteConnection, sql: &str) -> String {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(sql)
+    sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(sql))
         .fetch_all(connection)
         .await
         .expect("query plan")

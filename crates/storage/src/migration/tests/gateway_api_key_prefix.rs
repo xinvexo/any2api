@@ -25,7 +25,7 @@ async fn standard_prefix_migration_refuses_old_gateway_keys_before_ddl() {
     .expect("legacy gateway key");
 
     migrator_through(20)
-        .run_direct(&mut connection)
+        .run_direct(None, &mut connection, false)
         .await
         .expect_err("old gateway keys must be rejected before migration DDL");
 

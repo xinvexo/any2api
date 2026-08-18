@@ -102,7 +102,7 @@ async fn index_columns(connection: &mut SqliteConnection, index: &str) -> Vec<St
         .expect("index columns")
 }
 
-async fn query_plan(connection: &mut SqliteConnection, statement: &str) -> String {
+async fn query_plan(connection: &mut SqliteConnection, statement: &'static str) -> String {
     sqlx::query_as::<_, (i64, i64, i64, String)>(statement)
         .fetch_all(connection)
         .await

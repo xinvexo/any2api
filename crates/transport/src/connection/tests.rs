@@ -226,12 +226,12 @@ pub(crate) struct TestTlsIdentity {
 
 impl TestTlsIdentity {
     pub(crate) fn generate() -> Self {
-        let CertifiedKey { cert, key_pair } =
+        let CertifiedKey { cert, signing_key } =
             generate_simple_self_signed(vec!["localhost".to_owned()])
                 .expect("self-signed certificate");
         let certificate_der = cert.der().clone();
         let client_certificate = certificate_der.as_ref().to_vec();
-        let private_key = PrivatePkcs8KeyDer::from(key_pair.serialize_der());
+        let private_key = PrivatePkcs8KeyDer::from(signing_key.serialize_der());
         let server_config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate_der], private_key.into())

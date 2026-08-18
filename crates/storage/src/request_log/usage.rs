@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use any2api_domain::{CredentialId, OAuthAccountId, RoutingCredentialId};
 use async_trait::async_trait;
-use sqlx::FromRow;
+use sqlx::{AssertSqlSafe, FromRow};
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
@@ -57,7 +57,7 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
             sqlx::query_as::<_, UpstreamUsageRow>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
                 .fetch_all(&mut *transaction)
                 .await?;
-        let slot_rows = sqlx::query_as::<_, UpstreamWindowSlotRow>(&format!(
+        let slot_rows = sqlx::query_as::<_, UpstreamWindowSlotRow>(AssertSqlSafe(format!(
             "{} SELECT source, upstream_id, \
              (started_at_ms / ?) * ? AS bucket_start_ms, \
              COUNT(*) AS total_requests, \
@@ -67,7 +67,7 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
              WHERE started_at_ms >= ? \
              GROUP BY source, upstream_id, bucket_start_ms",
             upstream_requests_cte()
-        ))
+        )))
         .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
         .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
         .bind(i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?)
