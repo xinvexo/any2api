@@ -1,6 +1,7 @@
 //! Cross-crate contract test package.
 
 mod admin_session;
+mod gateway_authentication;
 mod test_application;
 
 pub use admin_session::TestAdminSession;
@@ -8,6 +9,7 @@ pub use any2api::{
     PublicRequestComponents, build_public_request_components,
     build_public_request_components_with_telemetry,
 };
+pub use gateway_authentication::{TestGatewayAuthentication, create_gateway_authentication};
 pub use test_application::TestApplication;
 
 pub fn build_configuration_capabilities()

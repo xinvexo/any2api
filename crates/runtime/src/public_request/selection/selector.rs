@@ -1,11 +1,10 @@
-use std::{collections::BTreeMap, time::Duration};
-
-#[cfg(test)]
-use std::sync::Arc;
-
-use any2api_domain::{
-    ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode, RoutingCredentialId,
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
+
+use any2api_domain::{ModelRouteId, PublicError, PublicErrorCode, RoutingCredentialId};
 use tokio::time::Instant;
 
 use super::super::{
@@ -14,12 +13,13 @@ use super::super::{
 };
 use super::filter_recorder::RequestFilterRecorder;
 use super::{fixed, generation};
-#[cfg(test)]
-use crate::routing::{QueueCoordinator, QueuePolicy};
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{CandidateSelectionState, RouteCandidate},
+    routing::{CandidateSelectionState, QueueCoordinator, QueueTicket, RouteCandidate},
 };
+
+#[cfg(test)]
+use crate::routing::QueuePolicy;
 
 pub(in crate::public_request) enum GenerationSelection {
     Acquired(Box<SelectedCandidate>),
@@ -29,8 +29,52 @@ pub(in crate::public_request) enum GenerationSelection {
     NoCandidates,
 }
 
+/// Queue capacity and absolute wait limits shared by every re-plan before an
+/// Attempt starts. A configuration wake-up must not forfeit the ticket or
+/// restart either timeout.
+#[derive(Default)]
+pub(in crate::public_request) struct SelectionWaitState {
+    inner: Mutex<SelectionWaitStateInner>,
+}
+
+#[derive(Default)]
+struct SelectionWaitStateInner {
+    queue_deadline: Option<Instant>,
+    binding_deadline: Option<Instant>,
+    queue_ticket: Option<QueueTicket>,
+}
+
+impl SelectionWaitState {
+    pub(in crate::public_request) fn queue(&self, timeout: Duration) -> Instant {
+        let mut inner = self.inner.lock().expect("selection wait lock poisoned");
+        *inner
+            .queue_deadline
+            .get_or_insert_with(|| Instant::now() + timeout)
+    }
+
+    pub(in crate::public_request) fn binding(&self, timeout: Duration) -> Instant {
+        let mut inner = self.inner.lock().expect("selection wait lock poisoned");
+        *inner
+            .binding_deadline
+            .get_or_insert_with(|| Instant::now() + timeout)
+    }
+
+    pub(in crate::public_request) fn queue_changes(
+        &self,
+        coordinator: &Arc<QueueCoordinator>,
+        max_waiting_requests: u32,
+    ) -> Option<tokio::sync::watch::Receiver<u64>> {
+        let mut inner = self.inner.lock().expect("selection wait lock poisoned");
+        if inner.queue_ticket.is_none() {
+            inner.queue_ticket = coordinator.try_ticket(max_waiting_requests);
+        }
+        inner.queue_ticket.as_ref().map(QueueTicket::subscribe)
+    }
+}
+
 pub(in crate::public_request) struct CandidateSelector<'a> {
-    snapshot: &'a PublishedSnapshot,
+    policy_snapshot: &'a PublishedSnapshot,
+    routing_snapshot: &'a PublishedSnapshot,
     route_id: ModelRouteId,
     fallback_on_rate_limit: bool,
     tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
@@ -41,7 +85,8 @@ pub(in crate::public_request) struct CandidateSelector<'a> {
 
 impl<'a> CandidateSelector<'a> {
     pub(in crate::public_request) fn new(
-        snapshot: &'a PublishedSnapshot,
+        policy_snapshot: &'a PublishedSnapshot,
+        routing_snapshot: &'a PublishedSnapshot,
         route_id: ModelRouteId,
         fallback_on_rate_limit: bool,
         tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
@@ -49,7 +94,8 @@ impl<'a> CandidateSelector<'a> {
         credential_eligible: &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
     ) -> Self {
         Self {
-            snapshot,
+            policy_snapshot,
+            routing_snapshot,
             route_id,
             fallback_on_rate_limit,
             tiers,
@@ -62,15 +108,16 @@ impl<'a> CandidateSelector<'a> {
     pub(in crate::public_request) fn try_select(
         &mut self,
     ) -> Result<GenerationSelection, PublicError> {
-        generation::try_select(
-            self.snapshot,
-            self.route_id,
-            self.fallback_on_rate_limit,
-            self.tiers,
-            self.selection_state,
-            self.credential_eligible,
-            &mut self.filters,
-        )
+        generation::try_select(generation::GenerationSelectionInput {
+            policy_snapshot: self.policy_snapshot,
+            routing_snapshot: self.routing_snapshot,
+            route_id: self.route_id,
+            fallback_on_rate_limit: self.fallback_on_rate_limit,
+            tiers: self.tiers,
+            selection_state: self.selection_state,
+            credential_eligible: self.credential_eligible,
+            filters: &mut self.filters,
+        })
     }
 }
 
@@ -97,16 +144,22 @@ impl FixedSelectionError {
 }
 
 pub(in crate::public_request) async fn select_candidate(
-    snapshot: &PublishedSnapshot,
-    _operation: ProtocolOperation,
-    route_id: ModelRouteId,
-    fallback_on_rate_limit: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    selection_state: &CandidateSelectionState,
-    credential_eligible: &(dyn Fn(RoutingCredentialId) -> bool + Sync),
+    input: CandidateSelectionInput<'_>,
 ) -> Result<SelectedCandidate, PublicError> {
+    let CandidateSelectionInput {
+        policy_snapshot,
+        routing_snapshot,
+        route_id,
+        fallback_on_rate_limit,
+        tiers,
+        selection_state,
+        credential_eligible,
+        wait_state,
+        ..
+    } = input;
     let mut selector = CandidateSelector::new(
-        snapshot,
+        policy_snapshot,
+        routing_snapshot,
         route_id,
         fallback_on_rate_limit,
         tiers,
@@ -114,19 +167,38 @@ pub(in crate::public_request) async fn select_candidate(
         credential_eligible,
     );
     generation::select_with_queue(
-        snapshot.queue_coordinator(),
-        snapshot.queue_policy(),
+        policy_snapshot.queue_coordinator(),
+        policy_snapshot.queue_policy(),
+        wait_state,
         || selector.try_select(),
     )
     .await
 }
 
+pub(in crate::public_request) struct CandidateSelectionInput<'a> {
+    pub(in crate::public_request) policy_snapshot: &'a PublishedSnapshot,
+    pub(in crate::public_request) routing_snapshot: &'a PublishedSnapshot,
+    pub(in crate::public_request) route_id: ModelRouteId,
+    pub(in crate::public_request) fallback_on_rate_limit: bool,
+    pub(in crate::public_request) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
+    pub(in crate::public_request) selection_state: &'a CandidateSelectionState,
+    pub(in crate::public_request) credential_eligible:
+        &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
+    pub(in crate::public_request) wait_state: &'a SelectionWaitState,
+}
+
 pub(in crate::public_request) async fn select_fixed_candidate(
-    snapshot: &PublishedSnapshot,
+    policy_snapshot: &PublishedSnapshot,
     candidate: &RouteCandidate,
-    wait_timeout: Duration,
+    wait_state: &SelectionWaitState,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
-    fixed::select(snapshot, candidate, wait_timeout).await
+    fixed::select(
+        policy_snapshot,
+        candidate,
+        policy_snapshot.affinity_policy().wait_timeout(),
+        wait_state,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -135,7 +207,8 @@ pub(super) async fn select_generation_candidate(
     policy: QueuePolicy,
     try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
-    generation::select_with_queue(coordinator, policy, try_select).await
+    let wait_state = SelectionWaitState::default();
+    generation::select_with_queue(coordinator, policy, &wait_state, try_select).await
 }
 
 #[cfg(test)]
@@ -144,7 +217,8 @@ pub(super) async fn wait_for_generation_candidate(
     policy: QueuePolicy,
     try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
-    generation::wait_for_candidate(coordinator, policy, try_select).await
+    let wait_state = SelectionWaitState::default();
+    generation::wait_for_candidate(coordinator, policy, &wait_state, try_select).await
 }
 
 #[cfg(test)]

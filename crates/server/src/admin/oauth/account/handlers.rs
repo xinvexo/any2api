@@ -18,6 +18,7 @@ use super::dto::{
     OAuthAccountCollectionResponse, OAuthAccountDeleteQuery, OAuthAccountModelsRequest,
     OAuthAccountUpdateRequest,
 };
+use super::mutation_response::OAuthAccountMutationResponse;
 
 pub(in crate::admin::oauth) fn routes() -> Router<AppState> {
     Router::new()
@@ -40,7 +41,7 @@ async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<OAuthAccountUpdateRequest>,
-) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
+) -> Result<Json<OAuthAccountMutationResponse>, AdminApiError> {
     let id = parse_id(&id)?;
     let (expected, expected_config_version, draft, proxy_selection) = payload.into_domain()?;
     let snapshot = state
@@ -53,35 +54,35 @@ async fn update(
             proxy_selection,
         )
         .await?;
-    Ok(accounts_response(&state, &snapshot).await)
+    Ok(mutation_response(&snapshot, state.oauth()))
 }
 
 async fn set_models(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<OAuthAccountModelsRequest>,
-) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
+) -> Result<Json<OAuthAccountMutationResponse>, AdminApiError> {
     let id = parse_id(&id)?;
     let (expected, expected_config_version, models) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .set_oauth_account_models(expected, id, expected_config_version, models)
         .await?;
-    Ok(accounts_response(&state, &snapshot).await)
+    Ok(mutation_response(&snapshot, state.oauth()))
 }
 
 async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
     RequiredVersionedQuery(query): RequiredVersionedQuery<OAuthAccountDeleteQuery>,
-) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
+) -> Result<Json<OAuthAccountMutationResponse>, AdminApiError> {
     let id = parse_id(&id)?;
     let (expected, expected_config_version) = query.into_domain()?;
     let snapshot = state
         .publisher()
         .delete_oauth_account(expected, id, expected_config_version)
         .await?;
-    Ok(accounts_response(&state, &snapshot).await)
+    Ok(mutation_response(&snapshot, state.oauth()))
 }
 
 async fn accounts_response(
@@ -107,9 +108,29 @@ async fn accounts_response(
     ))
 }
 
+fn mutation_response(
+    snapshot: &any2api_runtime::api::PublishedSnapshot,
+    oauth: Option<&any2api_runtime::api::OAuthService>,
+) -> Json<OAuthAccountMutationResponse> {
+    Json(OAuthAccountMutationResponse::from_snapshot(snapshot, oauth))
+}
+
 pub(in crate::admin::oauth) fn parse_id(
     value: &str,
 ) -> Result<any2api_domain::OAuthAccountId, AdminApiError> {
     any2api_domain::OAuthAccountId::from_str(value)
         .map_err(|_| AdminApiError::invalid_request("OAuth account id is invalid"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutation_ack_is_snapshot_only_and_synchronous() {
+        let _: fn(
+            &any2api_runtime::api::PublishedSnapshot,
+            Option<&any2api_runtime::api::OAuthService>,
+        ) -> Json<OAuthAccountMutationResponse> = mutation_response;
+    }
 }

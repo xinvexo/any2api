@@ -6,14 +6,29 @@ use any2api_domain::{
 };
 
 use super::super::{
-    GenerationSelection, filter_recorder::RequestFilterRecorder, fixed as fixed_selection,
-    try_select_fixed_candidate_for_test, try_select_generation_candidate_for_test,
+    FixedSelectionError, GenerationSelection, filter_recorder::RequestFilterRecorder,
+    fixed as fixed_selection, try_select_fixed_candidate_for_test,
+    try_select_generation_candidate_for_test,
 };
 use super::selection::{candidate, default_reliability_policy, open_endpoint};
 use crate::{
     health::EndpointHealthRuntime,
     routing::{QueueCoordinator, SchedulerEpoch},
 };
+
+#[test]
+fn fixed_selection_rejects_a_revoked_candidate_without_reserving_rpm() {
+    let epoch = SchedulerEpoch::new();
+    let candidate = candidate("fixed-revoked", 12, Arc::clone(&epoch), 0);
+    candidate.route_admission.revoke_for_test();
+
+    assert!(matches!(
+        try_select_fixed_candidate_for_test(default_reliability_policy(), &candidate, || {}),
+        Err(FixedSelectionError::Unavailable)
+    ));
+    assert_eq!(candidate.binding.in_flight(), 0);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 0);
+}
 
 #[test]
 fn fixed_selection_records_the_successful_selection() {

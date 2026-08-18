@@ -12,12 +12,14 @@ use super::{
     metrics::{CredentialBalancingCounters, CredentialFilterKind},
     rate_window::{CredentialRateSnapshot, RateLimited, RateReservation},
 };
+use crate::routing::{AttemptStartPermit, AttemptStartRejected, RouteAdmission};
 
 #[derive(Clone, Debug)]
 pub struct CredentialRuntimeBinding {
     pub(crate) handle: Arc<CredentialRuntimeHandle>,
     pub(crate) generation: Arc<CredentialGenerationRuntime>,
     pub(crate) requests_per_minute: Option<RequestsPerMinute>,
+    pub(crate) route_admission: Option<Arc<RouteAdmission>>,
 }
 
 impl CredentialRuntimeBinding {
@@ -40,6 +42,21 @@ impl CredentialRuntimeBinding {
     #[must_use]
     pub fn generation(&self) -> &Arc<CredentialGenerationRuntime> {
         &self.generation
+    }
+
+    #[must_use]
+    pub fn route_admission_active(&self) -> bool {
+        self.route_admission
+            .as_ref()
+            .is_some_and(|admission| admission.is_active())
+    }
+
+    pub(crate) fn with_route_admission(
+        mut self,
+        route_admission: Option<Arc<RouteAdmission>>,
+    ) -> Self {
+        self.route_admission = route_admission;
+        self
     }
 
     pub(crate) fn transport_isolation(
@@ -72,11 +89,13 @@ impl CredentialRuntimeBinding {
     pub(crate) fn try_reserve(&self) -> Result<RoutingPermit, RateLimited> {
         self.handle
             .try_reserve_normal(Arc::clone(&self.generation), self.requests_per_minute)
+            .map(|permit| permit.with_route_admission(self.route_admission.clone()))
     }
 
     pub(crate) fn try_reserve_fixed(&self) -> Result<RoutingPermit, RateLimited> {
         self.handle
             .try_reserve_fixed(Arc::clone(&self.generation), self.requests_per_minute)
+            .map(|permit| permit.with_route_admission(self.route_admission.clone()))
     }
 
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {
@@ -93,6 +112,8 @@ pub struct RoutingPermit {
     pub(crate) generation: Arc<CredentialGenerationRuntime>,
     pub(super) rate_reservation: Option<RateReservation>,
     pub(super) in_flight_released: bool,
+    pub(crate) route_admission: Option<Arc<RouteAdmission>>,
+    pub(crate) attempt_start: Option<AttemptStartPermit>,
 }
 
 impl RoutingPermit {
@@ -114,6 +135,35 @@ impl RoutingPermit {
     ) -> Result<CredentialHeaders, ProviderError> {
         self.generation
             .credential_headers(driver, base_url, forwarded)
+    }
+
+    /// Linearizes a new data-plane Attempt against route revocation.
+    ///
+    /// A rejection rolls back this permit's exact RPM reservation and
+    /// `in_flight` increment before returning.
+    pub fn try_start_attempt(mut self) -> Result<Self, AttemptStartRejected> {
+        if self.attempt_start.is_some() {
+            return Ok(self);
+        }
+        let Some(admission) = self.route_admission.as_ref().cloned() else {
+            self.rollback_before_attempt();
+            return Err(AttemptStartRejected);
+        };
+        match admission.try_start() {
+            Ok(start) => {
+                self.attempt_start = Some(start);
+                Ok(self)
+            }
+            Err(error) => {
+                self.rollback_before_attempt();
+                Err(error)
+            }
+        }
+    }
+
+    fn with_route_admission(mut self, route_admission: Option<Arc<RouteAdmission>>) -> Self {
+        self.route_admission = route_admission;
+        self
     }
 
     pub(crate) fn transport_isolation(
@@ -140,6 +190,7 @@ impl fmt::Debug for RoutingPermit {
             .debug_struct("RoutingPermit")
             .field("credential_id", &self.handle.id())
             .field("generation", &self.generation)
+            .field("attempt_started", &self.attempt_start.is_some())
             .finish_non_exhaustive()
     }
 }

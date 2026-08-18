@@ -65,7 +65,8 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
     } = affinity;
     let candidate = selected.candidate.clone();
     let mut prepared = prepare_attempt(AttemptPreparation {
-        snapshot: services.snapshot,
+        policy_snapshot: services.policy_snapshot,
+        routing_snapshot: services.routing_snapshot,
         protocols: services.protocols,
         decoded,
         selected,
@@ -332,14 +333,14 @@ impl Drop for PreparedAttempt<'_> {
 }
 
 pub(in crate::public_request::upstream) fn continuation_committer(
-    snapshot: &PublishedSnapshot,
+    policy_snapshot: &PublishedSnapshot,
     operation: ProtocolOperation,
     target: AffinityTarget,
 ) -> ContinuationBindingCommitter {
     ContinuationBindingCommitter::new(
         operation,
-        Arc::clone(snapshot.affinity_registry()),
+        Arc::clone(policy_snapshot.affinity_registry()),
         target,
-        snapshot.affinity_policy().ttl(),
+        policy_snapshot.affinity_policy().ttl(),
     )
 }

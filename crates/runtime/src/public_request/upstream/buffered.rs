@@ -59,7 +59,13 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let read_timeout = execution_limits::read_timeout(
         prepared.ingress_operation,
         execution_profile,
-        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
+        Duration::from_secs(
+            services
+                .policy_snapshot
+                .settings()
+                .upstream()
+                .read_timeout_secs(),
+        ),
     );
     if !status.is_success() {
         let collected =
@@ -155,7 +161,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     );
     sanitize_response_headers(&mut response.headers);
     let continuation_binding = continuation_committer(
-        services.snapshot,
+        services.policy_snapshot,
         prepared.ingress_operation,
         target.clone(),
     );

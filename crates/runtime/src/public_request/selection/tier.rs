@@ -54,7 +54,8 @@ pub(super) fn scan(
     for preference in 0..CandidateSelectionState::RETRY_PREFERENCE_LEVELS {
         for offset in 0..candidates.len() {
             let candidate = &candidates[(start + offset) % candidates.len()];
-            if selection_state.retry_preference(candidate) != preference
+            if !candidate.admission_active()
+                || selection_state.retry_preference(candidate) != preference
                 || !selection_state.allows(candidate)
                 || !credential_eligible(candidate.credential_id)
             {

@@ -161,6 +161,8 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     );
     assert_eq!(updated["items"][0]["config_version"], 2);
     assert_eq!(updated["items"][0]["account_generation"], 2);
+    assert!(updated["items"][0].get("available_models").is_none());
+    assert!(updated["items"][0].get("usage").is_none());
 
     let (status, models) = request_json(
         app.clone(),

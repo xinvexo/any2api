@@ -12,6 +12,6 @@ mod tests;
 pub use credential_observation::{CredentialRuntimeObservation, CredentialRuntimeStatus};
 pub use error::SnapshotCompileError;
 pub use prepared::PreparedPublishedSnapshot;
-pub use published::PublishedSnapshot;
+pub use published::{GatewayApiKeyAuthProof, PublishedSnapshot};
 pub(crate) use store::PublicationSource;
 pub use store::SnapshotStore;

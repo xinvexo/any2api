@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use any2api_domain::PublicError;
 use tokio::{
     sync::watch,
@@ -15,18 +13,19 @@ use crate::{
         CandidateSelector, GenerationSelection, no_available_credentials, rate_limit_error,
         rate_limited, temporarily_unavailable,
     },
-    routing::{QueueCoordinator, QueueTicket, RateLimitAction},
+    routing::{QueueCoordinator, RateLimitAction},
 };
 
 pub(super) async fn select_session(
     input: &AffinitySelectionInput<'_>,
     raw: &str,
 ) -> Result<AffinitySelection, PublicError> {
-    let snapshot = input.snapshot;
+    let snapshot = input.policy_snapshot;
     let affinity_policy = snapshot.affinity_policy();
     let queue_policy = snapshot.queue_policy();
     let mut selector = CandidateSelector::new(
-        snapshot,
+        input.policy_snapshot,
+        input.routing_snapshot,
         input.route_id,
         input.fallback_on_rate_limit,
         input.tiers,
@@ -35,13 +34,11 @@ pub(super) async fn select_session(
     );
     let mut lease = None;
     let mut wait = None;
-    let mut scheduler_deadline = None;
-    let mut attempting_deadline = None;
     let mut waiting_on_attempt = false;
 
     loop {
         if waiting_on_attempt
-            && attempting_deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            && Instant::now() >= input.wait_state.binding(affinity_policy.wait_timeout())
         {
             return Err(binding_wait_timeout());
         }
@@ -56,13 +53,13 @@ pub(super) async fn select_session(
             {
                 BindingStart::Create(created) => lease = Some(created),
                 BindingStart::Wait(BindingCreationPhase::Selecting) => {
-                    let deadline =
-                        absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());
+                    let deadline = input.wait_state.queue(queue_policy.queue_timeout());
                     if Instant::now() >= deadline {
                         return Err(selection_coordination_timeout());
                     }
                     if ensure_queue_wait(
                         &mut wait,
+                        input.wait_state,
                         snapshot.queue_coordinator(),
                         queue_policy.max_waiting_requests(),
                     )? {
@@ -72,13 +69,13 @@ pub(super) async fn select_session(
                     continue;
                 }
                 BindingStart::Wait(BindingCreationPhase::Attempting) => {
-                    let deadline =
-                        absolute_deadline(&mut attempting_deadline, affinity_policy.wait_timeout());
+                    let deadline = input.wait_state.binding(affinity_policy.wait_timeout());
                     if Instant::now() >= deadline {
                         return Err(binding_wait_timeout());
                     }
                     if ensure_queue_wait(
                         &mut wait,
+                        input.wait_state,
                         snapshot.queue_coordinator(),
                         queue_policy.max_waiting_requests(),
                     )? {
@@ -115,13 +112,13 @@ pub(super) async fn select_session(
                     return Err(error);
                 }
                 let released_epoch = release_selecting(&mut lease)?;
-                let deadline =
-                    absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());
+                let deadline = input.wait_state.queue(queue_policy.queue_timeout());
                 if Instant::now() >= deadline {
                     return Err(error);
                 }
                 ensure_queue_wait(
                     &mut wait,
+                    input.wait_state,
                     snapshot.queue_coordinator(),
                     queue_policy.max_waiting_requests(),
                 )?;
@@ -145,13 +142,13 @@ pub(super) async fn select_session(
                     return Err(error);
                 }
                 let released_epoch = release_selecting(&mut lease)?;
-                let deadline =
-                    absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());
+                let deadline = input.wait_state.queue(queue_policy.queue_timeout());
                 if Instant::now() >= deadline {
                     return Err(error);
                 }
                 ensure_queue_wait(
                     &mut wait,
+                    input.wait_state,
                     snapshot.queue_coordinator(),
                     queue_policy.max_waiting_requests(),
                 )?;
@@ -172,13 +169,13 @@ pub(super) async fn select_session(
             GenerationSelection::RetryDeferred(retry_at) => {
                 let error = temporarily_unavailable(retry_at);
                 let released_epoch = release_selecting(&mut lease)?;
-                let deadline =
-                    absolute_deadline(&mut scheduler_deadline, queue_policy.queue_timeout());
+                let deadline = input.wait_state.queue(queue_policy.queue_timeout());
                 if Instant::now() >= deadline {
                     return Err(error);
                 }
                 ensure_queue_wait(
                     &mut wait,
+                    input.wait_state,
                     snapshot.queue_coordinator(),
                     queue_policy.max_waiting_requests(),
                 )?;
@@ -201,26 +198,22 @@ pub(super) async fn select_session(
 }
 
 struct SessionQueueWait {
-    _ticket: QueueTicket,
     changes: watch::Receiver<u64>,
 }
 
 fn ensure_queue_wait(
     wait: &mut Option<SessionQueueWait>,
+    wait_state: &crate::public_request::selection::SelectionWaitState,
     queue: &std::sync::Arc<QueueCoordinator>,
     max_waiting_requests: u32,
 ) -> Result<bool, PublicError> {
     if wait.is_some() {
         return Ok(false);
     }
-    let ticket = queue
-        .try_ticket(max_waiting_requests)
+    let changes = wait_state
+        .queue_changes(queue, max_waiting_requests)
         .ok_or_else(|| rate_limit_error("request queue is full"))?;
-    let changes = ticket.subscribe();
-    *wait = Some(SessionQueueWait {
-        _ticket: ticket,
-        changes,
-    });
+    *wait = Some(SessionQueueWait { changes });
     Ok(true)
 }
 
@@ -246,10 +239,6 @@ fn release_observed_external_change(
 ) -> bool {
     let current_epoch = *wait.changes.borrow_and_update();
     observed_epoch.checked_add(1) != Some(released_epoch) || current_epoch > released_epoch
-}
-
-fn absolute_deadline(slot: &mut Option<Instant>, timeout: Duration) -> Instant {
-    *slot.get_or_insert_with(|| Instant::now() + timeout)
 }
 
 async fn wait_for_epoch(wait: &mut SessionQueueWait, deadline: Instant) -> Result<(), PublicError> {

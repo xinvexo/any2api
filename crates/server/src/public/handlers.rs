@@ -148,10 +148,11 @@ async fn execute_public_request(
     let response = state
         .public_requests()
         .execute(
+            state.snapshots_handle(),
             authenticated.snapshot_arc(),
+            authenticated.authentication(),
             PublicRequest {
                 request_id: request_id.get(),
-                gateway_api_key_id: authenticated.id(),
                 client_ip: authenticated.client_ip(),
                 operation,
                 headers,

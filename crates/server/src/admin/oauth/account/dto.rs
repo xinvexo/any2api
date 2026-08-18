@@ -49,7 +49,7 @@ impl OAuthAccountCollectionResponse {
     }
 }
 
-fn accounts_for_management(accounts: &[OAuthAccount]) -> Vec<&OAuthAccount> {
+pub(super) fn accounts_for_management(accounts: &[OAuthAccount]) -> Vec<&OAuthAccount> {
     let mut accounts = accounts.iter().collect::<Vec<_>>();
     accounts.sort_by(|left, right| {
         left.provider_kind()
@@ -62,6 +62,15 @@ fn accounts_for_management(accounts: &[OAuthAccount]) -> Vec<&OAuthAccount> {
 
 #[derive(Debug, Serialize)]
 struct OAuthAccountResponse {
+    #[serde(flatten)]
+    core: OAuthAccountCoreResponse,
+    /// Plan/provider catalog this OAuth account may use (superset of models).
+    available_models: Vec<String>,
+    usage: RequestUsageResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct OAuthAccountCoreResponse {
     id: OAuthAccountId,
     provider_kind: ProviderKind,
     label: String,
@@ -76,15 +85,12 @@ struct OAuthAccountResponse {
     selected_model_count: usize,
     /// Models currently selected for public routing.
     models: Vec<String>,
-    /// Plan/provider catalog this OAuth account may use (superset of models).
-    available_models: Vec<String>,
     /// Official Codex `chatgpt_plan_type` from the ID Token (pass-through).
     plan_type: Option<String>,
     /// Safe Grok Build `bot_flag_source` derivation; never exposes JWT claims.
     bot_flagged: Option<bool>,
     token_refresh_failure: Option<OAuthRefreshFailureResponse>,
     runtime: CredentialRuntimeResponse,
-    usage: RequestUsageResponse,
 }
 
 impl OAuthAccountResponse {
@@ -95,16 +101,30 @@ impl OAuthAccountResponse {
         oauth: Option<&OAuthService>,
         model_catalog: Option<&OAuthModelCatalogSnapshot>,
     ) -> Self {
-        let selected = account
+        let core = OAuthAccountCoreResponse::from_snapshot(account, snapshot, oauth);
+        let mut available_models = core.models.iter().cloned().collect::<BTreeSet<_>>();
+        if let Some(model_catalog) = model_catalog {
+            available_models.extend(model_catalog.models().iter().cloned());
+        }
+        Self {
+            core,
+            available_models: available_models.into_iter().collect(),
+            usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
+        }
+    }
+}
+
+impl OAuthAccountCoreResponse {
+    pub(super) fn from_snapshot(
+        account: &OAuthAccount,
+        snapshot: &PublishedSnapshot,
+        oauth: Option<&OAuthService>,
+    ) -> Self {
+        let models = account
             .models()
             .iter()
             .map(|model| model.as_str().to_owned())
             .collect::<Vec<_>>();
-        let mut available_models = selected.iter().cloned().collect::<BTreeSet<_>>();
-        if let Some(model_catalog) = model_catalog {
-            available_models.extend(model_catalog.models().iter().cloned());
-        }
-        let available_models = available_models.into_iter().collect();
         let runtime = snapshot
             .credential_runtime_observation(RoutingCredentialId::oauth_account(account.id()))
             .expect("published OAuth account has runtime observation");
@@ -120,16 +140,14 @@ impl OAuthAccountResponse {
             token_version: account.token_version(),
             account_generation: account.account_generation(),
             config_version: account.config_version(),
-            selected_model_count: selected.len(),
-            models: selected,
-            available_models,
+            selected_model_count: models.len(),
+            models,
             plan_type: snapshot.oauth_plan_label(account.id()),
             bot_flagged: snapshot.oauth_grok_bot_flag(account.id()),
             token_refresh_failure: oauth
                 .and_then(|oauth| oauth.refresh_failure(account.id(), account.token_version()))
                 .map(Into::into),
             runtime: runtime.into(),
-            usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
         }
     }
 }

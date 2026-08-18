@@ -17,7 +17,8 @@ use crate::oauth::OAuthQuotaActivity;
 
 #[derive(Clone, Copy)]
 pub(super) struct UpstreamServices<'a> {
-    pub(super) snapshot: &'a PublishedSnapshot,
+    pub(super) policy_snapshot: &'a PublishedSnapshot,
+    pub(super) routing_snapshot: &'a PublishedSnapshot,
     pub(super) protocols: &'a ProtocolRegistry,
     pub(super) providers: &'a ProviderRegistry,
     pub(super) transport: &'a dyn TransportManager,

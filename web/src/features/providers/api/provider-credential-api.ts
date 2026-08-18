@@ -1,7 +1,6 @@
 import { requestJson } from "@/shared/api/http-client";
 
 import {
-  type ProviderCredentialConfiguration,
   type ProviderCredentialCreateInput,
   type ProviderCredentialRotateInput,
   type ProviderCredentialTestResult,
@@ -10,6 +9,7 @@ import {
   parseProviderCredentialConfiguration,
   parseProviderCredentialTestResult,
 } from "./provider-credential-contracts";
+import { parseProviderCredentialMutationResponse } from "./provider-credential-mutation-contracts";
 
 const endpointCollection = "/api/admin/provider-endpoints";
 const credentialCollection = "/api/admin/provider-credentials";
@@ -39,7 +39,7 @@ export function createProviderCredential(
         enabled: input.enabled,
       },
     },
-  ).then(parseProviderCredentialConfiguration);
+  ).then(parseProviderCredentialMutationResponse);
 }
 
 export function updateProviderCredential(id: string, input: ProviderCredentialUpdateInput) {
@@ -53,7 +53,7 @@ export function updateProviderCredential(id: string, input: ProviderCredentialUp
       requests_per_minute: input.requestsPerMinute,
       enabled: input.enabled,
     },
-  }).then(parseProviderCredentialConfiguration);
+  }).then(parseProviderCredentialMutationResponse);
 }
 
 export function rotateProviderCredential(id: string, input: ProviderCredentialRotateInput) {
@@ -68,7 +68,7 @@ export function rotateProviderCredential(id: string, input: ProviderCredentialRo
         api_key: input.apiKey,
       },
     },
-  ).then(parseProviderCredentialConfiguration);
+  ).then(parseProviderCredentialMutationResponse);
 }
 
 export function testProviderCredential(id: string): Promise<ProviderCredentialTestResult> {
@@ -81,7 +81,7 @@ export function testProviderCredential(id: string): Promise<ProviderCredentialTe
 export function setProviderCredentialModels(
   id: string,
   input: ProviderCredentialModelsInput,
-): Promise<ProviderCredentialConfiguration> {
+) {
   return requestJson<unknown>(`${credentialCollection}/${encodeURIComponent(id)}/models`, {
     method: "PUT",
     body: {
@@ -92,14 +92,14 @@ export function setProviderCredentialModels(
         public_model: model.publicModel,
       })),
     },
-  }).then(parseProviderCredentialConfiguration);
+  }).then(parseProviderCredentialMutationResponse);
 }
 
 export function deleteProviderCredential(
   id: string,
   expectedRevision: number,
   expectedConfigVersion: number,
-): Promise<ProviderCredentialConfiguration> {
+) {
   const query = new URLSearchParams({
     expected_revision: String(expectedRevision),
     expected_config_version: String(expectedConfigVersion),
@@ -107,5 +107,5 @@ export function deleteProviderCredential(
   return requestJson<unknown>(
     `${credentialCollection}/${encodeURIComponent(id)}?${query.toString()}`,
     { method: "DELETE" },
-  ).then(parseProviderCredentialConfiguration);
+  ).then(parseProviderCredentialMutationResponse);
 }

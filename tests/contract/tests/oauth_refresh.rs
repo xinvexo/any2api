@@ -6,16 +6,16 @@ use std::time::Duration;
 
 use any2api_contract_tests::{build_configuration_capabilities, build_provider_registry};
 use any2api_domain::{
-    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProtocolOperation,
-    ProviderKind, RequestId, RequestsPerMinute,
+    OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProtocolOperation, ProviderKind,
+    RequestId, RequestsPerMinute,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge, api::ProtocolRegistry,
 };
 use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublicResponseBody,
-    PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, GatewayApiKeyAuthProof, OAuthService, PublicRequest, PublicRequestService,
+    PublicResponseBody, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use any2api_transport::api::{
@@ -32,7 +32,7 @@ use http::{
 use tempfile::tempdir;
 
 #[tokio::test]
-async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_process() {
+async fn disabled_oauth_refreshes_but_a_stale_enabled_snapshot_cannot_start_data_plane_io() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("oauth-refresh.sqlite3"))
@@ -63,17 +63,18 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
         Arc::clone(&storage),
         Arc::new(RequestTelemetry::disabled()),
     );
-    let lifecycle = runtime.lifecycle();
-    assert!(oauth.start_refresh_worker(&lifecycle));
-    assert!(!oauth.start_refresh_worker(&lifecycle));
-    tokio::task::yield_now().await;
+    let authentication = any2api_contract_tests::create_gateway_authentication(
+        publisher.as_ref(),
+        snapshots.as_ref(),
+    )
+    .await;
 
     let account_id = OAuthAccountId::new();
     let activated = publisher
         .activate_oauth_account(
             account_id,
             ProviderKind::Codex,
-            OAuthAccountDraft::new("Codex OAuth", None, false).expect("OAuth draft"),
+            OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
             OAuthProxySelection::Global,
             Some("person@example.com".into()),
             Some(0),
@@ -82,7 +83,25 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
         )
         .await
         .expect("activate OAuth account");
-    assert_eq!(activated.revision().get(), 2);
+    assert_eq!(activated.revision().get(), 3);
+    let enabled_snapshot = Arc::clone(&activated);
+
+    let disabled = publisher
+        .update_oauth_account(
+            activated.revision(),
+            account_id,
+            1,
+            OAuthAccountDraft::new("Codex OAuth", None, false).expect("disabled OAuth draft"),
+            OAuthProxySelection::Global,
+        )
+        .await
+        .expect("disable OAuth account");
+    assert_eq!(disabled.revision().get(), 4);
+
+    let lifecycle = runtime.lifecycle();
+    assert!(oauth.start_refresh_worker(&lifecycle));
+    assert!(!oauth.start_refresh_worker(&lifecycle));
+    tokio::task::yield_now().await;
 
     let refreshed = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
@@ -100,18 +119,48 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
     .await
     .expect("refresh worker should publish promptly");
 
-    assert_eq!(refreshed.revision().get(), 3);
+    assert_eq!(refreshed.revision().get(), 5);
     let account = refreshed
         .oauth_accounts()
         .get(account_id)
         .expect("refreshed account");
     assert_eq!(account.token_version(), 2);
     assert_eq!(account.account_generation(), 1);
-    assert_eq!(account.config_version(), 1);
+    assert_eq!(account.config_version(), 2);
     assert!(!account.enabled());
     assert_eq!(account.safe_account_email(), Some("person@example.com"));
     assert_eq!(account.models()[0].as_str(), "gpt-5.5");
     assert_eq!(transport.calls(), 1);
+
+    let service = PublicRequestService::new(
+        protocols(),
+        Arc::clone(&providers),
+        Arc::clone(&transport) as Arc<dyn TransportManager>,
+    )
+    .expect("public request service");
+    let response = service
+        .execute(
+            Arc::clone(&snapshots),
+            enabled_snapshot,
+            authentication.proof,
+            oauth_request(),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    match response.body {
+        PublicResponseBody::Buffered(body) => {
+            let error: serde_json::Value =
+                serde_json::from_slice(&body).expect("disabled OAuth error JSON");
+            assert_eq!(error["error"]["code"], "model_not_found");
+        }
+        PublicResponseBody::Streaming(_) => panic!("routing rejection must be buffered"),
+    }
+    assert_eq!(
+        transport.calls(),
+        1,
+        "disabled OAuth must refresh without becoming data-plane eligible"
+    );
+
     let captured = transport.take();
     assert_eq!(captured.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
     assert_eq!(captured.host.as_deref(), Some("auth.openai.com"));
@@ -137,7 +186,12 @@ async fn pending_oauth_401_refreshes_once_and_replans_with_the_new_generation() 
 
     let response = context
         .service
-        .execute(context.snapshots.load(), oauth_request())
+        .execute(
+            Arc::clone(&context.snapshots),
+            context.snapshots.load(),
+            context.authentication,
+            oauth_request(),
+        )
         .await;
 
     assert_eq!(response.status, StatusCode::OK);
@@ -147,7 +201,7 @@ async fn pending_oauth_401_refreshes_once_and_replans_with_the_new_generation() 
         vec!["Bearer old-access", "Bearer new-access"]
     );
     let snapshot = context.snapshots.load();
-    assert_eq!(snapshot.revision().get(), 3);
+    assert_eq!(snapshot.revision().get(), 4);
     assert_eq!(
         snapshot
             .oauth_accounts()
@@ -172,7 +226,12 @@ async fn a_second_oauth_401_never_refreshes_or_sends_a_third_attempt() {
 
     let response = context
         .service
-        .execute(context.snapshots.load(), oauth_request())
+        .execute(
+            Arc::clone(&context.snapshots),
+            context.snapshots.load(),
+            context.authentication,
+            oauth_request(),
+        )
         .await;
 
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
@@ -210,7 +269,12 @@ async fn completed_oauth_use_triggers_one_coalesced_persistent_quota_refresh() {
 
     let response = context
         .service
-        .execute(context.snapshots.load(), oauth_request())
+        .execute(
+            Arc::clone(&context.snapshots),
+            context.snapshots.load(),
+            context.authentication,
+            oauth_request(),
+        )
         .await;
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(context.transport.quota_calls(), 0);
@@ -266,7 +330,6 @@ fn oauth_document() -> OAuthAccountDocument {
 fn oauth_request() -> PublicRequest {
     PublicRequest {
         request_id: RequestId::new(),
-        gateway_api_key_id: GatewayApiKeyId::new(),
         client_ip: "127.0.0.1".parse().expect("client IP"),
         operation: ProtocolOperation::Responses,
         headers: HeaderMap::new(),
@@ -281,6 +344,7 @@ struct AuthenticationRetryContext {
     runtime: Arc<RuntimeRegistry>,
     oauth: Arc<OAuthService>,
     service: PublicRequestService,
+    authentication: GatewayApiKeyAuthProof,
     transport: Arc<AuthenticationRetryTransport>,
     account_id: OAuthAccountId,
 }
@@ -325,6 +389,11 @@ impl AuthenticationRetryContext {
             Arc::new(RequestTelemetry::disabled()),
         ));
         assert!(service.install_oauth(oauth.as_ref()));
+        let authentication = any2api_contract_tests::create_gateway_authentication(
+            publisher.as_ref(),
+            snapshots.as_ref(),
+        )
+        .await;
         let account_id = OAuthAccountId::new();
         publisher
             .activate_oauth_account(
@@ -351,6 +420,7 @@ impl AuthenticationRetryContext {
             runtime,
             oauth,
             service,
+            authentication: authentication.proof,
             transport,
             account_id,
         }

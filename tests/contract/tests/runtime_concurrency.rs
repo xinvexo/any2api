@@ -45,19 +45,7 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
     let driver = HeaderEchoDriver::default();
 
     let endpoint = publisher
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
-            endpoint_id,
-            ProviderEndpointDraft::new(
-                "Codex Primary",
-                ProviderKind::Codex,
-                "https://api.example.com",
-                ProtocolDialect::OpenAiResponses,
-                None,
-                true,
-            )
-            .expect("endpoint draft"),
-        )
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft(true))
         .await
         .expect("endpoint publish");
     let created = publisher
@@ -124,7 +112,9 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
     let raised_binding = raised
         .credential_runtime(credential_id.into())
         .expect("raised runtime");
-    let new_permit = reserve(raised_binding);
+    let new_permit = reserve(raised_binding)
+        .try_start_attempt()
+        .expect("attempt admitted before credential deletion");
     assert_eq!(new_permit.generation().routing_generation(), 2);
     assert_bearer(&new_permit, &driver, "sk-runtime-rotated");
 
@@ -157,12 +147,103 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
         .expect("credential delete");
     assert!(deleted.credential_runtime(credential_id.into()).is_none());
     assert_eq!(runtime.active_credential_count(), 0);
+    assert!(!raised_binding.route_admission_active());
     let post_delete_permit = reserve(raised_binding);
     assert_eq!(post_delete_permit.generation().routing_generation(), 2);
     assert_bearer(&post_delete_permit, &driver, "sk-runtime-rotated");
+    assert_eq!(raised_binding.in_flight(), 2);
+    assert_eq!(raised_binding.rate_snapshot().requests_in_window(), 3);
+    assert!(
+        post_delete_permit.try_start_attempt().is_err(),
+        "the delete publication ACK must revoke admission held by an old binding"
+    );
+    assert_eq!(raised_binding.in_flight(), 1);
+    assert_eq!(raised_binding.rate_snapshot().requests_in_window(), 2);
+    assert_bearer(&new_permit, &driver, "sk-runtime-rotated");
     drop(new_permit);
-    drop(post_delete_permit);
     assert_eq!(rotated_binding.in_flight(), 0);
+}
+
+#[tokio::test]
+async fn endpoint_disable_revokes_old_admission_and_reenable_gets_a_new_one() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("endpoint-admission.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let configuration = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new());
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
+    let publisher = ConfigPublisher::new(
+        storage,
+        snapshots,
+        runtime,
+        any2api_contract_tests::build_configuration_capabilities(),
+    )
+    .expect("configuration publisher");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let endpoint = publisher
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft(true))
+        .await
+        .expect("endpoint publish");
+    let enabled = publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(10),
+            ProviderApiKeySecret::new("sk-endpoint-admission".to_owned()),
+        )
+        .await
+        .expect("credential publish");
+    let old_binding = enabled
+        .credential_runtime(credential_id.into())
+        .expect("enabled runtime")
+        .clone();
+    let old_reservation = reserve(&old_binding);
+    assert!(old_binding.route_admission_active());
+
+    let disabled = publisher
+        .update_provider_endpoint(enabled.revision(), endpoint_id, 1, endpoint_draft(false))
+        .await
+        .expect("disable endpoint");
+    assert!(!old_binding.route_admission_active());
+    assert!(
+        !disabled
+            .credential_runtime(credential_id.into())
+            .expect("disabled endpoint runtime")
+            .route_admission_active()
+    );
+    assert!(old_reservation.try_start_attempt().is_err());
+    assert_eq!(old_binding.in_flight(), 0);
+    assert_eq!(old_binding.rate_snapshot().requests_in_window(), 0);
+
+    let reenabled = publisher
+        .update_provider_endpoint(disabled.revision(), endpoint_id, 2, endpoint_draft(true))
+        .await
+        .expect("reenable endpoint");
+    let reenabled_binding = reenabled
+        .credential_runtime(credential_id.into())
+        .expect("reenabled runtime");
+    assert!(reenabled_binding.route_admission_active());
+    assert!(
+        !old_binding.route_admission_active(),
+        "the revoked incarnation must never reactivate"
+    );
+    let started = reserve(reenabled_binding)
+        .try_start_attempt()
+        .expect("reenabled endpoint starts through a new admission");
+    drop(started);
+    assert_eq!(reenabled_binding.in_flight(), 0);
 }
 
 fn reserve(binding: &any2api_runtime::api::CredentialRuntimeBinding) -> RoutingPermit {
@@ -275,4 +356,16 @@ fn credential_draft(requests_per_minute: u32) -> ProviderCredentialDraft {
         true,
     )
     .expect("credential draft")
+}
+
+fn endpoint_draft(enabled: bool) -> ProviderEndpointDraft {
+    ProviderEndpointDraft::new(
+        "Codex Primary",
+        ProviderKind::Codex,
+        "https://api.example.com",
+        ProtocolDialect::OpenAiResponses,
+        None,
+        enabled,
+    )
+    .expect("endpoint draft")
 }

@@ -45,7 +45,8 @@ pub(super) struct AttemptHeaderPolicy {
 }
 
 pub(super) struct AttemptPreparation<'a, 'p, 'd> {
-    pub(super) snapshot: &'a PublishedSnapshot,
+    pub(super) policy_snapshot: &'a PublishedSnapshot,
+    pub(super) routing_snapshot: &'a PublishedSnapshot,
     pub(super) protocols: &'p ProtocolRegistry,
     pub(super) decoded: &'d DecodedRequest,
     pub(super) selected: SelectedCandidate,
@@ -55,11 +56,17 @@ pub(super) struct AttemptPreparation<'a, 'p, 'd> {
     pub(super) header_policy: AttemptHeaderPolicy,
 }
 
+struct RequestSnapshots<'a> {
+    policy: &'a PublishedSnapshot,
+    routing: &'a PublishedSnapshot,
+}
+
 pub(super) fn prepare_attempt<'a, 'p, 'd>(
     input: AttemptPreparation<'a, 'p, 'd>,
 ) -> Result<PreparedAttempt<'a>, AttemptFailure> {
     let AttemptPreparation {
-        snapshot,
+        policy_snapshot,
+        routing_snapshot,
         protocols,
         decoded,
         selected,
@@ -69,7 +76,10 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         header_policy,
     } = input;
     let result = build_request(
-        snapshot,
+        RequestSnapshots {
+            policy: policy_snapshot,
+            routing: routing_snapshot,
+        },
         protocols,
         decoded,
         &selected,
@@ -118,7 +128,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
 }
 
 fn build_request<'a>(
-    snapshot: &'a PublishedSnapshot,
+    snapshots: RequestSnapshots<'a>,
     protocols: &ProtocolRegistry,
     decoded: &DecodedRequest,
     selected: &SelectedCandidate,
@@ -126,13 +136,14 @@ fn build_request<'a>(
     providers: &'a ProviderRegistry,
     header_policy: AttemptHeaderPolicy,
 ) -> Result<BuiltRequest<'a>, PublicError> {
+    let RequestSnapshots { policy, routing } = snapshots;
     let candidate = &selected.candidate;
     let driver = std::sync::Arc::clone(
         providers
             .get(candidate.provider_kind)
             .ok_or_else(internal_error)?,
     );
-    let proxy = snapshot
+    let proxy = routing
         .transport_proxy(candidate.proxy_id)
         .filter(|proxy| proxy.profile().enabled())
         .ok_or_else(|| {
@@ -171,7 +182,7 @@ fn build_request<'a>(
     // pairs with fingerprint isolation (per-credential pools, session headers
     // dropped on switch); balanced routing pairs with the cache-continuous
     // shared surface.
-    let affinity_enabled = snapshot.affinity_policy().enabled();
+    let affinity_enabled = policy.affinity_policy().enabled();
     let request_context = ProviderRequestContext {
         ingress_dialect,
         upstream_operation,
@@ -189,7 +200,7 @@ fn build_request<'a>(
         .oauth_quota_service_tier(request_context, &encoded.body)
         .filter(|_| driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
         .and_then(|tier| {
-            snapshot
+            policy
                 .settings()
                 .oauth()
                 .codex_rate_card()
@@ -236,11 +247,11 @@ fn build_request<'a>(
                 TransportIsolationKey::shared_data_plane()
             },
             network_policy: EndpointNetworkPolicy::new()
-                .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
+                .with_strict_ssrf(policy.settings().upstream().strict_ssrf()),
             read_timeout: execution_limits::read_timeout(
                 ingress_operation,
                 execution_profile,
-                Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
+                Duration::from_secs(policy.settings().upstream().read_timeout_secs()),
             ),
         },
     })

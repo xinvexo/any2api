@@ -64,7 +64,7 @@ export interface OAuthActivationResult {
   configRevision: number;
 }
 
-export interface OAuthAccount {
+export interface OAuthAccountCore {
   id: string;
   providerKind: OAuthProvider;
   label: string;
@@ -79,14 +79,17 @@ export interface OAuthAccount {
   selectedModelCount: number;
   /** Models currently selected for public routing. */
   models: string[];
-  /** Plan/provider catalog this OAuth account may use. */
-  availableModels: string[];
   /** Official Codex `chatgpt_plan_type` from the ID Token. */
   planType: string | null;
   /** Safe Grok Build `bot_flag_source` derivation. */
   botFlagged: boolean | null;
   tokenRefreshFailure: OAuthRefreshFailure | null;
   runtime: CredentialRuntime;
+}
+
+export interface OAuthAccount extends OAuthAccountCore {
+  /** Plan/provider catalog this OAuth account may use. */
+  availableModels: string[];
   usage: RequestUsage;
 }
 
@@ -248,20 +251,34 @@ function parseOAuthImportedAccount(value: unknown): OAuthImportedAccount {
 }
 
 function parseOAuthAccount(value: unknown): OAuthAccount {
+  const core = parseOAuthAccountCore(value);
+  if (!isRecord(value) || !Array.isArray(value.available_models)) {
+    throw invalidResponse();
+  }
+  const availableModels = value.available_models.map(readString);
+  if (new Set(availableModels).size !== availableModels.length) {
+    throw invalidResponse();
+  }
+  return {
+    ...core,
+    availableModels,
+    usage: parseRequestUsage(value.usage),
+  };
+}
+
+export function parseOAuthAccountCore(value: unknown): OAuthAccountCore {
   if (!isRecord(value)) {
     throw invalidResponse();
   }
   const providerKind = readOAuthProvider(value.provider_kind);
-  if (!Array.isArray(value.models) || !Array.isArray(value.available_models)) {
+  if (!Array.isArray(value.models)) {
     throw invalidResponse();
   }
   const models = value.models.map(readString);
-  const availableModels = value.available_models.map(readString);
   const selectedModelCount = readInteger(value.selected_model_count, 0);
   if (
     selectedModelCount !== models.length ||
-    new Set(models).size !== models.length ||
-    new Set(availableModels).size !== availableModels.length
+    new Set(models).size !== models.length
   ) {
     throw invalidResponse();
   }
@@ -279,12 +296,10 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     configVersion: readInteger(value.config_version, 1),
     selectedModelCount,
     models,
-    availableModels,
     planType: readOptionalString(value.plan_type),
     botFlagged: readOptionalBoolean(value.bot_flagged),
     tokenRefreshFailure: parseOAuthRefreshFailure(value.token_refresh_failure),
     runtime: parseCredentialRuntime(value.runtime, "invalid OAuth2 login response"),
-    usage: parseRequestUsage(value.usage),
   };
 }
 

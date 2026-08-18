@@ -283,6 +283,7 @@ describe("parseOAuthAccountConfiguration", () => {
       }),
     ).toThrow("invalid OAuth2 login response");
   });
+
 });
 
 function usage() {

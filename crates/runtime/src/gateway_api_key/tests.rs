@@ -52,7 +52,9 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         .to_owned();
     let first_snapshot = created;
     assert_eq!(
-        first_snapshot.authenticate_gateway_api_key(&first_token),
+        first_snapshot
+            .authenticate_gateway_api_key(&first_token)
+            .map(|proof| proof.id()),
         Some(id)
     );
     let legacy_token = format!(
@@ -84,7 +86,9 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         .to_owned();
     let second_snapshot = rotated;
     assert_eq!(
-        first_snapshot.authenticate_gateway_api_key(&first_token),
+        first_snapshot
+            .authenticate_gateway_api_key(&first_token)
+            .map(|proof| proof.id()),
         Some(id)
     );
     assert_eq!(
@@ -92,7 +96,9 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         None
     );
     assert_eq!(
-        second_snapshot.authenticate_gateway_api_key(&second_token),
+        second_snapshot
+            .authenticate_gateway_api_key(&second_token)
+            .map(|proof| proof.id()),
         Some(id)
     );
 
@@ -103,7 +109,9 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         .expect("delete");
     let deleted_snapshot = snapshots.load();
     assert_eq!(
-        second_snapshot.authenticate_gateway_api_key(&second_token),
+        second_snapshot
+            .authenticate_gateway_api_key(&second_token)
+            .map(|proof| proof.id()),
         Some(id)
     );
     assert!(deleted_snapshot.gateway_api_keys().get(id).is_none());

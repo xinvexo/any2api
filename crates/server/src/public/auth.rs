@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::GatewayApiKeyId;
-use any2api_runtime::api::PublishedSnapshot;
+use any2api_runtime::api::{GatewayApiKeyAuthProof, PublishedSnapshot};
 use axum::{
     extract::{Request, State},
     http::{
@@ -20,18 +19,18 @@ use super::error::PublicApiError;
 
 #[derive(Clone)]
 pub(crate) struct AuthenticatedGatewayApiKey {
-    id: GatewayApiKeyId,
+    authentication: GatewayApiKeyAuthProof,
     client_ip: std::net::IpAddr,
     snapshot: Arc<PublishedSnapshot>,
 }
 
 impl AuthenticatedGatewayApiKey {
-    pub(crate) const fn id(&self) -> GatewayApiKeyId {
-        self.id
-    }
-
     pub(crate) const fn client_ip(&self) -> std::net::IpAddr {
         self.client_ip
+    }
+
+    pub(crate) const fn authentication(&self) -> GatewayApiKeyAuthProof {
+        self.authentication
     }
 
     pub(crate) fn snapshot(&self) -> &PublishedSnapshot {
@@ -71,16 +70,16 @@ pub(crate) async fn require_gateway_api_key(
         Ok(token) => token,
         Err(error) => return reject(error, &state, request.uri()),
     };
-    let Some(id) = snapshot.authenticate_gateway_api_key(&token) else {
+    let Some(authentication) = snapshot.authenticate_gateway_api_key(&token) else {
         return reject(PublicApiError::unauthorized(), &state, request.uri());
     };
     state
         .request_telemetry()
-        .record_gateway_key_use(id, snapshot.revision());
+        .record_gateway_key_use(authentication.id(), snapshot.revision());
 
     strip_client_credentials(request.headers_mut());
     request.extensions_mut().insert(AuthenticatedGatewayApiKey {
-        id,
+        authentication,
         client_ip: connection.client_ip(),
         snapshot,
     });

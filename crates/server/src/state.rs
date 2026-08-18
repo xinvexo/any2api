@@ -91,6 +91,11 @@ impl AppState {
     }
 
     #[must_use]
+    pub(crate) fn snapshots_handle(&self) -> Arc<SnapshotStore> {
+        Arc::clone(&self.snapshots)
+    }
+
+    #[must_use]
     pub fn runtime(&self) -> &RuntimeRegistry {
         &self.runtime
     }

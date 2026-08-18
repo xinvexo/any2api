@@ -1,17 +1,15 @@
-use any2api_domain::{RequestAttemptFailureScope, RequestAttemptRetryDecision};
-use tokio::time::timeout;
+use any2api_domain::{PublicError, RequestAttemptFailureScope, RequestAttemptRetryDecision};
 
 use super::{RetryExecution, budget_exhausted, within_attempt_budget};
 use crate::public_request::{
     PublicResponse, affinity,
     response::FinalFailure,
+    selection::SelectionWaitState,
     upstream::{self, AttemptFailure},
 };
 
-pub(super) struct RegisteredAttempt {
+pub(super) struct SelectedAttempt {
     affinity: affinity::AffinitySelection,
-    attempt_no: u32,
-    allow_credential_bound_headers: bool,
 }
 
 pub(super) struct CompletedAttempt {
@@ -19,20 +17,24 @@ pub(super) struct CompletedAttempt {
     pub(super) result: Result<PublicResponse, AttemptFailure>,
 }
 
+enum SelectionWake {
+    Selected(Box<Result<affinity::AffinitySelection, PublicError>>),
+    Revision(Result<(), PublicError>),
+    TimedOut,
+}
+
 impl RetryExecution<'_> {
-    pub(super) async fn select_attempt(&mut self) -> Result<RegisteredAttempt, FinalFailure> {
-        let remaining = self.budget.remaining();
-        if remaining.is_zero() {
-            return Err(self.previous_or(|| budget_exhausted().into()));
-        }
-        let selection = {
-            let credential_eligible =
-                |credential_id| self.budget.can_register_attempt(credential_id);
-            timeout(
-                remaining,
-                affinity::select(affinity::AffinitySelectionInput {
-                    snapshot: self.snapshot.as_ref(),
-                    operation: self.plan.decoded.operation,
+    pub(super) async fn select_attempt(&mut self) -> Result<SelectedAttempt, FinalFailure> {
+        loop {
+            if self.budget.remaining().is_zero() {
+                return Err(self.previous_or(|| budget_exhausted().into()));
+            }
+            let wake = {
+                let credential_eligible =
+                    |credential_id| self.budget.can_register_attempt(credential_id);
+                let selection = affinity::select(affinity::AffinitySelectionInput {
+                    policy_snapshot: self.policy_snapshot.as_ref(),
+                    routing_snapshot: self.routing_snapshot.as_ref(),
                     affinity: &self.plan.decoded.affinity,
                     route_id: self.plan.route_id,
                     dialect: self.plan.dialect,
@@ -40,15 +42,64 @@ impl RetryExecution<'_> {
                     tiers: &self.plan.tiers,
                     selection_state: &self.selection_state,
                     credential_eligible: &credential_eligible,
-                }),
-            )
-            .await
+                    wait_state: &self.selection_wait,
+                });
+                let timeout = tokio::time::sleep_until(self.budget.deadline());
+                tokio::pin!(selection);
+                tokio::pin!(timeout);
+                tokio::select! {
+                    biased;
+                    changed = self.live.changed() => SelectionWake::Revision(changed),
+                    selected = &mut selection => SelectionWake::Selected(Box::new(selected)),
+                    () = &mut timeout => SelectionWake::TimedOut,
+                }
+            };
+            match wake {
+                SelectionWake::Selected(result) => match *result {
+                    Ok(affinity) => return Ok(SelectedAttempt { affinity }),
+                    Err(error) => return Err(self.previous_or(|| error.into())),
+                },
+                SelectionWake::Revision(Err(error)) => {
+                    return Err(self.previous_or(|| error.into()));
+                }
+                SelectionWake::TimedOut => {
+                    return Err(self.previous_or(|| budget_exhausted().into()));
+                }
+                SelectionWake::Revision(Ok(())) => {
+                    if let Some(next) = self.live.refresh(self.routing_snapshot.as_ref())
+                        && let Err(error) = self.rebase_to(next)
+                    {
+                        if error.code() == any2api_domain::PublicErrorCode::Unauthorized {
+                            return Err(error.into());
+                        }
+                        return Err(self.previous_or(|| error.into()));
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) async fn execute_attempt(
+        &mut self,
+        selected: SelectedAttempt,
+    ) -> Result<super::AttemptExecution, FinalFailure> {
+        let SelectedAttempt { affinity } = selected;
+        if let Some(next) = self.live.refresh(self.routing_snapshot.as_ref()) {
+            affinity.selected.rollback_before_attempt();
+            if let Err(error) = self.rebase_to(next) {
+                if error.code() == any2api_domain::PublicErrorCode::Unauthorized {
+                    return Err(error.into());
+                }
+                return Err(self.previous_or(|| error.into()));
+            }
+            return Ok(super::AttemptExecution::Reselect);
+        }
+        let affinity = match start_affinity_attempt(affinity) {
+            Ok(affinity) => affinity,
+            Err(true) => return Err(affinity::binding_lost().into()),
+            Err(false) => return Ok(super::AttemptExecution::Reselect),
         };
-        let affinity = match selection {
-            Ok(Ok(selection)) => selection,
-            Ok(Err(error)) => return Err(self.previous_or(|| error.into())),
-            Err(_) => return Err(self.previous_or(|| budget_exhausted().into())),
-        };
+        self.selection_wait = SelectionWaitState::default();
         let credential_id = affinity.selected.candidate.credential_id;
         let Some(attempt_no) = self.budget.register_attempt(&affinity.selected.candidate) else {
             affinity.selected.rollback_before_attempt();
@@ -61,22 +112,6 @@ impl RetryExecution<'_> {
                 true
             }
         };
-        Ok(RegisteredAttempt {
-            affinity,
-            attempt_no,
-            allow_credential_bound_headers,
-        })
-    }
-
-    pub(super) async fn execute_attempt(
-        &mut self,
-        registered: RegisteredAttempt,
-    ) -> Result<CompletedAttempt, FinalFailure> {
-        let RegisteredAttempt {
-            affinity,
-            attempt_no,
-            allow_credential_bound_headers,
-        } = registered;
         let attempt_recorder = self.services.recorder.begin_attempt(
             attempt_no,
             &affinity.selected.candidate,
@@ -85,7 +120,8 @@ impl RetryExecution<'_> {
         let timeout_marker = attempt_recorder.timeout_marker();
         let attempt_deadline = self.budget.deadline();
         let services = upstream::UpstreamServices {
-            snapshot: self.snapshot.as_ref(),
+            policy_snapshot: self.policy_snapshot.as_ref(),
+            routing_snapshot: self.routing_snapshot.as_ref(),
             protocols: self.services.protocols.as_ref(),
             providers: self.services.providers,
             transport: self.services.transport,
@@ -133,12 +169,38 @@ impl RetryExecution<'_> {
                 return Err(self.previous_or(|| error));
             }
         };
-        Ok(CompletedAttempt { attempt_no, result })
+        Ok(super::AttemptExecution::Completed(CompletedAttempt {
+            attempt_no,
+            result,
+        }))
     }
 
     fn previous_or(&mut self, fallback: impl FnOnce() -> FinalFailure) -> FinalFailure {
         take_previous_or(&mut self.previous_error, fallback)
     }
+}
+
+fn start_affinity_attempt(
+    affinity: affinity::AffinitySelection,
+) -> Result<affinity::AffinitySelection, bool> {
+    let affinity::AffinitySelection {
+        selected,
+        target,
+        binding_lease,
+        bound,
+        continuation_state,
+    } = affinity;
+    let selected = match selected.try_start_attempt() {
+        Ok(selected) => selected,
+        Err(()) => return Err(bound),
+    };
+    Ok(affinity::AffinitySelection {
+        selected,
+        target,
+        binding_lease,
+        bound,
+        continuation_state,
+    })
 }
 
 fn take_previous_or(

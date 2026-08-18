@@ -16,7 +16,7 @@ use crate::health::{EndpointHealthRuntime, ProxyHealthRuntime, ReliabilityPolicy
 use crate::{
     configuration::PublishedSnapshot,
     credential::{CredentialRuntimeBinding, RoutingPermit},
-    routing::RoutingCredential,
+    routing::{RouteAdmission, RoutingCredential},
 };
 
 #[derive(Clone, Debug)]
@@ -38,6 +38,7 @@ pub(crate) struct RouteCandidate {
     pub(crate) egress_path_health: Arc<EndpointHealthRuntime>,
     pub(crate) candidate_path_health: Arc<EndpointHealthRuntime>,
     pub(crate) binding: CredentialRuntimeBinding,
+    pub(crate) route_admission: Arc<RouteAdmission>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +89,10 @@ impl std::hash::Hash for CandidateRequirements {
 }
 
 impl RouteCandidate {
+    pub(crate) fn admission_active(&self) -> bool {
+        self.route_admission.is_active()
+    }
+
     pub(crate) const fn identity(&self) -> CandidateIdentity {
         CandidateIdentity {
             target_id: self.target_id,
@@ -319,6 +324,9 @@ pub(crate) fn build_route_candidates(
             .filter(|credential| credential.routable())
             .filter(|credential| credential.supports_model(target.upstream_model()))
         {
+            let Some(route_admission) = credential.route_admission().cloned() else {
+                continue;
+            };
             let Some(proxy) = snapshot.proxies().get(credential.proxy_id()) else {
                 continue;
             };
@@ -351,6 +359,7 @@ pub(crate) fn build_route_candidates(
                     egress_path_health,
                     candidate_path_health,
                     binding: credential.binding().clone(),
+                    route_admission,
                 });
         }
     }

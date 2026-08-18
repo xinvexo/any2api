@@ -82,6 +82,37 @@ test("does not invent an invalidation scope when a feature omits one", () => {
   expect(invalidate).not.toHaveBeenCalled();
 });
 
+test("refreshes enrichment in the background after publishing an acknowledgement", () => {
+  const queryClient = new QueryClient();
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+  queryClient.setQueryData<Configuration>(
+    ["configuration", "list"],
+    configuration(4, "enabled"),
+  );
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  const { result } = renderHook(
+    () =>
+      useConfigurationMutationLifecycle<Configuration>({
+        cacheKey: ["configuration", "list"],
+        refreshKey: ["configuration", "list"],
+        refreshAfterPublish: true,
+      }),
+    { wrapper },
+  );
+
+  act(() => result.current.publish(configuration(5, "disabled")));
+
+  expect(queryClient.getQueryData(["configuration", "list"])).toEqual(
+    configuration(5, "disabled"),
+  );
+  expect(invalidate).toHaveBeenCalledWith({
+    queryKey: ["configuration", "list"],
+    exact: true,
+  });
+});
+
 function configuration(configRevision: number, value: string): Configuration {
   return { configRevision, value };
 }

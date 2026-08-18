@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use any2api_domain::{GatewayApiKeyId, ProtocolDialect, ProtocolOperation, PublicError, RequestId};
+use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
 use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::{TransportManager, TransportRuntimeSnapshot};
@@ -20,17 +20,18 @@ use super::response::{
 };
 use super::{planning, retry};
 use crate::{
-    configuration::PublishedSnapshot,
+    configuration::{GatewayApiKeyAuthProof, PublishedSnapshot, SnapshotStore},
     credential::RoutingPermit,
     oauth::{OAuthQuotaActivity, OAuthService, refresh::OAuthRefresher},
     request_telemetry::{RequestRecorder, RequestTelemetry, public_error_class},
     routing::{RouteCandidate, RouteInspectionSnapshot, inspect_routes},
 };
 
+use super::live_routing::LiveRoutingSnapshots;
+
 #[derive(Clone)]
 pub struct PublicRequest {
     pub request_id: RequestId,
-    pub gateway_api_key_id: GatewayApiKeyId,
     pub client_ip: IpAddr,
     pub operation: ProtocolOperation,
     pub headers: HeaderMap,
@@ -101,9 +102,12 @@ impl PublicRequestService {
 
     pub async fn execute(
         &self,
+        snapshots: Arc<SnapshotStore>,
         snapshot: Arc<PublishedSnapshot>,
+        authentication: GatewayApiKeyAuthProof,
         request: PublicRequest,
     ) -> PublicResponse {
+        let live = LiveRoutingSnapshots::new(snapshots, authentication);
         let policy = self
             .telemetry
             .policy(snapshot.revision(), snapshot.settings().logging());
@@ -111,7 +115,7 @@ impl PublicRequestService {
             Arc::clone(&self.telemetry),
             policy,
             request.request_id,
-            request.gateway_api_key_id,
+            authentication.id(),
             request.client_ip,
             request.operation,
         );
@@ -121,7 +125,13 @@ impl PublicRequestService {
                 .expect("validated protocol registry"),
         );
         let result = self
-            .execute_inner(snapshot, request, Arc::clone(&adapter), recorder.clone())
+            .execute_inner(
+                snapshot,
+                request,
+                Arc::clone(&adapter),
+                recorder.clone(),
+                live,
+            )
             .await;
         match result {
             Ok(response) => {
@@ -181,7 +191,10 @@ impl PublicRequestService {
         request: PublicRequest,
         adapter: Arc<dyn ProtocolAdapter>,
         recorder: RequestRecorder,
+        live: LiveRoutingSnapshots,
     ) -> Result<PublicResponse, FinalFailure> {
+        live.validate(snapshot.as_ref())
+            .map_err(FinalFailure::from)?;
         let decoded = planning::decode(request, adapter.as_ref())
             .await
             .map_err(FinalFailure::from)?;
@@ -197,17 +210,21 @@ impl PublicRequestService {
             self.providers.as_ref(),
         )
         .map_err(FinalFailure::from)?;
-        retry::execute(
-            snapshot,
-            Arc::clone(&self.protocols),
-            planned,
-            self.providers.as_ref(),
-            self.transport.as_ref(),
-            self.oauth.get().map(|oauth| {
+        let replan_mode = planning::RoutingReplanMode::for_request(snapshot.as_ref(), &planned);
+        retry::execute(retry::RetryExecutionInput {
+            policy_snapshot: Arc::clone(&snapshot),
+            routing_snapshot: snapshot,
+            protocols: Arc::clone(&self.protocols),
+            plan: planned,
+            replan_mode,
+            providers: self.providers.as_ref(),
+            transport: self.transport.as_ref(),
+            live,
+            oauth: self.oauth.get().map(|oauth| {
                 retry::OAuthRetryServices::new(oauth.refresher.as_ref(), &oauth.quota_activity)
             }),
             recorder,
-        )
+        })
         .await
     }
 }
@@ -219,6 +236,25 @@ pub(super) struct SelectedCandidate {
 }
 
 impl SelectedCandidate {
+    pub(super) fn try_start_attempt(self) -> Result<Self, ()> {
+        let Self {
+            candidate,
+            permit,
+            health,
+        } = self;
+        match permit.try_start_attempt() {
+            Ok(permit) => Ok(Self {
+                candidate,
+                permit,
+                health,
+            }),
+            Err(_) => {
+                drop(health);
+                Err(())
+            }
+        }
+    }
+
     pub(super) fn rollback_before_attempt(self) {
         let Self { permit, health, .. } = self;
         drop(health);

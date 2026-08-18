@@ -37,7 +37,38 @@ impl ProviderCredentialCollectionResponse {
 }
 
 #[derive(Serialize)]
+pub(crate) struct ProviderCredentialMutationResponse {
+    config_revision: u64,
+    provider_endpoint_id: ProviderEndpointId,
+    items: Vec<ProviderCredentialCoreResponse>,
+}
+
+impl ProviderCredentialMutationResponse {
+    pub(crate) fn from_snapshot(
+        snapshot: &PublishedSnapshot,
+        endpoint_id: ProviderEndpointId,
+    ) -> Self {
+        Self {
+            config_revision: snapshot.revision().get(),
+            provider_endpoint_id: endpoint_id,
+            items: snapshot
+                .provider_credentials()
+                .for_endpoint(endpoint_id)
+                .map(|credential| ProviderCredentialCoreResponse::new(snapshot, credential))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
 struct ProviderCredentialResponse {
+    #[serde(flatten)]
+    core: ProviderCredentialCoreResponse,
+    usage: RequestUsageResponse,
+}
+
+#[derive(Serialize)]
+struct ProviderCredentialCoreResponse {
     id: CredentialId,
     provider_endpoint_id: ProviderEndpointId,
     label: String,
@@ -52,7 +83,6 @@ struct ProviderCredentialResponse {
     config_version: u64,
     models: Vec<ProviderCredentialModelResponse>,
     runtime: CredentialRuntimeResponse,
-    usage: RequestUsageResponse,
 }
 
 #[derive(Serialize)]
@@ -67,6 +97,18 @@ impl ProviderCredentialResponse {
         credential: &ProviderCredential,
         usage: &[UpstreamCredentialUsageSummary],
     ) -> Self {
+        Self {
+            core: ProviderCredentialCoreResponse::new(snapshot, credential),
+            usage: upstream_usage::for_id(
+                RoutingCredentialId::provider_credential(credential.id()),
+                usage,
+            ),
+        }
+    }
+}
+
+impl ProviderCredentialCoreResponse {
+    fn new(snapshot: &PublishedSnapshot, credential: &ProviderCredential) -> Self {
         let runtime = snapshot
             .credential_runtime_observation(RoutingCredentialId::provider_credential(
                 credential.id(),
@@ -94,10 +136,6 @@ impl ProviderCredentialResponse {
                 })
                 .collect(),
             runtime: runtime.into(),
-            usage: upstream_usage::for_id(
-                RoutingCredentialId::provider_credential(credential.id()),
-                usage,
-            ),
         }
     }
 }

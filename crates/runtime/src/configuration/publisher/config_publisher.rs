@@ -45,6 +45,7 @@ impl ConfigPublisher {
             current.provider_credentials(),
             current.model_routes(),
         )?;
+        runtime.publish_route_admissions(current.as_ref());
         Ok(Self {
             repository,
             snapshots,
@@ -201,6 +202,7 @@ impl ConfigPublisher {
         let published = self
             .snapshots
             .replace(prepared_snapshot.bind(&self.runtime), source);
+        self.runtime.publish_route_admissions(published.as_ref());
         if let Some(reconciler) = &self.snapshot_reconciler {
             reconciler.reconcile(published.as_ref());
         }

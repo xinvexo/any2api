@@ -4,10 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, GatewayApiKeyId, ProtocolDialect,
-    ProtocolOperation, ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey,
-    SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProtocolOperation,
+    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -15,8 +14,9 @@ use any2api_protocol::{
 };
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
-    PublicResponseBody, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, GatewayApiKeyAuthProof, ProviderApiKeySecret, PublicRequest,
+    PublicRequestService, PublicResponse, PublicResponseBody, PublishedSnapshot, RuntimeRegistry,
+    SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
@@ -38,7 +38,9 @@ async fn rpm_wait_has_no_creating_lease_and_only_the_reservation_winner_attempts
 
     let prime = execute_request(
         Arc::clone(&harness.service),
+        Arc::clone(&harness.snapshots),
         Arc::clone(&harness.snapshot),
+        harness.authentication,
         None,
     )
     .await;
@@ -78,7 +80,9 @@ async fn rpm_queue_timeout_reports_the_scheduler_cause_not_binding_creation() {
 
     let prime = execute_request(
         Arc::clone(&harness.service),
+        Arc::clone(&harness.snapshots),
         Arc::clone(&harness.snapshot),
+        harness.authentication,
         None,
     )
     .await;
@@ -109,7 +113,9 @@ async fn rpm_queue_timeout_reports_the_scheduler_cause_not_binding_creation() {
 struct Harness {
     _directory: TempDir,
     runtime: Arc<RuntimeRegistry>,
+    snapshots: Arc<SnapshotStore>,
     snapshot: Arc<PublishedSnapshot>,
+    authentication: GatewayApiKeyAuthProof,
     service: Arc<PublicRequestService>,
     transport: Arc<CallGateTransport>,
 }
@@ -199,7 +205,7 @@ impl Harness {
             )
             .await
             .expect("credential");
-        let snapshot = publisher
+        publisher
             .set_provider_credential_models(
                 credential.revision(),
                 credential_id,
@@ -211,13 +217,18 @@ impl Harness {
             )
             .await
             .expect("credential models");
+        let authentication =
+            any2api_contract_tests::create_gateway_authentication(&publisher, snapshots.as_ref())
+                .await;
         let transport = Arc::new(CallGateTransport::new(blocked_call));
         let service = Arc::new(build_service(Arc::clone(&transport)));
 
         Self {
             _directory: directory,
             runtime,
-            snapshot,
+            snapshots,
+            snapshot: authentication.snapshot,
+            authentication: authentication.proof,
             service,
             transport,
         }
@@ -257,14 +268,18 @@ fn spawn_session_request(
 ) -> tokio::task::JoinHandle<PublicResponse> {
     tokio::spawn(execute_request(
         Arc::clone(&harness.service),
+        Arc::clone(&harness.snapshots),
         Arc::clone(&harness.snapshot),
+        harness.authentication,
         Some(session),
     ))
 }
 
 async fn execute_request(
     service: Arc<PublicRequestService>,
+    snapshots: Arc<SnapshotStore>,
     snapshot: Arc<PublishedSnapshot>,
+    authentication: GatewayApiKeyAuthProof,
     session: Option<&'static str>,
 ) -> PublicResponse {
     let mut headers =
@@ -274,10 +289,11 @@ async fn execute_request(
     }
     service
         .execute(
+            snapshots,
             snapshot,
+            authentication,
             PublicRequest {
                 request_id: RequestId::new(),
-                gateway_api_key_id: GatewayApiKeyId::new(),
                 client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers,

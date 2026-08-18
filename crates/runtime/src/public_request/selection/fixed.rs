@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::time::{Instant, sleep_until};
 
 use super::super::SelectedCandidate;
-use super::{FixedSelectionError, filter_recorder::RequestFilterRecorder};
+use super::{FixedSelectionError, SelectionWaitState, filter_recorder::RequestFilterRecorder};
 use crate::{
     configuration::PublishedSnapshot,
     credential::CredentialFilterKind,
@@ -15,6 +15,7 @@ pub(super) async fn select(
     snapshot: &PublishedSnapshot,
     candidate: &RouteCandidate,
     wait_timeout: Duration,
+    wait_state: &SelectionWaitState,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
     select_with_queue(
         snapshot.queue_coordinator(),
@@ -22,6 +23,7 @@ pub(super) async fn select(
         snapshot.reliability_policy(),
         candidate,
         wait_timeout,
+        wait_state,
     )
     .await
 }
@@ -32,19 +34,19 @@ async fn select_with_queue(
     policy: ReliabilityPolicy,
     candidate: &RouteCandidate,
     wait_timeout: Duration,
+    wait_state: &SelectionWaitState,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
     let mut filters = RequestFilterRecorder::default();
     match try_selected(policy, candidate, &mut filters)? {
         FixedAttempt::Acquired(selected) => return Ok(*selected),
         FixedAttempt::Waiting(_) => {}
     }
-    let Some(ticket) = queue.try_ticket(max_waiting_requests) else {
+    let Some(mut changes) = wait_state.queue_changes(queue, max_waiting_requests) else {
         return Err(FixedSelectionError::QueueFull);
     };
-    let mut changes = ticket.subscribe();
+    let deadline = wait_state.binding(wait_timeout);
     let mut credential_changes = candidate.binding.subscribe_changes();
     let mut fixed_waiter = None;
-    let deadline = Instant::now() + wait_timeout;
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();
@@ -123,6 +125,9 @@ fn try_selected_with(
     filters: &mut RequestFilterRecorder,
     after_reservation: impl FnOnce(),
 ) -> Result<FixedAttempt, FixedSelectionError> {
+    if !candidate.admission_active() {
+        return Err(FixedSelectionError::Unavailable);
+    }
     match candidate.health_availability(&policy) {
         Ok(()) => {}
         Err(error) => {
@@ -209,5 +214,14 @@ pub(super) async fn select_with_queue_for_test(
     candidate: &RouteCandidate,
     wait_timeout: Duration,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
-    select_with_queue(queue, max_waiting_requests, policy, candidate, wait_timeout).await
+    let wait_state = SelectionWaitState::default();
+    select_with_queue(
+        queue,
+        max_waiting_requests,
+        policy,
+        candidate,
+        wait_timeout,
+        &wait_state,
+    )
+    .await
 }

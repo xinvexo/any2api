@@ -15,7 +15,7 @@ use crate::{
     health::EndpointHealthRuntime,
     public_request::upstream::UpstreamFailureOrigin,
     public_request::{retry::budget::RetryBudget, upstream::AttemptFailure},
-    routing::{RouteCandidate, SchedulerEpoch},
+    routing::{RouteAdmission, RouteAdmissionIdentity, RouteCandidate, SchedulerEpoch},
 };
 
 pub(super) fn upstream_failure(
@@ -88,6 +88,15 @@ pub(crate) fn candidate(label: &str) -> RouteCandidate {
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}")),
         Arc::clone(&scheduler_epoch),
     );
+    let route_admission = RouteAdmission::active_for_test(RouteAdmissionIdentity::new(
+        credential.id().into(),
+        binding.generation().routing_generation(),
+        credential.provider_endpoint_id(),
+        1,
+        ProxyProfileId::DIRECT,
+        1,
+    ));
+    let binding = binding.with_route_admission(Some(Arc::clone(&route_admission)));
     RouteCandidate {
         target_id: RouteTargetId::new(),
         operation: ProtocolOperation::Responses,
@@ -106,5 +115,6 @@ pub(crate) fn candidate(label: &str) -> RouteCandidate {
         egress_path_health: EndpointHealthRuntime::new(Arc::clone(&scheduler_epoch)),
         candidate_path_health: EndpointHealthRuntime::new(scheduler_epoch),
         binding,
+        route_admission,
     }
 }

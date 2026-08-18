@@ -125,7 +125,8 @@ async fn repeated_epoch_wakes_record_one_rate_filter_per_request() {
     let coordinator_for_task = Arc::clone(&coordinator);
     let task = tokio::spawn(async move {
         let mut filters = RequestFilterRecorder::default();
-        generation::select_with_queue(&coordinator_for_task, policy, || {
+        let wait_state = crate::public_request::selection::SelectionWaitState::default();
+        generation::select_with_queue(&coordinator_for_task, policy, &wait_state, || {
             attempts_for_task.fetch_add(1, Ordering::AcqRel);
             generation::try_select_for_test_with_recorder(false, &tiers, &mut filters, |_| Some(0))
         })

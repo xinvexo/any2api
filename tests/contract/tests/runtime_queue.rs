@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialKind, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
-    ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
+    ConfigRevision, CredentialKind, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
+    ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -14,8 +14,8 @@ use any2api_protocol::{
 };
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublishedSnapshot,
-    RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, GatewayApiKeyAuthProof, ProviderApiKeySecret, PublicRequest,
+    PublicRequestService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
@@ -114,13 +114,25 @@ async fn rate_limited_request_waits_until_the_rolling_window_expires() {
         )
         .await
         .expect("credential models");
+    let authentication =
+        any2api_contract_tests::create_gateway_authentication(&publisher, snapshots.as_ref()).await;
 
     tokio::time::pause();
     let transport = Arc::new(BlockingTransport::new());
     let service = Arc::new(build_service(transport.clone()));
-    let first = tokio::spawn(execute_request(Arc::clone(&service), snapshots.load()));
+    let first = tokio::spawn(execute_request(
+        Arc::clone(&service),
+        Arc::clone(&snapshots),
+        Arc::clone(&authentication.snapshot),
+        authentication.proof,
+    ));
     transport.wait_for_first_call().await;
-    let second = tokio::spawn(execute_request(Arc::clone(&service), snapshots.load()));
+    let second = tokio::spawn(execute_request(
+        Arc::clone(&service),
+        Arc::clone(&snapshots),
+        Arc::clone(&authentication.snapshot),
+        authentication.proof,
+    ));
     wait_until_waiting(&runtime, 1).await;
     assert_eq!(transport.calls(), 1);
 
@@ -135,7 +147,11 @@ async fn rate_limited_request_waits_until_the_rolling_window_expires() {
     assert_eq!(second_response.status, StatusCode::OK);
     assert_eq!(transport.calls(), 2);
     assert_eq!(runtime.queue_waiting_count(), 0);
-    assert_eq!(selected_models.revision(), snapshots.load().revision());
+    assert!(selected_models.revision() < authentication.snapshot.revision());
+    assert_eq!(
+        authentication.snapshot.revision(),
+        snapshots.load().revision()
+    );
 }
 
 fn build_service(transport: Arc<BlockingTransport>) -> PublicRequestService {
@@ -162,14 +178,17 @@ fn build_service(transport: Arc<BlockingTransport>) -> PublicRequestService {
 
 async fn execute_request(
     service: Arc<PublicRequestService>,
+    snapshots: Arc<SnapshotStore>,
     snapshot: Arc<PublishedSnapshot>,
+    authentication: GatewayApiKeyAuthProof,
 ) -> any2api_runtime::api::PublicResponse {
     service
         .execute(
+            snapshots,
             snapshot,
+            authentication,
             PublicRequest {
                 request_id: RequestId::new(),
-                gateway_api_key_id: GatewayApiKeyId::new(),
                 client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::from_iter([(

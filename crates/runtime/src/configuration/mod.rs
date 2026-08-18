@@ -18,6 +18,6 @@ pub(crate) use publisher::OAuthAccountActivation;
 pub use reconciler::PublishedSnapshotReconciler;
 pub(crate) use snapshot::PublicationSource;
 pub use snapshot::{
-    CredentialRuntimeObservation, CredentialRuntimeStatus, PreparedPublishedSnapshot,
-    PublishedSnapshot, SnapshotCompileError, SnapshotStore,
+    CredentialRuntimeObservation, CredentialRuntimeStatus, GatewayApiKeyAuthProof,
+    PreparedPublishedSnapshot, PublishedSnapshot, SnapshotCompileError, SnapshotStore,
 };

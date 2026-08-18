@@ -63,6 +63,7 @@ async fn provider_credential_crud_rotates_without_exposing_the_api_key() {
             .as_str()
             .is_some_and(|value| value.starts_with("v2:"))
     );
+    assert!(created.body["items"][0].get("usage").is_none());
     let credential_id = created.body["items"][0]["id"]
         .as_str()
         .expect("credential id");
@@ -84,6 +85,7 @@ async fn provider_credential_crud_rotates_without_exposing_the_api_key() {
     assert!(!rotated.raw_body.contains("sk-contract-rotated-secret"));
     assert_eq!(rotated.body["items"][0]["secret_version"], 2);
     assert_eq!(rotated.body["items"][0]["credential_generation"], 2);
+    assert!(rotated.body["items"][0].get("usage").is_none());
 
     let deleted = request_json(
         app,

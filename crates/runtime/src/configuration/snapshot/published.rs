@@ -52,6 +52,26 @@ pub struct PublishedSnapshot {
     pub(super) route_candidate_cache: RouteCandidateCache,
 }
 
+/// Opaque, non-secret evidence that ingress authentication succeeded against
+/// one PublishedSnapshot. External callers can forward it but cannot forge a
+/// key id or token version pair.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GatewayApiKeyAuthProof {
+    id: GatewayApiKeyId,
+    token_version: u64,
+}
+
+impl GatewayApiKeyAuthProof {
+    #[must_use]
+    pub const fn id(self) -> GatewayApiKeyId {
+        self.id
+    }
+
+    pub(crate) const fn token_version(self) -> u64 {
+        self.token_version
+    }
+}
+
 impl PublishedSnapshot {
     pub fn new(
         configuration: StoredConfiguration,
@@ -112,7 +132,7 @@ impl PublishedSnapshot {
     }
 
     #[must_use]
-    pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyId> {
+    pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyAuthProof> {
         validate_gateway_token(token.to_owned()).ok()?;
         let digest = self.gateway_api_key_verifier.hash(token.as_bytes());
         let id = *self.gateway_api_key_index.get(&digest)?;
@@ -128,7 +148,10 @@ impl PublishedSnapshot {
                         .gateway_api_key_verifier
                         .verify(token.as_bytes(), key.token_hash())
             })
-            .map(|key| key.id())
+            .map(|key| GatewayApiKeyAuthProof {
+                id: key.id(),
+                token_version: key.token_version(),
+            })
     }
 
     pub(crate) fn route_candidates(

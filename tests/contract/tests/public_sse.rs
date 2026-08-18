@@ -1680,6 +1680,122 @@ async fn explicit_session_wait_timeout_never_switches_credentials() {
         .expect("held stream completion");
 }
 
+#[tokio::test]
+async fn disabling_a_bound_credential_keeps_the_binding_and_never_switches_credentials() {
+    let (upstream_address, mut upstream_requests, release_first) = held_stream_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex revoked session",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    let (first_id, first_config_version) = create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "revoked-first",
+        "sk-revoked-first",
+    )
+    .await;
+    revision += 1;
+    let (second_id, second_config_version) = create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "revoked-second",
+        "sk-revoked-second",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+    revision += 2;
+    update_setting(&app, remote, revision, "affinity.enabled", json!(true)).await;
+    revision += 1;
+
+    let held = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "revoked-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(held.status(), StatusCode::OK);
+    let first_upstream = upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+    let (bound_id, bound_label, bound_config_version) =
+        match first_upstream.headers["authorization"].as_str() {
+            "Bearer sk-revoked-first" => (first_id, "revoked-first", first_config_version + 1),
+            "Bearer sk-revoked-second" => (second_id, "revoked-second", second_config_version + 1),
+            authorization => panic!("unexpected selected credential: {authorization}"),
+        };
+
+    request_admin_method(
+        app.clone(),
+        Method::PATCH,
+        &format!("/api/admin/provider-credentials/{bound_id}"),
+        Some(json!({
+            "expected_revision": revision,
+            "expected_config_version": bound_config_version,
+            "label": bound_label,
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "requests_per_minute": null,
+            "enabled": false
+        })),
+        remote,
+    )
+    .await;
+
+    let blocked = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","input":"continue"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "revoked-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::CONFLICT);
+    let blocked_body = blocked
+        .into_body()
+        .collect()
+        .await
+        .expect("revoked-session error response")
+        .to_bytes();
+    let blocked_json: Value =
+        serde_json::from_slice(&blocked_body).expect("revoked-session error JSON");
+    assert_eq!(blocked_json["error"]["code"], "session_binding_lost");
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "a revoked bound target must not switch to another credential"
+    );
+
+    release_first.send(()).expect("release first stream");
+    held.into_body()
+        .collect()
+        .await
+        .expect("already-started stream completion");
+}
+
 fn assert_stream_headers(response: &Response) {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
@@ -1806,8 +1922,8 @@ async fn create_credential(
     endpoint_id: &str,
     label: &str,
     api_key: &str,
-) {
-    create_credential_with_rpm(app, remote, revision, endpoint_id, label, api_key, None).await;
+) -> (String, u64) {
+    create_credential_with_rpm(app, remote, revision, endpoint_id, label, api_key, None).await
 }
 
 async fn create_rate_limited_credential(
@@ -1818,7 +1934,7 @@ async fn create_rate_limited_credential(
     label: &str,
     api_key: &str,
     requests_per_minute: u32,
-) {
+) -> (String, u64) {
     create_credential_with_rpm(
         app,
         remote,
@@ -1828,7 +1944,7 @@ async fn create_rate_limited_credential(
         api_key,
         Some(requests_per_minute),
     )
-    .await;
+    .await
 }
 
 async fn create_credential_with_rpm(
@@ -1839,8 +1955,8 @@ async fn create_credential_with_rpm(
     label: &str,
     api_key: &str,
     requests_per_minute: Option<u32>,
-) {
-    request_admin(
+) -> (String, u64) {
+    let response = request_admin(
         app.clone(),
         &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
         json!({
@@ -1855,6 +1971,18 @@ async fn create_credential_with_rpm(
         remote,
     )
     .await;
+    let created = response["items"]
+        .as_array()
+        .expect("credential items")
+        .iter()
+        .find(|credential| credential["label"] == label)
+        .expect("created credential");
+    (
+        created["id"].as_str().expect("credential id").to_owned(),
+        created["config_version"]
+            .as_u64()
+            .expect("credential config version"),
+    )
 }
 
 async fn select_models(

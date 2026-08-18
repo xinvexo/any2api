@@ -15,8 +15,44 @@ use super::super::{
 use crate::{
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle},
     health::{EndpointHealthRuntime, ReliabilityPolicy},
-    routing::SchedulerEpoch,
+    routing::{RouteAdmission, RouteAdmissionIdentity, SchedulerEpoch},
 };
+
+#[test]
+fn ordinary_selection_skips_revoked_candidates_without_reserving_rpm() {
+    let epoch = SchedulerEpoch::new();
+    let candidate = candidate("revoked", 11, Arc::clone(&epoch), 0);
+    candidate.route_admission.revoke_for_test();
+    let tiers = BTreeMap::from([(0, vec![candidate.clone()])]);
+
+    assert!(matches!(
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
+        Ok(GenerationSelection::NoCandidates)
+    ));
+    assert_eq!(candidate.binding.in_flight(), 0);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 0);
+}
+
+#[test]
+fn attempt_start_rejection_rolls_back_a_raced_reservation() {
+    let epoch = SchedulerEpoch::new();
+    let candidate = candidate("revoked-after-reserve", 13, Arc::clone(&epoch), 0);
+    let tiers = BTreeMap::from([(0, vec![candidate.clone()])]);
+    let selected = match try_select_generation_candidate_for_test(false, &tiers, |_| Some(0))
+        .expect("selection")
+    {
+        GenerationSelection::Acquired(selected) => *selected,
+        _ => panic!("active candidate must reserve"),
+    };
+    assert_eq!(candidate.binding.in_flight(), 1);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 1);
+
+    candidate.route_admission.revoke_for_test();
+
+    assert!(selected.try_start_attempt().is_err());
+    assert_eq!(candidate.binding.in_flight(), 0);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 0);
+}
 
 #[test]
 fn fallback_only_skips_a_rate_limited_tier_when_enabled() {
@@ -300,6 +336,15 @@ fn candidate_with_limit(
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}-test")),
         Arc::clone(&scheduler_epoch),
     );
+    let route_admission = RouteAdmission::active_for_test(RouteAdmissionIdentity::new(
+        credential.id().into(),
+        binding.generation().routing_generation(),
+        credential.provider_endpoint_id(),
+        1,
+        ProxyProfileId::DIRECT,
+        1,
+    ));
+    let binding = binding.with_route_admission(Some(Arc::clone(&route_admission)));
     RouteCandidate {
         target_id: RouteTargetId::new(),
         operation: any2api_domain::ProtocolOperation::Responses,
@@ -318,5 +363,6 @@ fn candidate_with_limit(
         egress_path_health: EndpointHealthRuntime::new(Arc::clone(&scheduler_epoch)),
         candidate_path_health: EndpointHealthRuntime::new(scheduler_epoch),
         binding,
+        route_admission,
     }
 }

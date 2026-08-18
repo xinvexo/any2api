@@ -1,11 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use any2api_domain::{
     ProtocolDialect, ProviderBaseUrl, ProviderEndpointId, ProviderKind, ProxyProfileId,
     RequestsPerMinute, RoutingCredentialId, UpstreamModelName,
 };
 
-use crate::credential::{CredentialGenerationDefinition, CredentialRuntimeBinding};
+use crate::{
+    credential::{CredentialGenerationDefinition, CredentialRuntimeBinding},
+    routing::{RouteAdmission, RouteAdmissionIdentity},
+};
 
 pub(crate) struct RoutingCredentialSpec {
     pub(super) projection: RoutingCredentialProjection,
@@ -42,12 +45,33 @@ pub(crate) struct RoutingCredentialProjection {
     pub(super) enabled: bool,
     pub(super) expires_at: Option<i64>,
     pub(super) endpoint_enabled: bool,
+    pub(super) proxy_enabled: bool,
     pub(super) models: Vec<UpstreamModelName>,
     pub(super) available_models: Vec<UpstreamModelName>,
 }
 
 impl RoutingCredentialProjection {
-    pub(crate) fn bind(self, binding: CredentialRuntimeBinding) -> RoutingCredential {
+    pub(crate) fn admission_identity(
+        &self,
+        routing_generation: u64,
+    ) -> Option<RouteAdmissionIdentity> {
+        (self.enabled && self.endpoint_enabled && self.proxy_enabled).then(|| {
+            RouteAdmissionIdentity::new(
+                self.id,
+                routing_generation,
+                self.endpoint_id,
+                self.endpoint_config_version,
+                self.proxy_id,
+                self.proxy_config_version,
+            )
+        })
+    }
+
+    pub(crate) fn bind(
+        self,
+        binding: CredentialRuntimeBinding,
+        route_admission: Option<Arc<RouteAdmission>>,
+    ) -> RoutingCredential {
         RoutingCredential {
             id: self.id,
             provider_kind: self.provider_kind,
@@ -61,9 +85,11 @@ impl RoutingCredentialProjection {
             enabled: self.enabled,
             expires_at: self.expires_at,
             endpoint_enabled: self.endpoint_enabled,
+            proxy_enabled: self.proxy_enabled,
             models: self.models,
             available_models: self.available_models,
             binding,
+            route_admission,
         }
     }
 }
@@ -82,9 +108,11 @@ pub(crate) struct RoutingCredential {
     enabled: bool,
     expires_at: Option<i64>,
     endpoint_enabled: bool,
+    proxy_enabled: bool,
     models: Vec<UpstreamModelName>,
     available_models: Vec<UpstreamModelName>,
     binding: CredentialRuntimeBinding,
+    route_admission: Option<Arc<RouteAdmission>>,
 }
 
 impl RoutingCredential {
@@ -123,7 +151,10 @@ impl RoutingCredential {
             .is_some_and(|expires_at| expires_at <= unix_now())
     }
     pub(crate) fn routable(&self) -> bool {
-        self.enabled && self.endpoint_enabled && !self.authentication_expired()
+        self.enabled
+            && self.endpoint_enabled
+            && self.proxy_enabled
+            && !self.authentication_expired()
     }
     pub(crate) const fn endpoint_enabled(&self) -> bool {
         self.endpoint_enabled
@@ -139,6 +170,9 @@ impl RoutingCredential {
     }
     pub(crate) const fn binding(&self) -> &CredentialRuntimeBinding {
         &self.binding
+    }
+    pub(crate) const fn route_admission(&self) -> Option<&Arc<RouteAdmission>> {
+        self.route_admission.as_ref()
     }
     pub(crate) const fn is_oauth(&self) -> bool {
         self.id.oauth_account_id().is_some()

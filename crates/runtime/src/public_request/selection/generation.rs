@@ -5,7 +5,7 @@ use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::super::SelectedCandidate;
 use super::{
-    GenerationSelection,
+    GenerationSelection, SelectionWaitState,
     filter_recorder::RequestFilterRecorder,
     no_available_credentials, rate_limit_error, rate_limited, temporarily_unavailable,
     tier::{self, TierScan},
@@ -19,16 +19,20 @@ use crate::{
 };
 
 pub(super) fn try_select(
-    snapshot: &PublishedSnapshot,
-    route_id: ModelRouteId,
-    fallback_on_rate_limit: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    selection_state: &CandidateSelectionState,
-    credential_eligible: &(dyn Fn(RoutingCredentialId) -> bool + Sync),
-    filters: &mut RequestFilterRecorder,
+    input: GenerationSelectionInput<'_>,
 ) -> Result<GenerationSelection, PublicError> {
+    let GenerationSelectionInput {
+        policy_snapshot,
+        routing_snapshot,
+        route_id,
+        fallback_on_rate_limit,
+        tiers,
+        selection_state,
+        credential_eligible,
+        filters,
+    } = input;
     try_select_with(
-        snapshot.reliability_policy(),
+        policy_snapshot.reliability_policy(),
         fallback_on_rate_limit,
         SelectionPool {
             tiers,
@@ -37,12 +41,12 @@ pub(super) fn try_select(
         },
         filters,
         |tier| {
-            snapshot
+            routing_snapshot
                 .route_tier_cursor(route_id, FallbackTier::new(tier))
                 .map(|cursor| cursor.reserve())
         },
         |tier, skipped| {
-            snapshot
+            routing_snapshot
                 .route_tier_cursor(route_id, FallbackTier::new(tier))
                 .is_some_and(|cursor| {
                     cursor.advance_by(skipped);
@@ -50,6 +54,17 @@ pub(super) fn try_select(
                 })
         },
     )
+}
+
+pub(super) struct GenerationSelectionInput<'a> {
+    pub(super) policy_snapshot: &'a PublishedSnapshot,
+    pub(super) routing_snapshot: &'a PublishedSnapshot,
+    pub(super) route_id: ModelRouteId,
+    pub(super) fallback_on_rate_limit: bool,
+    pub(super) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
+    pub(super) selection_state: &'a CandidateSelectionState,
+    pub(super) credential_eligible: &'a (dyn Fn(RoutingCredentialId) -> bool + Sync),
+    pub(super) filters: &'a mut RequestFilterRecorder,
 }
 
 struct SelectionPool<'a> {
@@ -72,7 +87,8 @@ fn try_select_with(
     let mut deferred_retry_at = None;
     let now = Instant::now();
     let has_active_deferral = pool.tiers.values().flatten().any(|candidate| {
-        pool.selection_state.allows(candidate)
+        candidate.admission_active()
+            && pool.selection_state.allows(candidate)
             && (pool.credential_eligible)(candidate.credential_id)
             && pool
                 .selection_state
@@ -163,6 +179,7 @@ fn try_select_with(
 pub(super) async fn select_with_queue(
     coordinator: &Arc<QueueCoordinator>,
     policy: QueuePolicy,
+    wait_state: &SelectionWaitState,
     mut try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
     match try_select()? {
@@ -184,7 +201,7 @@ pub(super) async fn select_with_queue(
         GenerationSelection::RateLimited(_)
         | GenerationSelection::TemporarilyUnavailable(_)
         | GenerationSelection::RetryDeferred(_) => {
-            wait_for_candidate(coordinator, policy, try_select).await
+            wait_for_candidate(coordinator, policy, wait_state, try_select).await
         }
     }
 }
@@ -192,13 +209,14 @@ pub(super) async fn select_with_queue(
 pub(super) async fn wait_for_candidate(
     coordinator: &Arc<QueueCoordinator>,
     policy: QueuePolicy,
+    wait_state: &SelectionWaitState,
     mut try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
-    let Some(ticket) = coordinator.try_ticket(policy.max_waiting_requests()) else {
+    let Some(mut changes) = wait_state.queue_changes(coordinator, policy.max_waiting_requests())
+    else {
         return Err(rate_limit_error("request queue is full"));
     };
-    let mut changes = ticket.subscribe();
-    let deadline = Instant::now() + policy.queue_timeout();
+    let deadline = wait_state.queue(policy.queue_timeout());
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();

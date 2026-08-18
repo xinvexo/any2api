@@ -105,6 +105,7 @@ impl CredentialRuntimeHandle {
             handle: Arc::clone(self),
             generation,
             requests_per_minute,
+            route_admission: None,
         }
     }
 
@@ -116,6 +117,7 @@ impl CredentialRuntimeHandle {
             handle: Arc::clone(self),
             generation: self.current_generation.load_full(),
             requests_per_minute,
+            route_admission: None,
         }
     }
 
@@ -208,6 +210,8 @@ impl CredentialRuntimeHandle {
             generation,
             rate_reservation,
             in_flight_released: false,
+            route_admission: None,
+            attempt_start: None,
         })
     }
 

@@ -12,8 +12,8 @@ use super::{
     dto::{
         ProviderCredentialCollectionResponse, ProviderCredentialCreateRequest,
         ProviderCredentialDeleteQuery, ProviderCredentialModelsRequest,
-        ProviderCredentialRotateRequest, ProviderCredentialTestResponse,
-        ProviderCredentialUpdateRequest,
+        ProviderCredentialMutationResponse, ProviderCredentialRotateRequest,
+        ProviderCredentialTestResponse, ProviderCredentialUpdateRequest,
     },
     error::AdminApiError,
     request_json::AdminJson,
@@ -34,21 +34,21 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     Path(endpoint_id): Path<String>,
     AdminJson(payload): AdminJson<ProviderCredentialCreateRequest>,
-) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
+) -> Result<Json<ProviderCredentialMutationResponse>, AdminApiError> {
     let endpoint_id = parse_endpoint_id(&endpoint_id)?;
     let (expected, draft, api_key) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .create_provider_credential(expected, CredentialId::new(), endpoint_id, draft, api_key)
         .await?;
-    Ok(response(&state, &snapshot, endpoint_id).await)
+    Ok(mutation_response(&snapshot, endpoint_id))
 }
 
 pub(crate) async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<ProviderCredentialUpdateRequest>,
-) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
+) -> Result<Json<ProviderCredentialMutationResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let (expected, expected_config_version, draft) = payload.into_domain()?;
     let endpoint_id = credential_endpoint(&state, id)?;
@@ -56,14 +56,14 @@ pub(crate) async fn update(
         .publisher()
         .update_provider_credential(expected, id, expected_config_version, draft)
         .await?;
-    Ok(response(&state, &snapshot, endpoint_id).await)
+    Ok(mutation_response(&snapshot, endpoint_id))
 }
 
 pub(crate) async fn rotate_secret(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<ProviderCredentialRotateRequest>,
-) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
+) -> Result<Json<ProviderCredentialMutationResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let (expected, expected_config_version, expected_secret_version, api_key) =
         payload.into_domain()?;
@@ -78,14 +78,14 @@ pub(crate) async fn rotate_secret(
             api_key,
         )
         .await?;
-    Ok(response(&state, &snapshot, endpoint_id).await)
+    Ok(mutation_response(&snapshot, endpoint_id))
 }
 
 pub(crate) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
     RequiredVersionedQuery(query): RequiredVersionedQuery<ProviderCredentialDeleteQuery>,
-) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
+) -> Result<Json<ProviderCredentialMutationResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let endpoint_id = credential_endpoint(&state, id)?;
     let (expected, expected_config_version) = query.into_domain()?;
@@ -93,7 +93,7 @@ pub(crate) async fn delete(
         .publisher()
         .delete_provider_credential(expected, id, expected_config_version)
         .await?;
-    Ok(response(&state, &snapshot, endpoint_id).await)
+    Ok(mutation_response(&snapshot, endpoint_id))
 }
 
 pub(crate) async fn test(
@@ -112,7 +112,7 @@ pub(crate) async fn set_models(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<ProviderCredentialModelsRequest>,
-) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
+) -> Result<Json<ProviderCredentialMutationResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let (expected, expected_config_version, models) = payload.into_domain()?;
     let endpoint_id = credential_endpoint(&state, id)?;
@@ -120,7 +120,7 @@ pub(crate) async fn set_models(
         .publisher()
         .set_provider_credential_models(expected, id, expected_config_version, models)
         .await?;
-    Ok(response(&state, &snapshot, endpoint_id).await)
+    Ok(mutation_response(&snapshot, endpoint_id))
 }
 
 async fn response(
@@ -133,6 +133,16 @@ async fn response(
         snapshot,
         endpoint_id,
         &usage,
+    ))
+}
+
+fn mutation_response(
+    snapshot: &any2api_runtime::api::PublishedSnapshot,
+    endpoint_id: ProviderEndpointId,
+) -> Json<ProviderCredentialMutationResponse> {
+    Json(ProviderCredentialMutationResponse::from_snapshot(
+        snapshot,
+        endpoint_id,
     ))
 }
 
@@ -168,4 +178,17 @@ fn parse_endpoint_id(value: &str) -> Result<ProviderEndpointId, AdminApiError> {
 fn parse_credential_id(value: &str) -> Result<CredentialId, AdminApiError> {
     CredentialId::from_str(value)
         .map_err(|_| AdminApiError::invalid_request("provider credential id is invalid"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mutation_ack_is_snapshot_only_and_synchronous() {
+        let _: fn(
+            &any2api_runtime::api::PublishedSnapshot,
+            ProviderEndpointId,
+        ) -> Json<ProviderCredentialMutationResponse> = mutation_response;
+    }
 }

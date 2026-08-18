@@ -11,17 +11,19 @@ use tokio::time::Instant;
 
 use super::{
     PublicResponse,
-    planning::PlannedRequest,
+    live_routing::LiveRoutingSnapshots,
+    planning::{self, PlannedRequest, RoutingReplanMode},
     response::{FinalFailure, public_error},
 };
 use crate::{
     configuration::PublishedSnapshot,
     oauth::{OAuthQuotaActivity, refresh::OAuthRefresher},
+    public_request::selection::SelectionWaitState,
     request_telemetry::{AttemptTimeoutMarker, RequestRecorder},
     routing::CandidateSelectionState,
 };
 
-use self::budget::RetryBudget;
+use self::{attempt::CompletedAttempt, budget::RetryBudget};
 
 mod attempt;
 mod budget;
@@ -56,12 +58,29 @@ struct RetryServices<'a> {
     recorder: RequestRecorder,
 }
 
+pub(super) struct RetryExecutionInput<'a> {
+    pub(super) policy_snapshot: Arc<PublishedSnapshot>,
+    pub(super) routing_snapshot: Arc<PublishedSnapshot>,
+    pub(super) protocols: Arc<ProtocolRegistry>,
+    pub(super) plan: PlannedRequest,
+    pub(super) replan_mode: RoutingReplanMode,
+    pub(super) providers: &'a ProviderRegistry,
+    pub(super) transport: &'a dyn TransportManager,
+    pub(super) live: LiveRoutingSnapshots,
+    pub(super) oauth: Option<OAuthRetryServices<'a>>,
+    pub(super) recorder: RequestRecorder,
+}
+
 struct RetryExecution<'a> {
-    snapshot: Arc<PublishedSnapshot>,
+    policy_snapshot: Arc<PublishedSnapshot>,
+    routing_snapshot: Arc<PublishedSnapshot>,
     plan: PlannedRequest,
+    replan_mode: RoutingReplanMode,
+    live: LiveRoutingSnapshots,
     services: RetryServices<'a>,
     budget: RetryBudget,
     selection_state: CandidateSelectionState,
+    selection_wait: SelectionWaitState,
     previous_error: Option<FinalFailure>,
     oauth_refresh_attempted: bool,
     refreshed_oauth_target: Option<(OAuthAccountId, u64)>,
@@ -69,22 +88,31 @@ struct RetryExecution<'a> {
 }
 
 pub(super) async fn execute(
-    snapshot: Arc<PublishedSnapshot>,
-    protocols: Arc<ProtocolRegistry>,
-    plan: PlannedRequest,
-    providers: &ProviderRegistry,
-    transport: &dyn TransportManager,
-    oauth: Option<OAuthRetryServices<'_>>,
-    recorder: RequestRecorder,
+    input: RetryExecutionInput<'_>,
 ) -> Result<PublicResponse, FinalFailure> {
+    let RetryExecutionInput {
+        policy_snapshot,
+        routing_snapshot,
+        protocols,
+        plan,
+        replan_mode,
+        providers,
+        transport,
+        live,
+        oauth,
+        recorder,
+    } = input;
     let budget = RetryBudget::new(
-        snapshot.reliability_policy(),
+        policy_snapshot.reliability_policy(),
         plan.decoded.operation,
         plan.decoded.execution_profile,
     );
     RetryExecution {
-        snapshot,
+        policy_snapshot,
+        routing_snapshot,
         plan,
+        replan_mode,
+        live,
         services: RetryServices {
             protocols,
             providers,
@@ -94,6 +122,7 @@ pub(super) async fn execute(
         },
         budget,
         selection_state: CandidateSelectionState::default(),
+        selection_wait: SelectionWaitState::default(),
         previous_error: None,
         oauth_refresh_attempted: false,
         refreshed_oauth_target: None,
@@ -104,10 +133,36 @@ pub(super) async fn execute(
 }
 
 impl RetryExecution<'_> {
+    pub(super) fn rebase_to(
+        &mut self,
+        next_snapshot: Arc<PublishedSnapshot>,
+    ) -> Result<(), PublicError> {
+        self.live.validate(next_snapshot.as_ref())?;
+        let next_plan = planning::replan(
+            next_snapshot.as_ref(),
+            &self.plan,
+            self.replan_mode,
+            self.policy_snapshot.queue_policy().fallback_on_rate_limit(),
+            self.services.protocols.as_ref(),
+            self.services.providers,
+        )?;
+        self.routing_snapshot = next_snapshot;
+        self.plan = next_plan;
+        Ok(())
+    }
+}
+
+impl RetryExecution<'_> {
     async fn run(mut self) -> Result<PublicResponse, FinalFailure> {
+        if let Some(latest) = self.live.refresh(self.routing_snapshot.as_ref()) {
+            self.rebase_to(latest).map_err(FinalFailure::from)?;
+        }
         loop {
             let selected = self.select_attempt().await?;
-            let completed = self.execute_attempt(selected).await?;
+            let AttemptExecution::Completed(completed) = self.execute_attempt(selected).await?
+            else {
+                continue;
+            };
             match completed.result {
                 Ok(response) => return Ok(response),
                 Err(failure) => {
@@ -116,6 +171,11 @@ impl RetryExecution<'_> {
             }
         }
     }
+}
+
+enum AttemptExecution {
+    Completed(CompletedAttempt),
+    Reselect,
 }
 
 fn budget_exhausted() -> PublicError {

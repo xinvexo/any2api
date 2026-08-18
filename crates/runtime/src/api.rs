@@ -1,8 +1,8 @@
 pub use crate::affinity::{AffinityPolicy, AffinityRuntimeSnapshot};
 pub use crate::configuration::{
     ConfigPublishError, ConfigPublisher, CredentialRuntimeObservation, CredentialRuntimeStatus,
-    PreparedPublishedSnapshot, PublishedSnapshot, PublishedSnapshotReconciler,
-    SnapshotCompileError, SnapshotStore,
+    GatewayApiKeyAuthProof, PreparedPublishedSnapshot, PublishedSnapshot,
+    PublishedSnapshotReconciler, SnapshotCompileError, SnapshotStore,
 };
 pub use crate::configuration::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
@@ -42,6 +42,7 @@ pub use crate::request_telemetry::{
     ActiveRequestLogBatch, HttpAccessLogChangeNotification, RequestTelemetry,
     RequestTelemetryControlError, RequestTelemetryMetrics,
 };
+pub use crate::routing::AttemptStartRejected;
 pub use crate::routing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
     BalancingTotalsSnapshot, BreakerStateCounts, RouteInspectionCandidateGroup,

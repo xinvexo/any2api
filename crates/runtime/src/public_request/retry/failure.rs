@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     oauth::refresh::OAuthAuthenticationRefreshResult,
-    public_request::{planning, response::FinalFailure, upstream::AttemptFailure},
+    public_request::{response::FinalFailure, upstream::AttemptFailure},
 };
 
 impl RetryExecution<'_> {
@@ -89,15 +89,8 @@ impl RetryExecution<'_> {
             .oauth_accounts()
             .get(account_id)
             .map(|account| (account_id, account.token_version()));
-        let next_plan = planning::replan(
-            next_snapshot.as_ref(),
-            &self.plan,
-            self.services.protocols.as_ref(),
-            self.services.providers,
-        )?;
+        self.rebase_to(next_snapshot).map_err(FinalFailure::from)?;
         self.refreshed_oauth_target = refreshed_target;
-        self.snapshot = next_snapshot;
-        self.plan = next_plan;
         Ok(true)
     }
 

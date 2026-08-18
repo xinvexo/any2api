@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{
     affinity::{AffinityRegistry, AffinityTarget, BindingCreationPhase, BindingStart},
+    public_request::selection::SelectionWaitState,
     routing::{QueueCoordinator, SchedulerEpoch},
 };
 
@@ -148,7 +149,8 @@ async fn wait_for_session_binding(
     wait_timeout: Duration,
     max_waiting_requests: u32,
 ) -> Result<AffinityTarget, any2api_domain::PublicError> {
-    let deadline = Instant::now() + wait_timeout;
+    let wait_state = SelectionWaitState::default();
+    let deadline = wait_state.binding(wait_timeout);
     let mut wait: Option<SessionQueueWait> = None;
     let mut waiting_on_attempt = false;
     loop {
@@ -172,7 +174,7 @@ async fn wait_for_session_binding(
                 if Instant::now() >= deadline {
                     return Err(binding_wait_timeout());
                 }
-                if ensure_queue_wait(&mut wait, queue, max_waiting_requests)? {
+                if ensure_queue_wait(&mut wait, &wait_state, queue, max_waiting_requests)? {
                     continue;
                 }
                 waiting_on_attempt = true;

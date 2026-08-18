@@ -6,4 +6,7 @@ pub(super) use requests::{
     ProviderCredentialModelsRequest, ProviderCredentialRotateRequest,
     ProviderCredentialUpdateRequest,
 };
-pub(super) use responses::{ProviderCredentialCollectionResponse, ProviderCredentialTestResponse};
+pub(super) use responses::{
+    ProviderCredentialCollectionResponse, ProviderCredentialMutationResponse,
+    ProviderCredentialTestResponse,
+};

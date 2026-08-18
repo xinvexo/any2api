@@ -74,6 +74,9 @@ pub(super) fn add_oauth_candidates(
         .filter(|credential| credential.ingress_protocol() == route.ingress_protocol)
         .filter(|credential| credential.supports_model(&model))
     {
+        let Some(route_admission) = credential.route_admission().cloned() else {
+            continue;
+        };
         if requirements.execution_profile().requires_same_dialect()
             && credential.upstream_protocol() != route.ingress_protocol
         {
@@ -133,6 +136,7 @@ pub(super) fn add_oauth_candidates(
             egress_path_health,
             candidate_path_health,
             binding: credential.binding().clone(),
+            route_admission,
         });
     }
 }

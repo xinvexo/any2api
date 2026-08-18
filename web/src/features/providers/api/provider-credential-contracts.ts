@@ -16,7 +16,7 @@ export interface CredentialModelSelection {
   publicModel: string | null;
 }
 
-export interface ProviderCredential {
+export interface ProviderCredentialCore {
   id: string;
   providerEndpointId: string;
   label: string;
@@ -31,6 +31,9 @@ export interface ProviderCredential {
   configVersion: number;
   models: CredentialModelSelection[];
   runtime: CredentialRuntime;
+}
+
+export interface ProviderCredential extends ProviderCredentialCore {
   usage: RequestUsage;
 }
 
@@ -158,6 +161,17 @@ export function parseProviderCredentialTestResult(value: unknown): ProviderCrede
 }
 
 function parseProviderCredential(value: unknown): ProviderCredential {
+  const core = parseProviderCredentialCore(value);
+  if (!isRecord(value)) {
+    throw new Error("invalid provider credential response");
+  }
+  return {
+    ...core,
+    usage: parseRequestUsage(value.usage),
+  };
+}
+
+export function parseProviderCredentialCore(value: unknown): ProviderCredentialCore {
   if (
     !isRecord(value) ||
     value.credential_kind !== "api_key" ||
@@ -189,7 +203,6 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     configVersion: readPositiveInteger(value.config_version),
     models: readModelSelections(value.models),
     runtime: parseCredentialRuntime(value.runtime, "invalid provider credential response"),
-    usage: parseRequestUsage(value.usage),
   };
 }
 

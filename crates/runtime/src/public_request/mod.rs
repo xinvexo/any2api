@@ -1,6 +1,7 @@
 mod affinity;
 mod execution_limits;
 mod executor;
+mod live_routing;
 mod planning;
 mod response;
 mod retry;

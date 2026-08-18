@@ -12,6 +12,7 @@ import {
   type OAuthProvider,
   type OAuthProxySelection,
 } from "./oauth-contracts";
+import { parseOAuthAccountMutationResponse } from "./oauth-account-mutation-contracts";
 import {
   parseNullableOAuthQuotaSnapshot,
   parseOAuthQuotaManualRefreshResult,
@@ -91,7 +92,7 @@ export function updateOAuthAccount(id: string, input: OAuthAccountUpdateInput) {
       proxy_selection: serializeOAuthProxySelection(input.proxySelection),
       enabled: input.enabled,
     },
-  }).then(parseOAuthAccountConfiguration);
+  }).then(parseOAuthAccountMutationResponse);
 }
 
 export function setOAuthAccountModels(id: string, input: OAuthAccountModelsInput) {
@@ -105,7 +106,7 @@ export function setOAuthAccountModels(id: string, input: OAuthAccountModelsInput
         models: input.models,
       },
     },
-  ).then(parseOAuthAccountConfiguration);
+  ).then(parseOAuthAccountMutationResponse);
 }
 
 export function deleteOAuthAccount(
@@ -120,7 +121,7 @@ export function deleteOAuthAccount(
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}?${query.toString()}`,
     { method: "DELETE" },
-  ).then(parseOAuthAccountConfiguration);
+  ).then(parseOAuthAccountMutationResponse);
 }
 
 export function getOAuthAccountQuota(id: string) {

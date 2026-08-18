@@ -15,9 +15,9 @@ use crate::{
     health::{HealthBindings, HealthRegistry},
     lifecycle::ProcessLifecycle,
     routing::{
-        BalancingRuntimeSnapshot, QueueCoordinator, RouteTierCursorBindings,
-        RouteTierCursorRegistry, RoutingCredentialSpec, RoutingCredentials, SchedulerEpoch,
-        active_candidate_path_bases, balancing_snapshot,
+        BalancingRuntimeSnapshot, QueueCoordinator, RouteAdmissionRegistry,
+        RouteTierCursorBindings, RouteTierCursorRegistry, RoutingCredentialSpec,
+        RoutingCredentials, SchedulerEpoch, active_candidate_path_bases, balancing_snapshot,
     },
     system_metrics::{SystemMetricsError, SystemMetricsSampler, SystemMetricsSnapshot},
 };
@@ -28,6 +28,7 @@ pub struct RuntimeRegistry {
     affinity: Arc<AffinityRegistry>,
     affinity_sweeper_started: AtomicBool,
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
+    route_admissions: RouteAdmissionRegistry,
     route_tier_cursors: RouteTierCursorRegistry,
     queue_coordinator: Arc<QueueCoordinator>,
     health: Arc<HealthRegistry>,
@@ -51,6 +52,7 @@ impl RuntimeRegistry {
             affinity_sweeper_started: AtomicBool::new(false),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
+            route_admissions: RouteAdmissionRegistry::default(),
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
             health: Arc::new(HealthRegistry::new(Arc::clone(&scheduler_epoch))),
@@ -133,12 +135,28 @@ impl RuntimeRegistry {
                 handles.insert(routing_id, handle);
                 binding
             };
-            credentials.push(projection.bind(binding));
+            let route_admission = projection
+                .admission_identity(binding.generation().routing_generation())
+                .map(|identity| self.route_admissions.prepare(identity));
+            let binding = binding.with_route_admission(route_admission.clone());
+            credentials.push(projection.bind(binding, route_admission));
         }
 
         handles.retain(|id, _| active_ids.contains(id));
 
         RoutingCredentials::new(credentials)
+    }
+
+    pub(crate) fn publish_route_admissions(
+        &self,
+        published: &crate::configuration::PublishedSnapshot,
+    ) {
+        self.route_admissions.publish_current(
+            published
+                .routing_credentials()
+                .iter()
+                .filter_map(crate::routing::RoutingCredential::route_admission),
+        );
     }
 
     #[cfg(test)]

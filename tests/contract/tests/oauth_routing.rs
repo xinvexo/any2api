@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use any2api_domain::{
-    ConfigRevision, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, OAuthProxySelection,
-    ProtocolOperation, ProviderKind, ProxyProfileId, RequestId,
+    ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId,
+    OAuthProxySelection, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -11,10 +11,10 @@ use any2api_protocol::{
 use any2api_provider::{ClaudeDriver, CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
     PublicRequest, PublicRequestService, PublicResponseBody, PublishedSnapshot, RequestTelemetry,
-    RuntimeRegistry,
+    RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{
-    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
+    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SecretBytes, SqliteStore,
     StoredConfiguration,
 };
 use any2api_transport::api::{
@@ -36,10 +36,22 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             .expect("storage"),
     );
     let initial = storage.load_configuration().await.expect("configuration");
-    let account_id = OAuthAccountId::new();
+    let gateway_api_key_id = GatewayApiKeyId::new();
+    let gateway_token = test_gateway_token();
     let configuration = commit_configuration(
         storage.as_ref(),
         initial.revision(),
+        ConfigurationMutation::CreateGatewayApiKey {
+            id: gateway_api_key_id,
+            draft: GatewayApiKeyDraft::new("OAuth routing", true).expect("Gateway key draft"),
+            token: SecretBytes::from(gateway_token.as_bytes().to_vec()),
+        },
+    )
+    .await;
+    let account_id = OAuthAccountId::new();
+    let configuration = commit_configuration(
+        storage.as_ref(),
+        configuration.revision(),
         ConfigurationMutation::CreateOAuthAccount {
             id: account_id,
             provider_kind: ProviderKind::Codex,
@@ -69,10 +81,14 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
         configuration.settings().logging(),
         &runtime.lifecycle(),
     ));
-    let snapshot = Arc::new(
+    let snapshots = Arc::new(SnapshotStore::new(
         PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
             .expect("initial snapshot"),
-    );
+    ));
+    let snapshot = snapshots.load();
+    let authentication = snapshot
+        .authenticate_gateway_api_key(&gateway_token)
+        .expect("Gateway key authenticates");
     let transport = Arc::new(CapturingTransport::default());
     let service = PublicRequestService::new(
         protocols,
@@ -85,10 +101,11 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
 
     let response = service
         .execute(
+            Arc::clone(&snapshots),
             Arc::clone(&snapshot),
+            authentication,
             PublicRequest {
                 request_id,
-                gateway_api_key_id: GatewayApiKeyId::new(),
                 client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
@@ -160,6 +177,14 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
     assert_eq!(log.attempts.len(), 1);
     assert_eq!(log.attempts[0].credential_id, None);
     assert_eq!(log.attempts[0].oauth_account_id, Some(account_id));
+}
+
+fn test_gateway_token() -> String {
+    format!(
+        "{}{}",
+        any2api_domain::GATEWAY_TOKEN_PREFIX,
+        "a".repeat(any2api_domain::GATEWAY_TOKEN_BODY_LEN)
+    )
 }
 
 async fn commit_configuration(

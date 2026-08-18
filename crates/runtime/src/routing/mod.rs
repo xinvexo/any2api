@@ -1,3 +1,4 @@
+mod admission;
 mod balancing;
 mod candidates;
 mod credential;
@@ -7,6 +8,10 @@ mod queue;
 mod scheduler;
 mod tier_cursor;
 
+pub use admission::AttemptStartRejected;
+pub(crate) use admission::{
+    AttemptStartPermit, RouteAdmission, RouteAdmissionIdentity, RouteAdmissionRegistry,
+};
 pub(crate) use balancing::snapshot as balancing_snapshot;
 pub use balancing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,

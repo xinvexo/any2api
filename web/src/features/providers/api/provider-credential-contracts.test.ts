@@ -4,6 +4,8 @@ import {
   parseProviderCredentialConfiguration,
   parseProviderCredentialTestResult,
 } from "./provider-credential-contracts";
+import { parseProviderCredentialMutationResponse } from "./provider-credential-mutation-contracts";
+import { mergeProviderCredentialMutationResponse } from "../model/merge-provider-credential-mutation-response";
 
 test("parses redacted credentials and rejects plaintext secret fields", () => {
   const parsed = parseProviderCredentialConfiguration(configuration());
@@ -71,6 +73,35 @@ test("parses unlimited RPM and rejects invalid RPM and fingerprint versions", ()
   expect(() =>
     parseProviderCredentialConfiguration(configuration({ fingerprint: "v1:0123456789abcdef" })),
   ).toThrow("invalid provider credential response");
+});
+
+test("merges mutation configuration while preserving usage until the list refetch", () => {
+  const current = parseProviderCredentialConfiguration(configuration());
+  const item = configuration({ enabled: false, config_version: 2 }).items[0];
+  const core = Object.fromEntries(
+    Object.entries(item).filter(([key]) => key !== "usage"),
+  );
+  const incoming = parseProviderCredentialMutationResponse({
+    config_revision: 4,
+    provider_endpoint_id: configuration().provider_endpoint_id,
+    items: [core],
+  });
+
+  const merged = mergeProviderCredentialMutationResponse(current, incoming);
+  if (!merged) {
+    throw new Error("mutation response did not merge");
+  }
+
+  expect(merged).toMatchObject({ configRevision: 4 });
+  expect(merged.items[0]).toMatchObject({ enabled: false, configVersion: 2 });
+  expect(merged.items[0]?.usage).toBe(current.items[0]?.usage);
+  expect(() =>
+    parseProviderCredentialMutationResponse({
+      config_revision: 4,
+      provider_endpoint_id: configuration().provider_endpoint_id,
+      items: [item],
+    }),
+  ).toThrow("invalid provider credential mutation response");
 });
 
 test("parses credential test outcomes and rejects inconsistent states", () => {

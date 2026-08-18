@@ -7,9 +7,9 @@ mod tests;
 mod tier;
 
 pub(super) use selector::{
-    CandidateSelector, FixedSelectionError, GenerationSelection, no_available_credentials,
-    rate_limit_error, rate_limited, select_candidate, select_fixed_candidate,
-    temporarily_unavailable,
+    CandidateSelectionInput, CandidateSelector, FixedSelectionError, GenerationSelection,
+    SelectionWaitState, no_available_credentials, rate_limit_error, rate_limited, select_candidate,
+    select_fixed_candidate, temporarily_unavailable,
 };
 
 #[cfg(test)]

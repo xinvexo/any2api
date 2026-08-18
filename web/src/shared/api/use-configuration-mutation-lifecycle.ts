@@ -8,6 +8,7 @@ interface ConfigurationMutationLifecycleOptions {
   cacheKey: QueryKey;
   invalidateKey?: QueryKey;
   refreshKey: QueryKey;
+  refreshAfterPublish?: boolean;
 }
 
 export function selectNewestConfiguration<T extends RevisionedConfiguration>(
@@ -21,6 +22,7 @@ export function useConfigurationMutationLifecycle<T extends RevisionedConfigurat
   cacheKey,
   invalidateKey,
   refreshKey,
+  refreshAfterPublish = false,
 }: ConfigurationMutationLifecycleOptions) {
   const queryClient = useQueryClient();
 
@@ -30,6 +32,9 @@ export function useConfigurationMutationLifecycle<T extends RevisionedConfigurat
     );
     if (invalidateKey) {
       void queryClient.invalidateQueries({ queryKey: invalidateKey });
+    }
+    if (refreshAfterPublish) {
+      void queryClient.invalidateQueries({ queryKey: refreshKey, exact: true });
     }
   }
 
