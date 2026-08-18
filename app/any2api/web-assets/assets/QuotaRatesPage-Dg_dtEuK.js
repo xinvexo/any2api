@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-bzQ4Vb5N.js";import{n as t}from"./settings-B7Tu_p2E.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as QuotaRatesPage};
