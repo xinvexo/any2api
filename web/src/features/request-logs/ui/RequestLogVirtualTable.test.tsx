@@ -99,6 +99,47 @@ test("keeps live and transition effects on the inset row surface", () => {
   expect(completedRow.parentElement).not.toHaveClass("log-entry-complete");
 });
 
+test("keeps the same row surface when an active request completes", () => {
+  const active = {
+    ...activeRequestLog(),
+    requestId: "request-1",
+    publicModel: "model-1",
+  };
+  const props = {
+    selectedId: null,
+    nowMs: active.startedAtMs + 1_000,
+    followingLatest: true,
+    hasMore: false,
+    loadingMore: false,
+    onSelect: () => {},
+    onFollowingLatestChange: () => {},
+    onLoadMore: () => {},
+  };
+  const view = render(
+    <div className="h-[320px]">
+      <RequestLogVirtualTable items={[active]} {...props} />
+    </div>,
+  );
+
+  const processingRow = screen.getByText("请求中").closest("[role='row']");
+  expect(processingRow).toHaveClass("log-entry-surface-processing");
+
+  view.rerender(
+    <div className="h-[320px]">
+      <RequestLogVirtualTable
+        items={[requestLog(1)]}
+        {...props}
+        entryAnimations={new Map([["request-1", "complete"]])}
+      />
+    </div>,
+  );
+
+  const completedRow = screen.getByRole("row", { name: "查看请求 model-1" });
+  expect(completedRow).toBe(processingRow);
+  expect(completedRow).toHaveClass("log-entry-surface-processing");
+  expect(completedRow).toHaveClass("log-entry-surface-complete");
+});
+
 function requestLog(index: number): RequestLog {
   return {
     requestId: `request-${index}`,

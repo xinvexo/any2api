@@ -8,14 +8,17 @@ import {
   isActiveRequestLog,
   type RequestLogFeedItem,
 } from "../model/request-log-feed";
-import { ActiveRequestLogTableRow } from "./ActiveRequestLogRow";
+import { ActiveRequestLogTableCells } from "./ActiveRequestLogRow";
 import {
   REQUEST_LOG_ROW_HEIGHT,
-  RequestLogTableRow,
+  RequestLogTableCells,
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
-import type { ListEntryAnimation } from "@/shared/ui/useListEntryAnimations";
+import {
+  listEntrySurfaceAnimationClass,
+  type ListEntryAnimation,
+} from "@/shared/ui/useListEntryAnimations";
 
 interface RequestLogVirtualTableProps {
   items: readonly RequestLogFeedItem[];
@@ -138,20 +141,13 @@ export function RequestLogVirtualTable({
                   style={{ height: REQUEST_LOG_ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
                 >
                   {item ? (
-                    isActiveRequestLog(item) ? (
-                      <ActiveRequestLogTableRow
-                        log={item}
-                        nowMs={nowMs}
-                        animation={entryAnimations?.get(item.requestId)}
-                      />
-                    ) : (
-                      <RequestLogTableRow
-                        log={item}
-                        selected={selectedId === item.requestId}
-                        onSelect={onSelect}
-                        animation={entryAnimations?.get(item.requestId)}
-                      />
-                    )
+                    <RequestLogFeedTableRow
+                      item={item}
+                      selected={selectedId === item.requestId}
+                      nowMs={nowMs}
+                      animation={entryAnimations?.get(item.requestId)}
+                      onSelect={onSelect}
+                    />
                   ) : (
                     <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">
                       {loadingMore ? "正在加载更早记录" : "继续滚动加载更早记录"}
@@ -163,6 +159,56 @@ export function RequestLogVirtualTable({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RequestLogFeedTableRow({
+  item,
+  selected,
+  nowMs,
+  animation,
+  onSelect,
+}: {
+  item: RequestLogFeedItem;
+  selected: boolean;
+  nowMs: number;
+  animation: ListEntryAnimation | undefined;
+  onSelect: (requestId: string) => void;
+}) {
+  const active = isActiveRequestLog(item);
+  const settling = animation === "complete";
+  const model = item.publicModel?.trim() || "未解析模型";
+  return (
+    <div
+      role="row"
+      tabIndex={active ? -1 : 0}
+      aria-selected={active ? undefined : selected}
+      aria-label={active ? undefined : `查看请求 ${model}`}
+      title={active ? undefined : "双击查看详情"}
+      className={cn(
+        requestLogGridClass,
+        "compact-row-surface h-11 rounded-[8px] text-[12px]",
+        (active || settling) && "log-entry-surface-processing",
+        active
+          ? undefined
+          : "compact-row-surface-hover focus-ring cursor-pointer outline-none",
+        !active && selected && "compact-row-surface-selected",
+        listEntrySurfaceAnimationClass(animation),
+      )}
+      onDoubleClick={active ? undefined : () => onSelect(item.requestId)}
+      onKeyDown={active ? undefined : (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(item.requestId);
+        }
+      }}
+    >
+      {isActiveRequestLog(item) ? (
+        <ActiveRequestLogTableCells log={item} nowMs={nowMs} />
+      ) : (
+        <RequestLogTableCells log={item} />
+      )}
     </div>
   );
 }

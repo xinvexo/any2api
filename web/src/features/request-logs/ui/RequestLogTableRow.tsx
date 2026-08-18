@@ -14,10 +14,6 @@ import {
   upstreamSource,
 } from "../model/request-log-presentation";
 import { cn } from "@/shared/lib/cn";
-import {
-  listEntrySurfaceAnimationClass,
-  type ListEntryAnimation,
-} from "@/shared/ui/useListEntryAnimations";
 
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
@@ -28,10 +24,6 @@ interface RequestLogRowProps {
   log: RequestLog;
   selected: boolean;
   onSelect: (requestId: string) => void;
-}
-
-interface RequestLogTableRowProps extends RequestLogRowProps {
-  animation?: ListEntryAnimation;
 }
 
 export const RequestLogCard = memo(function RequestLogCard({
@@ -89,43 +81,23 @@ export const RequestLogCard = memo(function RequestLogCard({
   );
 });
 
-export const RequestLogTableRow = memo(function RequestLogTableRow({
+export const RequestLogTableCells = memo(function RequestLogTableCells({
   log,
-  selected,
-  onSelect,
-  animation,
-}: RequestLogTableRowProps) {
+}: {
+  log: RequestLog;
+}) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
   return (
-    <div
-      role="row"
-      tabIndex={0}
-      aria-selected={selected}
-      aria-label={`查看请求 ${model}`}
-      title="双击查看详情"
-      className={cn(
-        requestLogGridClass,
-        "compact-row-surface compact-row-surface-hover focus-ring h-11 cursor-pointer rounded-[8px] text-[12px] outline-none",
-        selected && "compact-row-surface-selected",
-        listEntrySurfaceAnimationClass(animation),
-      )}
-      onDoubleClick={() => onSelect(log.requestId)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect(log.requestId);
-        }
-      }}
-    >
-      <Cell className="tabular-nums text-secondary">
+    <>
+      <RequestLogTableCell className="tabular-nums text-secondary">
         <time className="block truncate" dateTime={new Date(log.startedAtMs).toISOString()}>
           {formatLogTime(log.startedAtMs)}
         </time>
-      </Cell>
-      <Cell className="tabular-nums text-secondary" title={log.clientIp}>{log.clientIp}</Cell>
-      <Cell>
+      </RequestLogTableCell>
+      <RequestLogTableCell className="tabular-nums text-secondary" title={log.clientIp}>{log.clientIp}</RequestLogTableCell>
+      <RequestLogTableCell>
         {source.kind === "none" ? (
           <span className="text-tertiary">未选上游</span>
         ) : (
@@ -133,17 +105,17 @@ export const RequestLogTableRow = memo(function RequestLogTableRow({
             {source.displayName}
           </span>
         )}
-      </Cell>
-      <Cell className="font-medium text-primary" title={model}>{model}</Cell>
-      <Cell>{log.thinkingLevel ?? "-"}</Cell>
-      <Cell><ResultBadge log={log} /></Cell>
+      </RequestLogTableCell>
+      <RequestLogTableCell className="font-medium text-primary" title={model}>{model}</RequestLogTableCell>
+      <RequestLogTableCell>{log.thinkingLevel ?? "-"}</RequestLogTableCell>
+      <RequestLogTableCell><ResultBadge log={log} /></RequestLogTableCell>
       <Metric value={formatDurationMs(log.latencyMs)} />
       <Metric value={success ? formatDurationMs(log.firstTokenMs) : "-"} />
       <Metric value={success ? formatTokenCount(log.inputTokens) : "-"} />
       <Metric value={success ? formatTokenCount(log.cacheReadTokens) : "-"} />
       <Metric value={success ? formatTokenCount(log.outputTokens) : "-"} />
       <Metric value={success ? formatTps(outputTps(log)) : "-"} />
-    </div>
+    </>
   );
 });
 
@@ -162,10 +134,10 @@ function ResultBadge({ log }: { log: RequestLog }) {
 }
 
 function Metric({ value }: { value: string }) {
-  return <Cell className="tabular-nums text-secondary">{value}</Cell>;
+  return <RequestLogTableCell className="tabular-nums text-secondary">{value}</RequestLogTableCell>;
 }
 
-function Cell({
+export function RequestLogTableCell({
   children,
   className,
   title,

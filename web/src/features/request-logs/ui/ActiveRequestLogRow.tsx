@@ -8,20 +8,12 @@ import {
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
-import { requestLogGridClass } from "./RequestLogTableRow";
+import { RequestLogTableCell as Cell } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
-import {
-  listEntrySurfaceAnimationClass,
-  type ListEntryAnimation,
-} from "@/shared/ui/useListEntryAnimations";
 
 interface ActiveRequestLogRowProps {
   log: ActiveRequestLog;
   nowMs: number;
-}
-
-interface ActiveRequestLogTableRowProps extends ActiveRequestLogRowProps {
-  animation?: ListEntryAnimation;
 }
 
 export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
@@ -53,22 +45,14 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
   );
 });
 
-export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
+export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCells({
   log,
   nowMs,
-  animation,
-}: ActiveRequestLogTableRowProps) {
+}: ActiveRequestLogRowProps) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <div
-      role="row"
-      className={cn(
-        requestLogGridClass,
-        "compact-row-surface log-entry-surface-processing h-11 rounded-[8px] text-[12px]",
-        listEntrySurfaceAnimationClass(animation),
-      )}
-    >
+    <>
       <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
       <Cell>
@@ -89,7 +73,7 @@ export const ActiveRequestLogTableRow = memo(function ActiveRequestLogTableRow({
       <Cell className="text-secondary">-</Cell>
       <Cell className="text-secondary">-</Cell>
       <Cell className="text-secondary">-</Cell>
-    </div>
+    </>
   );
 });
 
@@ -103,8 +87,4 @@ function StatusBadge() {
 
 function elapsed(log: ActiveRequestLog, nowMs: number) {
   return formatDurationMs(Math.max(0, nowMs - log.startedAtMs));
-}
-
-function Cell({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div role="cell" className={cn("min-w-0 truncate px-1 text-left", className)}>{children}</div>;
 }
