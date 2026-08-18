@@ -19,10 +19,10 @@ let interruptedSignal;
 process.once("SIGINT", () => interrupt("SIGINT"));
 process.once("SIGTERM", () => interrupt("SIGTERM"));
 
-const binary = resolve(
-  repository,
-  process.env.ANY2API_E2E_BINARY ?? (await buildServer(repository)),
-);
+if (!process.env.ANY2API_E2E_BINARY) {
+  throw new Error("ANY2API_E2E_BINARY must be supplied by the root application build");
+}
+const binary = resolve(repository, process.env.ANY2API_E2E_BINARY);
 const port = process.env.ANY2API_E2E_PORT ?? String(await findAvailablePort());
 const dataDirectory = await mkdtemp(join(tmpdir(), "any2api-e2e-"));
 const require = createRequire(import.meta.url);
@@ -33,6 +33,7 @@ try {
     throw new Error(`E2E interrupted by ${interruptedSignal}`);
   }
   const child = spawn(process.execPath, [cli, "test"], {
+    cwd: join(repository, "web"),
     env: {
       ...process.env,
       ANY2API_E2E_PORT: port,
@@ -49,74 +50,9 @@ try {
   await rm(dataDirectory, { recursive: true, force: true });
 }
 
-async function buildServer(repositoryDirectory) {
-  const cargo = spawn(
-    "cargo",
-    [
-      "build",
-      "--locked",
-      "--manifest-path",
-      join(repositoryDirectory, "Cargo.toml"),
-      "-p",
-      "any2api",
-      "--message-format=json-render-diagnostics",
-    ],
-    {
-      cwd: repositoryDirectory,
-      stdio: ["ignore", "pipe", "inherit"],
-    },
-  );
-  activeChild = cargo;
-  cargo.stdout.setEncoding("utf8");
-  let output = "";
-  cargo.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-
-  const { code, signal } = await childClose(cargo);
-  activeChild = undefined;
-  const executable = cargoExecutable(output);
-  if (interruptedSignal) {
-    throw new Error(`cargo build interrupted by ${interruptedSignal}`);
-  }
-  if (code !== 0) {
-    throw new Error(`cargo build failed with ${code ?? signal ?? "unknown status"}`);
-  }
-  if (!executable) {
-    throw new Error("cargo build did not report the any2api executable");
-  }
-  return executable;
-}
-
 function interrupt(signal) {
   interruptedSignal = signal;
   if (activeChild && !activeChild.killed) activeChild.kill(signal);
-}
-
-function cargoExecutable(output) {
-  let executable;
-  for (const line of output.split(/\r?\n/u)) {
-    if (!line) continue;
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      process.stdout.write(`${line}\n`);
-      continue;
-    }
-    if (message.reason === "compiler-message" && message.message?.rendered) {
-      process.stderr.write(message.message.rendered);
-    }
-    if (
-      message.reason === "compiler-artifact" &&
-      message.target?.name === "any2api" &&
-      message.target?.kind?.includes("bin") &&
-      message.executable
-    ) {
-      executable = message.executable;
-    }
-  }
-  return executable;
 }
 
 async function findAvailablePort() {

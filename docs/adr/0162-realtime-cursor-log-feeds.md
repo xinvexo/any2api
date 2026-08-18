@@ -80,4 +80,4 @@
   右下角回到顶部、筛选/清理重置、活动转最终去重、双击打开 Drawer、短期详情缓存，以及新摘要入场/
   活动呼吸/结算过渡不会在加载历史 Cursor 时误触发。
 - 使用桌面与移动视口验证固定表头、行高、滚动锚点、卡片文本截断、Drawer/Sheet 和无重叠；运行 Rust
-  fmt/clippy/test、Web typecheck/lint/test 与自动同步的 `build:embedded`。
+  fmt/clippy/test、Web typecheck/lint/test 与仓库根完整应用 `pnpm build`。

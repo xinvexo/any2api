@@ -16,10 +16,10 @@
 | 凭据、认证与代理 | [Credential 生命周期](0003-provider-credential-lifecycle.md)、[Gateway Key](0006-gateway-api-key-auth.md)、[OAuthAccount](0033-database-backed-oauth-accounts.md)、[OAuth 默认出口](0150-oauth-only-global-proxy.md) |
 | 协议、Provider 与模型 | [协议桥](0032-optional-openai-protocol-bridge.md)、[Provider identity](0126-versioned-provider-and-transport-identity.md)、[协议 fidelity](0129-queryable-protocol-fidelity-capabilities.md)、[公开模型别名](0153-provider-credential-public-model-alias.md) |
 | Transport 与请求面 | [用途/模式隔离](0123-purpose-and-mode-transport-isolation.md)、[Header ownership](0125-credential-owned-request-headers.md)、[响应 Content-Encoding](0127-transport-response-content-coding.md)、[同方言 Accept-Encoding](0135-same-dialect-accept-encoding-pass-through.md)、[缓存连续性](0149-upstream-request-surface-and-cache-continuity.md) |
-| 调度、会话与重试 | [QueueTicket](0010-bounded-generation-queue.md)、[RPM](0037-single-optional-rpm-admission.md)、[会话绑定](0062-unified-session-affinity.md)、[RetrySafety](0093-evidence-based-precommit-retry-safety.md)、[预提交拒绝](0136-precontent-rejection-fidelity-and-overload-backoff.md) |
+| 调度、会话与重试 | [QueueTicket](0010-bounded-generation-queue.md)、[RPM](0037-single-optional-rpm-admission.md)、[会话绑定](0062-unified-session-affinity.md)、[RetrySafety](0093-evidence-based-precommit-retry-safety.md)、[预提交拒绝](0136-precontent-rejection-fidelity-and-overload-backoff.md)、[实时路由准入](0167-live-route-admission-and-pending-rebase.md) |
 | OAuth 与额度 | [额度持久化](0111-activity-driven-persistent-oauth-quota.md)、[刷新诊断](0116-typed-oauth-refresh-diagnostics.md)、[Credits/健康](0137-codex-credits-and-quota-health.md)、[费率卡](0145-configurable-codex-quota-rate-card.md)、[累计统计](0146-cumulative-codex-quota-statistics.md)、[手动刷新模型目录](0158-live-oauth-model-discovery.md) |
 | 日志与可观测 | [请求遥测](0015-bounded-request-telemetry.md)、[HTTP 系统日志](0051-complete-http-access-logging.md)、[原始交换详情](0081-raw-http-system-log-details.md)、[字节有界队列](0114-byte-bounded-telemetry-ownership.md)、[活动请求投影](0159-live-request-log-overlay.md)、[实时游标日志流](0162-realtime-cursor-log-feeds.md)、[系统资源总览](0160-system-resource-overview.md)、[统一管理员实时事件](0163-unified-admin-realtime-events.md) |
-| Web、部署与更新 | [浏览器 E2E](0022-browser-e2e-contract.md)、[内嵌资源](0027-embedded-web-assets.md)、[构建时 Web 资源重生成](0165-build-time-web-asset-regeneration.md)、[Web 错误边界](0085-web-error-recovery-boundaries.md)、[自更新回滚](0089-bounded-self-update-binary-rollback.md) |
+| Web、构建、部署与更新 | [浏览器 E2E](0022-browser-e2e-contract.md)、[内嵌资源](0027-embedded-web-assets.md)、[Node 应用生命周期](0166-node-owned-development-build-and-package-lifecycle.md)、[Web 错误边界](0085-web-error-recovery-boundaries.md)、[自更新回滚](0089-bounded-self-update-binary-rollback.md) |
 
 ## 完整当前清单
 
@@ -162,4 +162,5 @@
 | [0162](0162-realtime-cursor-log-feeds.md) | ADR-0162：日志使用 SSE 通知与游标连续流 |
 | [0163](0163-unified-admin-realtime-events.md) | ADR-0163：统一管理员实时事件与总览快照 |
 | [0164](0164-alternate-path-failure-recovery.md) | ADR-0164：分离重放证据与候选故障恢复 |
-| [0165](0165-build-time-web-asset-regeneration.md) | ADR-0165: 构建时自动重新生成内嵌 Web 资源 |
+| [0166](0166-node-owned-development-build-and-package-lifecycle.md) | ADR-0166: Node 统一拥有开发、构建与打包生命周期 |
+| [0167](0167-live-route-admission-and-pending-rebase.md) | ADR-0167：实时路由准入撤销与 Pending 请求重规划 |

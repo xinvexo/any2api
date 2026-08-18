@@ -1,6 +1,9 @@
 mod dto;
 mod handlers;
 
+#[cfg(test)]
+pub(super) use dto::export_bindings;
+
 use super::{error, request_json, revision};
 use crate::state::AppState;
 use axum::{

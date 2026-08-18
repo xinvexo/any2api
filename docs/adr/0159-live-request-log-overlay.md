@@ -69,4 +69,4 @@ SQLite Commit 之后先从注册表移除对应活动项，再推进既有 commi
   取消后的清理。
 - Server DTO/SSE 测试覆盖活动项标签、独立 epoch 和最终项去重。
 - Web 契约与组件测试覆盖“请求中”显示、无最终指标、不可打开详情、活动/最终去重切换和历史批次不展示活动项。
-- 运行 Rust fmt、相关 clippy/test，以及 Web typecheck、lint、test 与自动同步的 `build:embedded`。
+- 运行 Rust fmt、相关 clippy/test，以及 Web typecheck、lint、test 与仓库根完整应用 `pnpm build`。

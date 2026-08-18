@@ -2,6 +2,8 @@ mod about;
 mod affinity;
 mod auth;
 mod balancing;
+#[cfg(test)]
+mod binding_exports;
 mod config_publish_error;
 mod credential_runtime;
 mod error;

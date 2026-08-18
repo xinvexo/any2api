@@ -51,7 +51,7 @@ test("desktop core management deep links render against the real service", async
     ["/settings/routing", "RPM 用尽行为"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],
-    ["/system-logs", "自动刷新"],
+    ["/system-logs", "还没有系统日志"],
   ] as const) {
     await page.goto(path);
     await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
@@ -170,12 +170,7 @@ test("proxy rows reflow into single mobile cards and return to desktop rows", as
 
 test("system logs refresh and clear on desktop and mobile", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
-  await loginAt(page, "/system-logs", "自动刷新");
-
-  const autoRefresh = page.getByRole("switch", { name: "自动刷新" });
-  await expect(autoRefresh).toHaveAttribute("aria-checked", "true");
-  await autoRefresh.click();
-  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  await loginAt(page, "/system-logs", "还没有系统日志");
 
   for (let index = 0; index < 40; index += 1) {
     await page.request.get(`/api/e2e-virtual-row/${index}`);
@@ -218,7 +213,6 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#ffffff");
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
     "content",

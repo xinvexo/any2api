@@ -6,6 +6,7 @@ import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  const applicationOutput = process.env.ANY2API_WEB_OUTPUT_DIR;
 
   return {
     plugins: [react(), tailwindcss()],
@@ -18,7 +19,7 @@ export default defineConfig(({ mode }) => {
       host: "127.0.0.1",
       port: 5173,
       strictPort: true,
-      // Keep terminal output readable when running beside cargo via scripts/dev.mjs.
+      // Keep terminal output readable when the root development supervisor runs Vite.
       clearScreen: false,
       proxy: {
         "/api": {
@@ -30,6 +31,12 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: applicationOutput
+      ? {
+          outDir: applicationOutput,
+          emptyOutDir: true,
+        }
+      : undefined,
     test: {
       include: ["src/**/*.test.{ts,tsx}"],
       environment: "jsdom",

@@ -4,18 +4,21 @@ any2api is a personal, self-hosted AI API aggregation proxy. One process combine
 
 The project is intentionally single-node. It does not provide registration, tenants, billing, subscriptions, API key sales, or distributed scheduling.
 
-## Package And Run
+## Build, Package, And Run
 
-The repository pins Rust 1.90.0. A complete package build requires Node.js 22.12+, pnpm 11.13.1, and Rust. The single packaging command builds the current Web source, synchronizes the embedded assets, and then builds the release binary:
+The repository pins Rust 1.90.0. A complete application build requires Node.js 22.12+, pnpm 11.13.1, and Rust. Install the workspace dependencies and build the production Web application together with the Rust executable from the repository root:
 
 ```sh
-pnpm --dir web install --frozen-lockfile
-cargo xtask package
-ANY2API_DATA_DIR=/var/lib/any2api ./target/release/any2api
-./target/release/any2api --version
+pnpm install --frozen-lockfile
+pnpm build
+# pnpm build prints the exact target/<triple>/release executable path.
+ANY2API_DATA_DIR=/var/lib/any2api /path/to/any2api
+/path/to/any2api --version
 ```
 
-`cargo build --locked --release -p any2api` remains available for Rust-only verification and uses the latest embedded Web snapshot present in the checkout. It does not regenerate the current Web source; use `cargo xtask package` for a distributable binary. The package command always rebuilds and synchronizes the Web assets before compiling Rust.
+`pnpm build` produces the standalone production executable. `pnpm package` builds the same application through the shared build lifecycle, then writes a predictably named distribution archive and SHA-256 checksum to `dist/`.
+
+Cargo commands remain Rust-only: `cargo check`, `cargo test`, and `cargo build --release` never start Node, pnpm, or Vite and never create distribution archives. Without an application-build manifest they embed an explicit Rust-only notice page, never a previous production UI. Use the root `pnpm build` command when the executable must contain the current production frontend.
 
 The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after startup. On a new data directory, the process prints a one-time administrator setup token. Enter that token in the local Web UI, or set `ANY2API_ADMIN_PASSWORD` only for first-run password initialization.
 
@@ -39,10 +42,10 @@ ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 Run the `Release` workflow manually from GitHub Actions and enter the release version without the `v` prefix (for
 example, `0.0.2`). That workflow input is the release's sole product-version source: it determines the binary's reported
 version, the matching `v<version>` tag, and the release asset names. The Cargo package version is Rust package metadata
-and does not need to match. Before packaging, the workflow runs
-`cargo xtask package --target x86_64-unknown-linux-gnu`, which rebuilds and synchronizes the Web assets before
-compiling the binary, then requires the built binary's exact
-`--version` output to match the input. It publishes the Linux AMD64 archive and checksum.
+and does not need to match. Before publishing, the workflow runs
+`pnpm package --target x86_64-unknown-linux-gnu`. That public package lifecycle builds the current frontend and
+backend, requires the built binary's exact `--version` output to match the input, and generates the Linux AMD64
+archive and checksum. The workflow only publishes the resulting `dist/` artifacts.
 
 An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly
 check the latest official release, and install it on a supported Linux AMD64 GNU release build. The installer downloads
@@ -134,9 +137,11 @@ Provider API keys and OAuth accounts remain separate management records, but eli
 Node.js 22.12+ and pnpm 11.13.1 are required when changing the Web application or producing a complete package.
 
 ```sh
-cd web
 pnpm install --frozen-lockfile
 pnpm dev
 ```
+
+`pnpm dev` supervises the Vite development server and the automatically rebuilding Rust backend as one session. Use
+`pnpm --dir web dev` only when intentionally running the frontend by itself.
 
 Before submitting changes, run the relevant checks from [AGENTS.md](AGENTS.md). Architecture decisions live in [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/adr](docs/adr).

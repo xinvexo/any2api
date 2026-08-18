@@ -7,7 +7,11 @@ use crate::admin::request_usage::RequestUsageResponse;
 use super::{error::AdminApiError, revision::parse_revision};
 
 #[derive(Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeyCollectionResponse.ts")
+)]
 pub(crate) struct GatewayApiKeyCollectionResponse {
     config_revision: u64,
     items: Vec<GatewayApiKeyResponse>,
@@ -38,7 +42,7 @@ impl GatewayApiKeyCollectionResponse {
 }
 
 #[derive(Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "GatewayApiKeyResponse.ts"))]
 struct GatewayApiKeyResponse {
     #[cfg_attr(test, ts(as = "String"))]
     id: GatewayApiKeyId,
@@ -87,7 +91,11 @@ fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> 
 }
 
 #[derive(Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeyCreateRequest.ts")
+)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyCreateRequest {
     expected_revision: u64,
@@ -105,7 +113,11 @@ impl GatewayApiKeyCreateRequest {
 }
 
 #[derive(Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeyUpdateRequest.ts")
+)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyUpdateRequest {
     expected_revision: u64,
@@ -130,7 +142,11 @@ impl GatewayApiKeyUpdateRequest {
 }
 
 #[derive(Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeyRotateRequest.ts")
+)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyRotateRequest {
     expected_revision: u64,
@@ -155,7 +171,11 @@ impl GatewayApiKeyRotateRequest {
 }
 
 #[derive(Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeyDeleteRequest.ts")
+)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyDeleteRequest {
     expected_revision: u64,
@@ -183,4 +203,15 @@ fn parse_version(value: u64, message: &'static str) -> Result<u64, AdminApiError
     (value > 0)
         .then_some(value)
         .ok_or_else(|| AdminApiError::invalid_request(message))
+}
+
+#[cfg(test)]
+pub(in crate::admin) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    use ts_rs::TS as _;
+
+    GatewayApiKeyCollectionResponse::export_all(config)?;
+    GatewayApiKeyCreateRequest::export_all(config)?;
+    GatewayApiKeyUpdateRequest::export_all(config)?;
+    GatewayApiKeyRotateRequest::export_all(config)?;
+    GatewayApiKeyDeleteRequest::export_all(config)
 }

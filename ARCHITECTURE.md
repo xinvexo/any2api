@@ -1,7 +1,7 @@
 # any2api 架构基线
 
 > 状态：Current<br>
-> 版本：1.3<br>
+> 版本：1.5<br>
 > 最后更新：2026-08-18<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。专项决策见 [当前 ADR 索引](docs/adr/README.md)。
 
@@ -55,7 +55,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。调用分析同时按所选范围展示 Prompt Cache 命中率，固定以 RequestLog 的 `cache_read_tokens / input_tokens` 计算；单条缓存读取最多按该条归一化输入量计入，没有输入 Token 时显示未知，缓存读取不能再次计入 Token 总量。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。总览当前状态通过已认证的统一 `/api/admin/events` SSE 获取：服务端一个共享 sampler 每 2 秒构建并广播最新资源/运行态快照，浏览器管理员壳只创建一个 EventSource 并向各视图分发。断线保留最近快照并标示 stale；连接存在但 7 秒未收到 fresh snapshot 时同样标示 stale；重连立即以最新快照恢复，session 失效时停止重连。历史调用统计继续通过 HTTP 按当前范围每 60 秒刷新，实时事件不得触发统计重算。scheduler epoch、遥测丢弃数、Transport Client 缓存条目与命中等运行诊断字段保留在受认证 API 中但不得占据总览视觉空间；它们与 Prompt Cache Token 命中率不是同一口径。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。完整决策见 `docs/adr/0055-flat-overview-request-analytics.md`、`docs/adr/0163-unified-admin-realtime-events.md`。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
-27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流通过根级 `pnpm package` 生成发行归档，并在归档前执行二进制 `--version` 精确核对输入。首版官方 Release 只发布 Linux AMD64 GNU 归档及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
 30. 流式上游在任何非透明语义输出可见前返回协议精确识别的 `error`、`response.failed` 或等价失败终止事件时，Runtime 必须把它作为完整上游失败，而不是因 HTTP 200 记为成功或提前提交会话绑定。已审计的过载与 Anthropic `rate_limit_error` 保留 `RejectedBeforeExecution` 证据；通用或未知 failed envelope 保持 `Ambiguous`，但未绑定 Pending 请求仍可按 ADR-0164 执行有界候选恢复。自然语言匹配、正文/SSE 断流、非法帧、缺失终止事件、已经出现内容/工具调用等语义事件以及任何下游提交后的失败不得进入当前请求的换路路径。提交后的显式失败仍须更新 Candidate health 和最终 Attempt 结果，不能把 `HTTP 200 + failed event` 伪装为成功。重试最终不能继续时返回最后一次真实失败帧及其原 HTTP 状态，禁止改写为 any2api 自造的通用 502。完整边界见 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`、`docs/adr/0121-anthropic-precontent-rate-limit-retry.md`、`docs/adr/0136-precontent-rejection-fidelity-and-overload-backoff.md` 与 `docs/adr/0164-alternate-path-failure-recovery.md`。
@@ -345,8 +345,15 @@ flowchart LR
 ```text
 any2api/
 ├─ Cargo.toml
+├─ package.json                  # 应用级 dev/build/package 命令面
+├─ pnpm-workspace.yaml          # 根 tooling + web workspace
+├─ pnpm-lock.yaml               # 唯一 Node 依赖锁文件
 ├─ ARCHITECTURE.md
 ├─ deny.toml
+├─ tooling/                      # Node 应用生命周期编排
+│  ├─ dev/                     # watcher、串行 Rust build loop 与进程监管
+│  ├─ build/                   # binding、Vite asset manifest 与 Cargo artifact
+│  └─ package/                 # target descriptor、archive 与 checksum
 ├─ docs/
 │  └─ adr/                       # 架构决策记录
 ├─ crates/
@@ -423,6 +430,7 @@ any2api/
 │        └─ embedded_web.rs     # 内嵌/外部 Web 资源入口适配
 ├─ app/
 │  └─ any2api/                   # 二进制入口与唯一 Composition Root
+│     ├─ rust-only-web/         # 普通 Cargo 构建的明确占位 Web
 │     └─ src/
 │        ├─ bootstrap/           # 环境配置、实例锁、Adapter 注册与应用装配
 │        ├─ logging/             # 启动期 console、可挂载文件层与配置发布后的整快照 reconcile
@@ -438,7 +446,7 @@ any2api/
 ├─ migrations/
 ├─ tests/
 │  └─ contract/                 # Driver、Protocol、Storage 契约测试；HTTP/SOCKS、SQLite、热更新与停机集成场景当前也收敛于此，独立 integration/ 与 fixtures/ 目录在需要时再拆分
-└─ xtask/                       # 架构检查、生成、发布辅助命令
+└─ xtask/                       # Rust 仓库级架构检查
    └─ src/
       ├─ main.rs               # 命令分派
       └─ architecture/         # architecture-check 协调与各独立门禁
@@ -489,11 +497,48 @@ web: typecheck + lint + unit test + production build
 e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳层契约
 ```
 
-完整应用打包不使用裸 `cargo build` 组合手工前端步骤。唯一入口是 `cargo xtask package`：每次从当前
-Web 源码执行生产构建并同步 `app/any2api/web-assets`，复核同步结果后再以锁定依赖构建 release 二进制；
-`--target <triple>` 选择 Rust 目标。CI 和 Release 使用同一自动同步入口，不要求前端变更者额外提交或维护
-哈希文件名产物。普通 Cargo 构建继续只读取最近一次生成的内嵌快照，不启动 Node/pnpm，也不修改工作树；
-需要包含当前 Web 源码的构建必须使用 `cargo xtask package`。
+应用级生命周期由根 pnpm/Node tooling 单向编排：
+
+```text
+pnpm dev      -> Vite HMR + Rust incremental build/restart supervisor
+pnpm build    -> TypeScript bindings + Vite production assets + Cargo release binary
+pnpm package  -> shared application build + target-aware archive + SHA-256
+```
+
+Vite 只负责前端 dev server、HMR 与生产 bundle；Cargo 只负责 Rust dependency graph 和编译；
+Rust 二进制只负责运行时。`build.rs` 不得调用 Node/pnpm/Vite，Rust runtime 不得启动或监管
+Vite，`xtask` 不得提供第二套 application dev/build/package 入口。
+
+`pnpm build` 每次从当前 Web 源码执行 Vite 生产构建，直接把结果原子发布到 Cargo
+target 目录下的内容寻址 asset bundle，并生成包含精确文件集、大小与 SHA-256 的版本化
+manifest。Node 只把该 manifest 作为本次 Cargo release 的显式输入；`build.rs` 复核完整性后才生成
+`include_bytes!` 表。缺失或损坏的显式 manifest 必须使完整应用构建失败。
+
+普通 `cargo check/test/build/build --release` 不读取任何历史 Vite 产物，也不生成前端。未提供显式
+manifest 时，它嵌入仓库中人工维护的最小 Rust-only 占位页，并发出构建警告；该二进制
+明确不承诺包含完整管理 UI。只有 `pnpm build` 和建立在同一内部 build primitive 上的
+`pnpm package` 才承诺产出包含当前前端的 standalone executable。
+
+`pnpm dev` 是唯一 full-stack 开发入口。Node 直接管理 Vite、Cargo build 和已编译后端的
+进程树；前端变更只由 Vite HMR 处理。Rust watcher 对一次保存的多个事件去抖并合并，同时
+最多运行一个 Cargo build；编译期间的新变更只标记下一代。只有最新一代编译成功后才先完整
+停止旧 runtime、再启动新 runtime；编译失败保留上一个成功后端、Vite 和 watcher。Vite
+异常退出终止整个 dev session；后端运行时崩溃只报告并等待下一次源码变更，禁止高速
+crash loop。Ctrl+C、SIGTERM 与子进程失败共用幂等 shutdown；POSIX 用独立进程组，Windows
+用集中的进程树终止与强制兜底，会话退出后不得遗留 Vite、Cargo、rustc 或 any2api。
+
+Rust 管理 DTO 的 TypeScript bindings 仍作为受追踪的前端线格式源文件，但只由 Node lifecycle
+显式调用唯一、串行、默认 ignored 的 Rust exporter 生成。生成先输出到临时目录，再按精确
+文件集同步；未变文件不重写，已删除类型的旧文件必须移除。普通 Cargo tests 不得导出 TS 或
+修改 Web 源树。DEV 启动时生成一次，之后只在 Server 管理契约输入变化时与后端构建串行
+更新；Vite 自然观察生成的 `.ts` 变更。
+
+`pnpm package` 直接调用同一 `buildApplication` 内部 primitive，不 shell 递归调用
+`pnpm build`。target triple 只解析一次并同时传入 Cargo、artifact resolver 与 package naming；可执行文件从
+Cargo JSON compiler-artifact 取得，不扫描时间戳或猜测 `target/release`。默认 package 当前 Rust
+host target，输出 `dist/any2api-v<product-version>-<platform>-<arch>.tar.gz` 和同名
+`.sha256`。当前 host 上可执行的产物必须在归档前精确通过 `--version`；cross compilation 成功
+不等于目标平台的 installer、签名或 notarization 已验证，后续必须在相应 native CI runner 接入。
 
 `xtask architecture-check` 负责：
 
@@ -527,7 +572,7 @@ Provider/Protocol 组件、测试管理员会话和最小 Web 根，并允许从
 
 浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
-浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的正式二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试从 Cargo 本轮构建消息取得真实可执行文件路径，不能假定固定 `target/debug`、误跑此前构建的二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
+浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的完整应用二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试通过根 Node tooling 复用同一 asset manifest 与 Cargo artifact 解析 primitive，不能假定固定 `target/debug`、误跑此前构建的二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
 
 fuzz 目标建立后：每个 PR 回放固定 fuzz corpus，长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。在此之前，SSE 解析由确定性切分矩阵测试与 proptest 属性测试共同覆盖。
 
@@ -1687,7 +1732,7 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 - 只有统一调度器选中的 ProviderCredential 或 OAuthAccount 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响任何上游路由凭据的选择。
 
-首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；显式配置的 Responses → Chat Completions 或 Images → Chat Completions 组合进入对应协议桥。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带不可由外部构造的非明文 `GatewayApiKeyAuthProof` 与已认证快照；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。证明只公开脱敏的 Key ID，内部版本只用于 ADR-0167 定义的 Pending revision 复验。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；显式配置的 Responses → Chat Completions 或 Images → Chat Completions 组合进入对应协议桥。
 
 客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。`Accept-Encoding` 不进入 Provider 白名单：Runtime 只在入口与上游方言相同的最终请求边界单独复制，跨协议转换时删除。Header 个数、单值长度和允许投影的总字节数均有固定上限。投影不得依赖 `HeaderMap` 的任意迭代顺序：每个 Provider 的精确名称白名单数组同时是高到低的优先级，精确名称先于前缀规则；前缀按规则声明顺序分组、组内按规范化 Header 名排序，同名多值保持原插入顺序。单值超限直接丢弃；某个候选使总字节超限时只丢该候选并继续尝试后续较小字段；值数量耗尽后才停止。认证、账号、最终模型和正文一致性 Header 在投影之外重建，不能因白名单预算被丢弃。原始入口 Header 不进入模型 RequestLog、普通 tracing/file log 或普通错误正文；它只在最外层 Axum 边界进入已认证的 HttpAccessLog 详情，且不得因此重新透传给 Provider。
 
@@ -1957,8 +2002,8 @@ RuntimeRegistry
   候选组合裁剪；配置换代后，迟到的旧快照可以继续使用自己取得的 Arc，但不得把已退役路径重新插回
   Registry；
 - 热更新不得把仍有限制的共享 RPM 窗口或 `in_flight` 重置为零。OAuth refresh 与同身份重新授权只创建新的认证健康；修改 URL、API Secret、ProviderKind、重新启用账号等身份边界必须创建新的路由健康代际；
-- `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的策略，禁止从共享可变对象读取新 revision 的队列参数；
-- 删除的对象立即从新快照候选中移除，但不得在共享 Handle 上设置会反向影响旧 Binding 的 `retired` 开关；
+- `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的队列参数，禁止从共享可变对象读取新 revision 的队列参数；等待者仍必须订阅统一 scheduler epoch，并在下一次候选预留前观察当前路由资格；
+- 删除、禁用或替换执行路径的对象立即从新快照候选中移除；旧 Binding 仍保留其认证材料、RPM 窗口、健康与粘性提交能力，但每个数据面 Attempt 在 Transport handoff 前必须通过独立的版本化 `RouteAdmission`。该负向撤销屏障不是共享 Handle 上可把旧 Binding 重新激活的 `retired` 开关：撤销只允许 `Active → Revoked`，重新启用必须取得新的 activation incarnation；
 - 已开始请求和 Guard 释放最后一个 Arc 后再自然回收旧 Handle 与 Generation；
 - 进程重启时创建全新的 Registry，所有运行态从空状态开始。
 
@@ -2039,6 +2084,13 @@ NoRoute
 `affinity.enabled` 控制允许首次创建的普通显式 Session 是否参与粘性；关闭时把这类标识视为无会话
 请求并正常负载均衡。Codex `previous_response_id` 是必须续接的上游状态引用，不受该开关影响，始终
 要求命中原绑定，未命中返回 `session_binding_lost`。
+
+RouteAdmission 撤销和 Pending 重规划不得改变这组语义：`affinity.enabled=true` 时，已经建立的
+Session/Continuation 只能检查原目标在最新路由中的资格，不能借配置换代重新选择 Credential；尚未取得
+StartPermit 的首次 Session 请求还没有建立绑定，可以回滚 Creating lease，并在入口捕获的同一 Route 与
+方言内重新选择候选。`affinity.enabled=false` 时，普通显式 Session 仍等同无会话请求，未绑定 Pending
+重规划继续使用普通候选池、fallback tier、RPM、健康与重试规则，不创建或恢复普通 Session 绑定。两种模式
+都只允许在 Attempt 尚未取得 StartPermit 且 RetrySafety 允许的边界重规划。
 
 关闭普通 Session 粘性只能改变候选选择，不能改变完整 Responses 历史的协议合法性。可物化的历史
 item 在进入调度前按第 11.9 节统一移除不可移植的错误类型 `id`；调度器不得根据是否命中绑定、是否
@@ -2410,9 +2462,9 @@ React 提交配置
 → Commit
 → 构造不修改已发布 Binding 行为的 RuntimeRegistry bindings
 → 单次 ArcSwap 原子替换 PublishedSnapshot
-→ 执行无 I/O、无失败的 PublishedSnapshot reconcile
+→ 执行无 I/O、无失败的 PublishedSnapshot reconcile，并发布当前 RouteAdmission 集合、撤销旧 activation
 → 新请求使用新快照
-→ 已开始请求继续持有其捕获 Arc
+→ 已经取得 AttemptStartPermit 的请求继续收尾；尚未取得 Permit 的旧请求不得再向已撤销路径发起数据面 I/O
 → 返回管理 API 成功
 ```
 
@@ -2450,11 +2502,15 @@ PublishedSnapshot
   task 失败并终止进程，禁止把普通管理错误返回后留在旧快照继续服务。延迟约束或 commit hook 明确拒绝等
   `SQLITE_CONSTRAINT` 仍是确定未提交，继续返回普通存储错误且不切换快照；
 - 管理 API 只有在数据库提交和快照切换都完成后才返回成功；
+- ProviderCredential 与 OAuthAccount mutation 使用唯一的精简 ACK HTTP 契约，只返回已发布 revision 及
+  PublishedSnapshot 可同步生成的安全核心配置/运行态字段；RequestLog usage 与 OAuth 模型目录只由 GET/list
+  返回。mutation Handler 禁止为组装 ACK 发起 usage/catalog I/O，也不保留旧完整响应、字段别名或双轨解析。
+  Web 收到 ACK 后立即发布核心字段，并异步精确刷新对应 GET/list 取得展示富化数据；
 - `PublishedSnapshotReconciler` 是 ArcSwap 后唯一的共享派生状态更新入口，接收刚发布的完整不可变快照，不得执行
   I/O、阻塞等待或返回错误。RequestTelemetry 在此推进 Writer/清理策略并按当前 Gateway API Key 集合淘汰
   `last_used_at`/节流状态；文件日志只更新内存策略与级别。禁止继续用只接收 `LoggingSettings` 的窄接口承载
   非日志配置生命周期，也禁止各模块自行订阅 revision 复制第二套发布顺序；
-- 请求在 Access 前只 `load_full()` 一次 `PublishedSnapshot`，鉴权和路由必须来自同一 revision，并在整个请求期间持有同一 Arc；
+- 请求在 Access 前只 `load_full()` 一次 `PublishedSnapshot`，入口鉴权、可信代理解析和请求级策略仍来自同一 revision；数据面每个尚未开始的 Attempt 还必须通过当前 RouteAdmission。未绑定 Pending 请求在安全等待点可以用最新 PublishedSnapshot 重新规划，但必须重新验证非明文认证证明与模型公开策略；已绑定 Session/Continuation 只能解析原 Credential、Route Target、上游模型和协议方言，目标不可用时返回 `session_binding_lost`，绝不迁移；
 - 实时 RPM 时间戳、`in_flight` 和观测计数从稳定 RuntimeRegistry 读取；RPM 限额、认证 Generation 和策略从请求捕获的 Binding 读取；
 - `GatewayApiKey` 删除进入 PublishedSnapshot：删除 API 成功返回后，新请求不得再通过被删除 Key；
 - 进程重启时直接从 SQLite 当前配置编译新快照，不恢复此前 revision 对应的运行状态。
@@ -2502,7 +2558,7 @@ PublishedSnapshot 冻结 Token→Credits 费率到 RequestLog，调价只影响�
 不允许手工编辑，任何语义修改提交时自动产生新 ID。完整决策见
 `docs/adr/0145-configurable-codex-quota-rate-card.md`。
 
-QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获快照继续持有其策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 固化在对应 Runtime Binding；不同 revision 共享滚动时间戳但分别使用各自限额，并在快照切换后由统一 epoch 唤醒。完整决策见 `docs/adr/0075-revision-scoped-runtime-bindings.md`。
+QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获请求继续持有其策略，未绑定 Pending 请求只在安全重规划时读取新路由候选。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止在一个 Attempt 已取得 StartPermit 后混用两个配置 revision。Credential 的可选 RPM 固化在对应 Runtime Binding；不同 revision 共享滚动时间戳但分别使用各自限额，并在快照切换后由统一 epoch 唤醒。完整决策见 `docs/adr/0075-revision-scoped-runtime-bindings.md` 与 `docs/adr/0167-live-route-admission-and-pending-rebase.md`。
 
 #### 会话粘性默认值
 
@@ -2920,7 +2976,7 @@ DNS 信任边界：
 - DIRECT 或本地解析模式由 any2api 解析并固定本次连接目标；
 - SOCKS5h 和由远端 HTTP 代理解析域名的模式把 DNS 解析交给用户配置的代理；
 - 如果用户启用严格 SSRF 模式，则禁止远端 DNS，必须使用受控本地解析并把连接固定到解析所得地址，同时保留正确 Host/SNI；该模式不覆盖管理员配置的地址类别。
-- 严格模式已由 `upstream.strict_ssrf` 与 ADR-0019 实现；配置热更新只影响新请求，已开始请求继续持有其捕获 PublishedSnapshot 与连接池代际。
+- 严格模式已由 `upstream.strict_ssrf` 与 ADR-0019 实现；热更新的配置值只影响新 PublishedSnapshot，已开始的 Attempt 继续持有其捕获 PublishedSnapshot 与连接池代际。禁用/删除另外撤销尚未取得 RouteAdmission 的旧候选，已取得 Permit 的 Attempt 自然完成；这不改变粘性绑定或关闭粘性时的均衡选择语义。
 
 ### 17.4 管理员密码在线轮换
 
@@ -3279,14 +3335,15 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 不依赖外部数据库或 Redis。
 
-React 构建产物属于正式二进制输入，不是运行时旁车目录。前端源码仍以 `web/src` 为真相；
-`app/any2api/web-assets` 是由打包入口生成的构建工作区，Rust `build.rs` 只扫描该目录并生成
-`include_bytes!` 清单，不调用 Node、pnpm 或 Vite。仓库可以保留最近一次生成快照供 Rust-only 构建使用，
-但它不再是 Web 源码变更的同步门禁。
+React 生产构建产物属于完整应用二进制的编译时输入，不是运行时旁车目录。前端源码以
+`web/src`、`web/public`、前端配置、workspace lockfile 与本轮生成的 Rust 管理 DTO binding 为真相。
+Vite 在 `pnpm build` 中直接输出到 Cargo target 下的临时目录；Node 验证后以内容摘要原子发布
+asset root 与 manifest。仓库不追踪 Vite 生产 bytes，正常 build 不修改源树中的 JS/CSS/HTML。
 
-前端变更由固定流程执行“Vite build → 同步内嵌产物”；CI 和 Release 在编译前自动执行该流程，不再因为
-checkout 中的旧哈希文件名拒绝构建。`check:embedded` 只用于同步后的显式诊断。禁止手工编辑内嵌
-JS/CSS/HTML，也禁止在 Rust build script 中隐式修改工作树。
+Rust `build.rs` 只接受本次 Node build 显式传入的版本化 manifest，或在纯 Cargo 模式下读取最小
+Rust-only 占位页。它不调用 Node、pnpm、Vite，不联网，不写源码树，也不在 target 中猜测“最近一次”
+前端产物。CI 中 Cargo-only quality job 验证 Rust 边界；完整 application job、E2E 和 Release 调用根
+pnpm lifecycle，保证当前 Web 与 Rust 源码进入同一二进制。
 
 ### 20.1 启动语义
 
@@ -3375,10 +3432,10 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 改变同一哈希资源的内容。资源缺失、同步失败或重复规范路径直接使当前打包失败；不为被替换文件名保留
 兼容别名。
 
-需要包含当前前后端源码的正式本地二进制时运行 `cargo xtask package`，不得再要求操作者先手工构建
-Web、复制目录、再运行 Cargo。`pnpm build:embedded` 是自动同步的低层原语，`pnpm check:embedded`
-仅供同步后的诊断。`build.rs` 始终只扫描内嵌目录并在 `OUT_DIR` 生成 Rust 清单，禁止调用 Node、pnpm、
-Vite、联网或写入源码树。
+`pnpm build` 是包含当前前后端源码的正式本地应用构建入口，`pnpm package` 在其上执行分发归档和
+checksum。不得再要求操作者手工构建 Web、复制资源目录或经过 Rust xtask 编排应用生命周期。
+`build.rs` 始终只验证显式 asset manifest 或 Rust-only 占位目录，并在 `OUT_DIR` 生成 Rust 清单，禁止调用
+Node、pnpm、Vite、联网或写入源码树。
 
 完整决策见 `docs/adr/0027-embedded-web-assets.md`。
 
@@ -3394,9 +3451,9 @@ Vite、联网或写入源码树。
 构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
-Release 的源码到二进制阶段调用 `cargo xtask package --target x86_64-unknown-linux-gnu`。
-该命令从当前源码构建并同步 `web-assets` 后再编译二进制；归档、checksum 与上传继续属于工作流的发行物
-职责。
+Release 的源码到二进制阶段调用根命令 `pnpm package --target x86_64-unknown-linux-gnu`。
+该命令复用统一的 Node 构建原语，先从当前前端与后端源码生成显式资源清单并编译二进制，再生成
+归档与 checksum；工作流只负责 Tag 校验和最终上传，不得重复实现构建、归档或摘要逻辑。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、配置、日志或 Secret。

@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: x86_64-unknown-linux-gnu
@@ -53,30 +53,9 @@ jobs:
           echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
           echo "ANY2API_BUILD_VERSION=$INPUT_VERSION" >> "$GITHUB_ENV"
 
-      - working-directory: web
-        run: pnpm install --frozen-lockfile
-      - name: Build release binary from current Web source
-        run: cargo xtask package --target x86_64-unknown-linux-gnu
-
-      - name: Verify release binary version
-        run: |
-          set -euo pipefail
-          executable="target/x86_64-unknown-linux-gnu/release/any2api"
-          expected="any2api ${ANY2API_BUILD_VERSION}"
-          actual="$($executable --version)"
-          if [[ "$actual" != "$expected" ]]; then
-            echo "release binary version '$actual' does not match '$expected'" >&2
-            exit 1
-          fi
-
-      - name: Package
-        run: |
-          set -euo pipefail
-          asset="any2api-${RELEASE_TAG}-linux-amd64.tar.gz"
-          mkdir -p dist
-          tar -C target/x86_64-unknown-linux-gnu/release -czf "dist/$asset" any2api
-          cd dist
-          sha256sum "$asset" > "$asset.sha256"
+      - run: pnpm install --frozen-lockfile
+      - name: Build distributable release artifacts
+        run: pnpm package --target x86_64-unknown-linux-gnu
 
       - name: Publish
         env:

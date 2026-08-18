@@ -5,7 +5,7 @@ use any2api_runtime::api::{
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "OverviewUsageResponse.ts"))]
 pub(crate) struct OverviewUsageResponse {
     generated_at_ms: u64,
     range: String,
@@ -19,7 +19,11 @@ pub(crate) struct OverviewUsageResponse {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewResourcesResponse.ts")
+)]
 pub(crate) struct OverviewResourcesResponse {
     sampled_at_ms: u64,
     process: OverviewProcessResourcesResponse,
@@ -27,14 +31,22 @@ pub(crate) struct OverviewResourcesResponse {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewProcessResourcesResponse.ts")
+)]
 struct OverviewProcessResourcesResponse {
     resident_memory_bytes: u64,
     cpu_usage_percent: f32,
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewSystemResourcesResponse.ts")
+)]
 struct OverviewSystemResourcesResponse {
     used_memory_bytes: u64,
     total_memory_bytes: u64,
@@ -75,7 +87,11 @@ impl From<RequestLogOverview> for OverviewUsageResponse {
 }
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewUsageTotalsResponse.ts")
+)]
 struct OverviewUsageTotalsResponse {
     request_count: u64,
     successful_request_count: u64,
@@ -103,7 +119,11 @@ impl From<RequestLogOverviewTotals> for OverviewUsageTotalsResponse {
 }
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewUsageTimeBucketResponse.ts")
+)]
 struct OverviewUsageTimeBucketResponse {
     started_at_ms: u64,
     ended_at_ms: u64,
@@ -125,7 +145,11 @@ impl From<RequestLogOverviewBucket> for OverviewUsageTimeBucketResponse {
 }
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewUsageModelResponse.ts")
+)]
 struct OverviewUsageModelResponse {
     public_model: Option<String>,
     is_other: bool,
@@ -155,4 +179,12 @@ impl From<RequestLogOverviewModel> for OverviewUsageModelResponse {
             total_tokens: totals.total_tokens,
         }
     }
+}
+
+#[cfg(test)]
+pub(in crate::admin) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    use ts_rs::TS as _;
+
+    OverviewUsageResponse::export_all(config)?;
+    OverviewResourcesResponse::export_all(config)
 }

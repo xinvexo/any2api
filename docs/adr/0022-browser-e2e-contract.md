@@ -11,7 +11,7 @@ React 单元测试和 Axum 契约测试已经分别覆盖页面状态与 SPA fal
 ## 决策
 
 - 使用 Playwright Chromium 建立统一浏览器 E2E；它属于全站工程基础设施，不绑定单一 feature。
-- 测试启动真实 any2api 二进制，使用独立临时数据目录、固定测试管理员密码和随机可用 loopback 端口。ADR-0027 完成后，服务从临时工作目录使用二进制内嵌 React 资源，不设置 `ANY2API_WEB_DIR`；已构建 `web/dist` 只用于和提交的内嵌产物执行一致性校验。测试结束后停止服务并删除临时状态。
+- 测试通过 ADR-0166 的共享应用 build primitive 构建真实 any2api 二进制，并使用 Cargo JSON 消息给出的实际可执行文件路径；不复制资源准备或二进制路径推导逻辑。服务使用独立临时数据目录、固定测试管理员密码和随机可用 loopback 端口，从临时工作目录启动且不设置 `ANY2API_WEB_DIR`，从而验证本轮 manifest 对应的内嵌 React 资源。测试结束后停止服务并删除临时状态。
 - 每个测试使用新的 BrowserContext，不复用 Cookie；首次访问 deep link 时完成真实管理员登录，并断言登录后仍停留在原目标 URL。
 - 桌面用例覆盖核心管理页面的直接访问与刷新；移动用例使用 390×844，覆盖折叠导航、页面切换和 `scrollWidth <= innerWidth`。
 - 所有用例收集浏览器 `pageerror` 和 error 级 console 事件，测试结束时统一断言为空。
@@ -26,7 +26,7 @@ React 单元测试和 Axum 契约测试已经分别覆盖页面状态与 SPA fal
 
 ## 后果
 
-Web 开发依赖增加 Playwright，CI 需要安装 Chromium。普通 `pnpm test` 仍只运行快速 Vitest；`pnpm test:e2e` 构建 Rust 与 Web 并运行浏览器契约。浏览器套件保持小而稳定，只扩展无法在更低测试层证明的跨层行为。
+Web 开发依赖增加 Playwright，CI 需要安装 Chromium。Web package 的普通测试仍只运行快速 Vitest；仓库根 `pnpm test:e2e` 复用完整应用构建并运行浏览器契约。浏览器套件保持小而稳定，只扩展无法在更低测试层证明的跨层行为。
 
 ## 验证
 

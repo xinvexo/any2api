@@ -2,6 +2,8 @@ mod dto;
 mod handlers;
 
 pub(super) use dto::OverviewResourcesResponse;
+#[cfg(test)]
+pub(super) use dto::export_bindings;
 
 use axum::{Router, routing::get};
 

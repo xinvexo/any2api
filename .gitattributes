@@ -14,5 +14,3 @@
 *.jsx text eol=lf
 *.css text eol=lf
 *.html text eol=lf
-
-app/any2api/web-assets/** -text -eol

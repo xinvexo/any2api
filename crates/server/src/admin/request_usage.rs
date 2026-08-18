@@ -6,7 +6,7 @@ use any2api_runtime::api::{
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "RequestUsageResponse.ts"))]
 pub(crate) struct RequestUsageResponse {
     total_requests: u64,
     successful_requests: u64,
@@ -43,7 +43,11 @@ impl RequestUsageResponse {
 }
 
 #[derive(Debug, Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "RequestUsageWindowSlotResponse.ts")
+)]
 struct RequestUsageWindowSlotResponse {
     started_at_ms: u64,
     total_requests: u64,
@@ -60,4 +64,11 @@ impl From<&RequestUsageWindowSlot> for RequestUsageWindowSlotResponse {
             failed_requests: value.failed_requests(),
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    use ts_rs::TS as _;
+
+    RequestUsageResponse::export_all(config)
 }
