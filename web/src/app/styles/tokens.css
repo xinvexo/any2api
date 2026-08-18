@@ -7,6 +7,7 @@
   --header: transparent;
   /* Content surfaces stay mostly solid for readability over the frosted shell */
   --surface: #ffffff;
+  --surface-gradient-end: color-mix(in srgb, var(--surface) 88%, var(--canvas));
   --surface-muted: rgb(0 0 0 / 4.5%);
   --surface-hover: rgb(0 0 0 / 7%);
   --surface-selected: #ffffff;
@@ -61,6 +62,7 @@ html[data-theme="dark"] {
   --sidebar: transparent;
   --header: transparent;
   --surface: #1c1c1e;
+  --surface-gradient-end: color-mix(in srgb, var(--surface) 84%, var(--surface-selected));
   --surface-muted: rgb(255 255 255 / 7%);
   --surface-hover: rgb(255 255 255 / 10%);
   --surface-selected: #2c2c2e;
@@ -109,6 +111,7 @@ html[data-theme="dark"] {
   --color-sidebar: var(--sidebar);
   --color-header: var(--header);
   --color-surface: var(--surface);
+  --color-surface-gradient-end: var(--surface-gradient-end);
   --color-surface-muted: var(--surface-muted);
   --color-surface-hover: var(--surface-hover);
   --color-surface-selected: var(--surface-selected);

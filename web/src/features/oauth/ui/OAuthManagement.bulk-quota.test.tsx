@@ -141,15 +141,13 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(notice.querySelector("svg")).toBeNull();
   const card = notice.closest("[data-floating-bounds]");
   expect(card).toHaveClass(
-    "border-x-0",
-    "border-t-0",
-    "border-b",
-    "border-subtle/45",
+    "border-0",
+    "shadow-hairline",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
-    "via-[color-mix(in_srgb,var(--chart-4)_5%,var(--surface))]",
-    "to-surface",
+    "via-[color-mix(in_srgb,var(--chart-4)_7%,var(--surface))]",
+    "to-surface-gradient-end",
   );
   expect(screen.queryByRole("region", { name: "Codex 额度" })).not.toBeInTheDocument();
   expect(screen.queryByRole("group", { name: /Needs Authorization 近 1 小时/ }))

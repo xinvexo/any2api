@@ -90,6 +90,12 @@ zstd-sys = { version = "2.0.16", default-features = false, features = [
     "legacy",
 ] }
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

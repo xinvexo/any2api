@@ -14,7 +14,7 @@ test("OAuth JSON accounts remain server-side and support editing, model catalogs
   const browserErrors = watchBrowserErrors(page);
   await loginAt(page, "/oauth", "还没有 Codex OAuth 账号");
 
-  await page.getByRole("button", { name: "导入 JSON" }).click();
+  await page.getByRole("button", { name: "导入" }).click();
   const importDrawer = page.getByRole("dialog", { name: "导入 OAuth JSON" });
   await importDrawer.getByLabel("OAuth JSON 文件").setInputFiles({
     name: "oauth-e2e-fixture.json",
@@ -89,7 +89,7 @@ test("OAuth virtual grid fills a tall management workspace and reveals the compl
   await page.setViewportSize({ width: 1440, height: 1000 });
   await loginAt(page, "/oauth", "还没有 Codex OAuth 账号");
 
-  await page.getByRole("button", { name: "导入 JSON" }).click();
+  await page.getByRole("button", { name: "导入" }).click();
   const importDrawer = page.getByRole("dialog", { name: "导入 OAuth JSON" });
   await importDrawer.getByLabel("OAuth JSON 文件").setInputFiles({
     name: "oauth-layout-fixture.json",

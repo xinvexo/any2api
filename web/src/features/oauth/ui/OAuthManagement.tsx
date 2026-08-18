@@ -180,7 +180,7 @@ export function OAuthManagement() {
         onClick={openImport}
       >
         <Upload size={14} aria-hidden="true" />
-        导入 JSON
+        导入
       </Button>
       <Button
         variant="primary"
@@ -188,7 +188,7 @@ export function OAuthManagement() {
         onClick={openLogin}
       >
         <LogIn size={14} aria-hidden="true" />
-        OAuth认证
+        认证
       </Button>
     </>
   );

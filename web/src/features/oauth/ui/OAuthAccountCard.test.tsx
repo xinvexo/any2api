@@ -37,17 +37,14 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
     "text-danger",
   );
   expect(expiredBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-x-0",
-    "border-t-0",
-    "border-b",
-    "border-subtle/45",
+    "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
-    "via-[color-mix(in_srgb,var(--chart-4)_5%,var(--surface))]",
-    "to-surface",
+    "via-[color-mix(in_srgb,var(--chart-4)_7%,var(--surface))]",
+    "to-surface-gradient-end",
   );
-  expect(expiredBadge.closest("[data-floating-bounds]")).not.toHaveClass("shadow-hairline");
+  expect(expiredBadge.closest("[data-floating-bounds]")).toHaveClass("shadow-hairline");
   expect(screen.queryByText("状态")).not.toBeInTheDocument();
   const updatedAt = screen.getByText(/最后更新 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
   expect(within(updatedAt.parentElement!).getByRole("button", {
@@ -79,15 +76,12 @@ test("gives an exhausted account a warning gradient", () => {
   const exhaustedBadge = screen.getByLabelText("账号状态：耗尽");
   expect(exhaustedBadge).toHaveClass("bg-warning/12", "text-warning");
   expect(exhaustedBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-x-0",
-    "border-t-0",
-    "border-b",
-    "border-subtle/45",
+    "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
-    "via-[color-mix(in_srgb,var(--chart-5)_6%,var(--surface))]",
-    "to-surface",
+    "via-[color-mix(in_srgb,var(--chart-5)_8%,var(--surface))]",
+    "to-surface-gradient-end",
   );
 });
 
@@ -115,16 +109,47 @@ test("gives a healthy account a clear system-green gradient", () => {
   const healthyBadge = screen.getByLabelText("账号状态：正常");
   expect(healthyBadge).toHaveClass("bg-success/10", "text-success");
   expect(healthyBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-x-0",
-    "border-t-0",
-    "border-b",
-    "border-subtle/45",
+    "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
-    "via-[color-mix(in_srgb,var(--chart-6)_6%,var(--surface))]",
-    "to-surface",
+    "via-[color-mix(in_srgb,var(--chart-6)_8%,var(--surface))]",
+    "to-surface-gradient-end",
   );
+});
+
+test("keeps a disabled account visually separated without fading its content", () => {
+  render(
+    <OAuthAccountCard
+      presentation={{
+        id: "account-1",
+        title: "Disabled Codex",
+        subtitle: "owner@example.com",
+        enabled: false,
+        badges: [{ key: "enabled-status", label: "停用", tone: "warning" }],
+        metrics: [],
+        modelCatalog: [],
+      }}
+      proxyLabel="指定（DIRECT 本机直连）"
+      pending={false}
+      onToggleEnabled={vi.fn()}
+      onViewModels={vi.fn()}
+      onEdit={vi.fn()}
+      onDelete={vi.fn()}
+    />,
+  );
+
+  const card = screen.getByRole("heading", { name: "Disabled Codex" })
+    .closest("[data-floating-bounds]");
+  expect(card).toHaveClass(
+    "bg-surface-muted/45",
+    "bg-linear-to-b",
+    "from-[color-mix(in_srgb,var(--chart-8)_14%,var(--surface))]",
+    "via-[color-mix(in_srgb,var(--chart-8)_8%,var(--surface))]",
+    "to-surface-gradient-end",
+  );
+  expect(card).not.toHaveClass("bg-surface-muted/75", "to-surface");
+  expect(card).not.toHaveClass("opacity-[0.72]");
 });
 
 test.each([

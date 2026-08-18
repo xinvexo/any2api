@@ -179,7 +179,13 @@ html[data-theme="dark"] .auth-control:focus {
 
 .auth-submit {
   width: 100% !important;
+  height: 2.75rem !important;
+  min-height: 2.75rem !important;
   margin-top: 0.35rem;
+  border-radius: 0.75rem !important;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .auth-submit:disabled {

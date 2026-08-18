@@ -44,29 +44,41 @@ export function OAuthAccountCard({
   const hasHealthyBackground = !hasDangerBackground
     && !hasExhaustedBackground
     && statusBadges.some((badge) => badge.tone === "success");
+  const hasDisabledBackground = !hasDangerBackground
+    && !hasExhaustedBackground
+    && !hasHealthyBackground
+    && !presentation.enabled;
 
   return (
     <Surface
       data-floating-bounds
       className={cn(
-        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-x-0 border-t-0 border-b border-subtle/45 bg-surface-muted/45 p-0",
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-0 bg-surface-muted/45 p-0 shadow-hairline",
         "transition-opacity duration-150",
         hasDangerBackground && [
           "bg-linear-to-b",
           "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-4)_5%,var(--surface))] to-surface",
+          "via-[color-mix(in_srgb,var(--chart-4)_7%,var(--surface))]",
+          "to-surface-gradient-end",
         ],
         hasExhaustedBackground && [
           "bg-linear-to-b",
           "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-5)_6%,var(--surface))] to-surface",
+          "via-[color-mix(in_srgb,var(--chart-5)_8%,var(--surface))]",
+          "to-surface-gradient-end",
         ],
         hasHealthyBackground && [
           "bg-linear-to-b",
           "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-6)_6%,var(--surface))] to-surface",
+          "via-[color-mix(in_srgb,var(--chart-6)_8%,var(--surface))]",
+          "to-surface-gradient-end",
         ],
-        !presentation.enabled && "opacity-[0.72]",
+        hasDisabledBackground && [
+          "bg-linear-to-b",
+          "from-[color-mix(in_srgb,var(--chart-8)_14%,var(--surface))]",
+          "via-[color-mix(in_srgb,var(--chart-8)_8%,var(--surface))]",
+          "to-surface-gradient-end",
+        ],
       )}
     >
       <div className="flex items-start gap-2 px-3 pt-2.5 pb-0">
