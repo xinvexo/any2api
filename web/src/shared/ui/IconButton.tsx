@@ -31,8 +31,8 @@ export function IconButton({
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         size === "sm" ? "size-6 rounded-[6px]" : "size-8 rounded-[8px]",
         tone === "danger"
-          ? "text-danger/75 hover:bg-danger/8 hover:text-danger"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
+          ? "bg-danger/10 text-danger hover:bg-danger/14 active:bg-danger/18"
+          : "bg-control text-secondary hover:bg-control-hover hover:text-primary active:bg-control-active",
         className,
       )}
       {...props}

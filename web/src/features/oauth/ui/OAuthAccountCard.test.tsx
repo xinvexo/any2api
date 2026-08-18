@@ -40,8 +40,8 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
     "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
-    "from-danger/10",
-    "via-danger/[0.035]",
+    "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
+    "via-[color-mix(in_srgb,var(--chart-4)_5%,var(--surface))]",
     "to-surface",
   );
   expect(expiredBadge.closest("[data-floating-bounds]")).not.toHaveClass("shadow-hairline");
@@ -79,13 +79,13 @@ test("gives an exhausted account a warning gradient", () => {
     "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
-    "from-warning/10",
-    "via-warning/[0.035]",
+    "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
+    "via-[color-mix(in_srgb,var(--chart-5)_6%,var(--surface))]",
     "to-surface",
   );
 });
 
-test("gives a healthy account a success gradient", () => {
+test("gives a healthy account a clear system-green gradient", () => {
   render(
     <OAuthAccountCard
       presentation={{
@@ -112,8 +112,8 @@ test("gives a healthy account a success gradient", () => {
     "border-0",
     "bg-surface-muted/45",
     "bg-linear-to-b",
-    "from-success/10",
-    "via-success/[0.035]",
+    "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
+    "via-[color-mix(in_srgb,var(--chart-6)_6%,var(--surface))]",
     "to-surface",
   );
 });

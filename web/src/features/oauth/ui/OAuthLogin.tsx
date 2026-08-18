@@ -17,6 +17,7 @@ import { oauthProviderLabel } from "../model/oauth-provider-catalog";
 import { OAuthProxySelect } from "./OAuthProxySelect";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
+import { buttonClassName } from "@/shared/ui/button-class-name";
 import { Field } from "@/shared/ui/form-field";
 import { controlClass } from "@/shared/ui/form-control";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -119,7 +120,7 @@ export function OAuthLoginDrawer({
                 href={activeSession.authorizationUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="focus-ring inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[7px] bg-surface-muted px-3 text-[13px] font-medium text-primary transition-colors hover:bg-surface-hover"
+                className={buttonClassName({ variant: "secondary", size: "lg" })}
               >
                 <ExternalLink size={14} aria-hidden="true" />
                 打开授权页
@@ -178,7 +179,7 @@ export function OAuthLoginDrawer({
                 }
                 target="_blank"
                 rel="noreferrer"
-                className="focus-ring inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[7px] bg-surface-muted px-3 text-[13px] font-medium text-primary transition-colors hover:bg-surface-hover"
+                className={buttonClassName({ variant: "secondary", size: "lg" })}
               >
                 <ExternalLink size={14} aria-hidden="true" />
                 打开验证页

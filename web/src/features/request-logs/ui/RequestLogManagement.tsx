@@ -103,16 +103,21 @@ export function RequestLogManagement() {
   return (
     <div className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden" aria-busy={query.isFetching}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
-        <div className="mr-auto flex items-center gap-3 text-[12px] text-secondary">
-          {query.activeTotal > 0 ? (
-            <span>进行中 <span className="tabular-nums text-accent-copy">{query.activeTotal}</span></span>
-          ) : null}
-          {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
-        </div>
-        <RequestLogFilterBar filters={filters} options={query.filterOptions} onChange={changeFilters} />
-        <Button variant="ghost" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage}>
-          <RefreshCw size={14} className={query.isFetching && !query.isFetchingNextPage ? "animate-spin" : undefined} />刷新
-        </Button>
+        {query.activeTotal > 0 || !realtime.connected ? (
+          <div className="flex w-full items-center gap-3 text-[12px] text-secondary sm:mr-auto sm:w-auto">
+            {query.activeTotal > 0 ? (
+              <span>进行中 <span className="tabular-nums text-accent-copy">{query.activeTotal}</span></span>
+            ) : null}
+            {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
+          </div>
+        ) : null}
+        <RequestLogFilterBar
+          filters={filters}
+          options={query.filterOptions}
+          onChange={changeFilters}
+          onRefresh={() => void refreshLogs()}
+          refreshing={query.isFetching && !query.isFetchingNextPage}
+        />
       </div>
 
       {query.isError ? (

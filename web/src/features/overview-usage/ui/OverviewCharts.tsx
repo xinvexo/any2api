@@ -24,7 +24,7 @@ export function OverviewCharts({
 }) {
   return (
     <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch">
-      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+      <section className="flex min-w-0 flex-col rounded-[14px] bg-surface-muted/45 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="text-sm font-semibold tracking-tight">调用趋势</h3>
           <p className="text-xs tabular-nums text-secondary">
@@ -38,7 +38,7 @@ export function OverviewCharts({
         </div>
       </section>
 
-      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+      <section className="flex min-w-0 flex-col rounded-[14px] bg-surface-muted/45 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="text-sm font-semibold tracking-tight">模型分布</h3>
           <p className="text-xs tabular-nums text-secondary">

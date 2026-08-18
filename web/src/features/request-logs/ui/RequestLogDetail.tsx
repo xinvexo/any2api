@@ -18,6 +18,7 @@ import {
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
 import { Button } from "@/shared/ui/Button";
+import { buttonClassName } from "@/shared/ui/button-class-name";
 import { Surface } from "@/shared/ui/Surface";
 
 export function RequestLogDetail({ requestId }: { requestId: string }) {
@@ -43,7 +44,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           </p>
           <Link
             to="/logs"
-            className="focus-ring mt-5 inline-flex h-10 items-center gap-2 rounded-control border border-subtle bg-surface px-4 text-sm font-semibold text-primary hover:bg-surface-hover"
+            className={buttonClassName({ variant: "secondary", size: "lg", className: "mt-5" })}
           >
             <ArrowLeft size={15} />
             返回请求日志
@@ -62,7 +63,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           </Button>
           <Link
             to="/logs"
-            className="focus-ring inline-flex h-10 items-center gap-2 rounded-control px-4 text-sm font-semibold text-secondary hover:bg-surface-hover hover:text-primary"
+            className={buttonClassName({ variant: "secondary" })}
           >
             <ArrowLeft size={15} />
             返回请求日志

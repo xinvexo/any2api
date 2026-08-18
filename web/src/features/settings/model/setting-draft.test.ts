@@ -4,8 +4,14 @@ import type { SettingItem } from "../api/settings-contracts";
 import {
   createSettingDraft,
   isSettingDraftDirty,
+  sanitizeIntegerDraft,
   validateSettingDraft,
 } from "./setting-draft";
+
+test("filters non-numeric characters before an integer draft reaches validation", () => {
+  expect(sanitizeIntegerDraft("12abc中文.3")).toBe("123");
+  expect(sanitizeIntegerDraft(" 2048 ")).toBe("2048");
+});
 
 test("keeps numeric input as text and validates empty, fractional, and bounded values", () => {
   const item = numericItem();

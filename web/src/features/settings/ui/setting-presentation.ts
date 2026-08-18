@@ -7,9 +7,9 @@ const labels: Record<string, string> = {
   "admin.login.failure_window": "登录失败窗口",
   "admin.login.max_failures": "最大登录失败次数",
   "network.max_connections": "入站连接数上限",
-  "network.trusted_proxy_cidrs": "可信反向代理地址",
   "network.request_header_timeout": "HTTP 请求头读取超时",
   "network.request_body_idle_timeout": "请求体空闲超时",
+  "network.trusted_proxy_cidrs": "可信反向代理地址",
   "models.allowed": "客户端可使用模型",
   "affinity.enabled": "启用会话粘性",
   "affinity.ttl": "会话绑定 TTL",
@@ -40,8 +40,23 @@ const labels: Record<string, string> = {
   "retry.precommit_total_budget": "提交前总预算",
 };
 
+const descriptions: Record<string, string> = {
+  "logs.http_access.max_exchange_bytes":
+    "原始请求/响应 Header 与 Body 捕获的总容量预算；超出后删除最旧的完整记录。",
+  "logs.file.max_total_size":
+    "本地 JSONL 日志目录允许占用的最大总容量。",
+  "logs.telemetry_queue_max_bytes":
+    "请求遥测在途内存上限；满载时直接丢弃并计数。",
+  "stream.precommit.max_bytes":
+    "每个 SSE 帧及首事件提交前允许的最大数据量。",
+};
+
 export function settingLabel(item: SettingItem) {
   return labels[item.key] ?? item.key;
+}
+
+export function settingDescription(item: SettingItem) {
+  return descriptions[item.key] ?? item.description;
 }
 
 export function enumOptionLabel(value: string) {
@@ -50,21 +65,6 @@ export function enumOptionLabel(value: string) {
   }
   if (value === "reject") {
     return "立即拒绝";
-  }
-  if (value === "error") {
-    return "错误";
-  }
-  if (value === "warn") {
-    return "警告";
-  }
-  if (value === "info") {
-    return "信息";
-  }
-  if (value === "debug") {
-    return "调试";
-  }
-  if (value === "trace") {
-    return "跟踪";
   }
   return value;
 }

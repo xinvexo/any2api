@@ -35,7 +35,7 @@ export function AppShell() {
   const pageTitle = getPageTitle(location.pathname);
 
   useEffect(() => {
-    document.title = pageTitle === "系统总览" ? "any2api" : `${pageTitle} · any2api`;
+    document.title = pageTitle === "系统总览" ? "ANY2API" : `${pageTitle} · ANY2API`;
     if (previousPath.current !== location.pathname) {
       previousPath.current = location.pathname;
       setMobileOpen(false);
@@ -219,10 +219,10 @@ function Brand({ onNavigate }: { onNavigate: () => void }) {
       to="/"
       onClick={onNavigate}
       className="focus-ring flex min-w-0 items-center gap-2.5 rounded-full sm:gap-3"
-      aria-label="any2api 系统总览"
+      aria-label="ANY2API 系统总览"
     >
       <AppBrandIcon className="size-8 shrink-0 select-none rounded-[8px]" />
-      <span className="truncate text-[18px] font-medium tracking-tight sm:text-[20px]">any2api</span>
+      <span className="truncate text-[18px] font-medium tracking-tight sm:text-[20px]">ANY2API</span>
     </NavLink>
   );
 }

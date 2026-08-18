@@ -84,6 +84,16 @@ test("restores the persisted admin activity preference", () => {
   expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true);
 });
 
+test("uses clear-record wording for the destructive log action", async () => {
+  render(<SystemLogManagement />);
+
+  fireEvent.click(screen.getByRole("button", { name: "清空记录" }));
+
+  expect(await screen.findByRole("alertdialog", { name: "清空全部系统日志？" }))
+    .toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "清空" })).toBeInTheDocument();
+});
+
 test("returns to the latest feed without rendering a new-log banner", async () => {
   const applyPending = vi.fn();
   useSystemLogsMock.mockReturnValue({

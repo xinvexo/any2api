@@ -61,9 +61,9 @@ export function SystemLogManagement() {
         setConfirmClear(false);
         setSelectedId(null);
         setFollowingLatest(true);
-        notify.success(`已清理 ${result.deleted} 条历史系统日志`);
+        notify.success(`已清空 ${result.deleted} 条系统日志`);
       },
-      onError: () => notify.danger("系统日志清理失败"),
+      onError: () => notify.danger("清空系统日志失败"),
     });
   };
 
@@ -79,8 +79,8 @@ export function SystemLogManagement() {
             <RefreshCw size={14} className={query.isFetching && !query.isFetchingNextPage ? "animate-spin" : undefined} />
             <span className="sr-only md:not-sr-only">刷新</span>
           </Button>
-          <Button size="sm" variant="danger" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5" disabled={clearMutation.isPending} onClick={() => setConfirmClear(true)} title="清理历史日志">
-            <Trash2 size={14} /><span className="sr-only md:not-sr-only">清理历史日志</span>
+          <Button size="sm" variant="danger" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5" disabled={clearMutation.isPending} onClick={() => setConfirmClear(true)} title="清空记录">
+            <Trash2 size={14} /><span className="sr-only md:not-sr-only">清空记录</span>
           </Button>
         </div>
       </div>
@@ -119,7 +119,7 @@ export function SystemLogManagement() {
         }}
       />
 
-      <ConfirmDialog open={confirmClear} title="清理历史系统日志？" description="将删除数据库中当前保留的全部系统日志，此操作不可撤销。" confirmLabel="清理" tone="danger" pending={clearMutation.isPending} onClose={() => setConfirmClear(false)} onConfirm={handleClear} />
+      <ConfirmDialog open={confirmClear} title="清空全部系统日志？" description="将删除数据库中当前保留的全部系统日志，此操作不可撤销。" confirmLabel="清空" tone="danger" pending={clearMutation.isPending} onClose={() => setConfirmClear(false)} onConfirm={handleClear} />
       <SystemLogDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   );

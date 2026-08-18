@@ -5,6 +5,7 @@ import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { AuthMouseParticles } from "./AuthMouseParticles";
 import { cn } from "@/shared/lib/cn";
+import { notify } from "@/shared/notifications";
 import { AppBrandIcon } from "@/shared/ui/AppBrandIcon";
 import { Button } from "@/shared/ui/Button";
 
@@ -14,7 +15,6 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [visible, setVisible] = useState(false);
-  const [error, setError] = useState<unknown>(null);
   const setup = mode === "setup";
   const mismatch = setup && confirmation.length > 0 && password !== confirmation;
 
@@ -23,7 +23,6 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
     if (mismatch || password.length === 0 || (setup && setupToken.length === 0)) {
       return;
     }
-    setError(null);
     try {
       if (setup) {
         await auth.setup(password, setupToken);
@@ -31,7 +30,7 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
         await auth.login(password);
       }
     } catch (nextError) {
-      setError(nextError);
+      notify.danger(getAdminAuthErrorMessage(nextError));
     }
   }
 
@@ -43,12 +42,8 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
         <header className="auth-panel-header">
           <AppBrandIcon className="auth-mark" />
           <div className="auth-panel-brand">
-            <h1 id="auth-brand-title" className="auth-title">
-              any2api
-            </h1>
-            <p className="auth-subtitle">
-              {setup ? "初始化单管理员控制台" : "AI API 聚合代理 · 管理控制台"}
-            </p>
+            <h1 id="auth-brand-title" className="auth-title">ANY2API</h1>
+            {setup ? <p className="auth-subtitle">初始化单管理员控制台</p> : null}
           </div>
         </header>
 
@@ -105,12 +100,6 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
               两次输入的密码不一致。
             </p>
           ) : null}
-          {error ? (
-            <p className="auth-error" role="alert">
-              {getAdminAuthErrorMessage(error)}
-            </p>
-          ) : null}
-
           <Button
             className="auth-submit"
             type="submit"

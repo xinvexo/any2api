@@ -1,9 +1,10 @@
+import { AlertCircle } from "lucide-react";
 import { useId } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
 import { type SettingDraft, validateSettingDraft } from "../model/setting-draft";
 import { SettingControl } from "./SettingControl";
-import { reloadLabel, settingLabel } from "./setting-presentation";
+import { reloadLabel, settingDescription, settingLabel } from "./setting-presentation";
 
 interface SettingRowProps {
   item: SettingItem;
@@ -24,7 +25,8 @@ export function SettingRow({
   const errorId = useId();
   const validation = validateSettingDraft(item, value);
   const errorMessage = validation.error;
-  const hasDescription = item.description.trim().length > 0;
+  const description = settingDescription(item);
+  const hasDescription = description.trim().length > 0;
   const describedBy = [
     hasDescription ? descriptionId : null,
     errorMessage ? errorId : null,
@@ -47,15 +49,10 @@ export function SettingRow({
         </h3>
         {hasDescription ? (
           <p id={descriptionId} className="mt-0.5 text-[12px] leading-5 text-secondary">
-            {item.description}
+            {description}
           </p>
         ) : null}
         {restartHint ? <p className="mt-1 text-[11px] text-warning">{restartHint}</p> : null}
-        {errorMessage ? (
-          <p id={errorId} className="mt-1.5 text-[12px] text-danger" role="alert">
-            {errorMessage}
-          </p>
-        ) : null}
       </div>
 
       <div className="flex min-w-0 flex-col items-stretch gap-2">
@@ -68,6 +65,16 @@ export function SettingRow({
           describedBy={describedBy}
           onChange={(next) => onChange(item, next)}
         />
+        {errorMessage ? (
+          <p
+            id={errorId}
+            className="flex items-center gap-1.5 rounded-[6px] bg-danger/[0.07] px-2 py-1 text-[11px] leading-4 text-danger"
+            role="alert"
+          >
+            <AlertCircle size={13} aria-hidden="true" />
+            <span>{errorMessage}</span>
+          </p>
+        ) : null}
       </div>
     </div>
   );

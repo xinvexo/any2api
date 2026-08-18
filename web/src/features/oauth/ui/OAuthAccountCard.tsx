@@ -53,15 +53,18 @@ export function OAuthAccountCard({
         "transition-opacity duration-150",
         hasDangerBackground && [
           "bg-linear-to-b",
-          "from-danger/10 via-danger/[0.035] to-surface",
+          "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
+          "via-[color-mix(in_srgb,var(--chart-4)_5%,var(--surface))] to-surface",
         ],
         hasExhaustedBackground && [
           "bg-linear-to-b",
-          "from-warning/10 via-warning/[0.035] to-surface",
+          "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
+          "via-[color-mix(in_srgb,var(--chart-5)_6%,var(--surface))] to-surface",
         ],
         hasHealthyBackground && [
           "bg-linear-to-b",
-          "from-success/10 via-success/[0.035] to-surface",
+          "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
+          "via-[color-mix(in_srgb,var(--chart-6)_6%,var(--surface))] to-surface",
         ],
         !presentation.enabled && "opacity-[0.72]",
       )}

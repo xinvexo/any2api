@@ -1,9 +1,13 @@
 import type { SettingItem } from "../api/settings-contracts";
-import type { SettingDraft } from "../model/setting-draft";
+import { sanitizeIntegerDraft, type SettingDraft } from "../model/setting-draft";
 import { Select } from "@/shared/ui/Select";
 import { Switch } from "@/shared/ui/Switch";
 import { ModelAllowlistControl } from "./ModelAllowlistControl";
-import { enumOptionLabel, formatSettingDefaultPlaceholder } from "./setting-presentation";
+import { ScaledNumericControl } from "./ScaledNumericControl";
+import {
+  enumOptionLabel,
+  formatSettingDefaultPlaceholder,
+} from "./setting-presentation";
 
 interface SettingControlProps {
   item: SettingItem;
@@ -83,32 +87,37 @@ export function SettingControl({
     );
   }
 
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <input
-        className="focus-ring h-8 min-w-0 flex-1 rounded-[8px] border-0 bg-surface-muted px-2.5 text-[12px] tabular-nums text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        value={String(value)}
-        placeholder={formatSettingDefaultPlaceholder(item)}
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        aria-invalid={invalid}
+  if (item.valueType === "duration_secs"
+    || item.key === "logs.http_access.max_exchange_bytes"
+    || item.key === "logs.file.max_total_size"
+    || item.key === "logs.telemetry_queue_max_bytes"
+    || item.key === "stream.precommit.max_bytes") {
+    return (
+      <ScaledNumericControl
+        item={item}
+        value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
+        invalid={invalid}
+        labelledBy={labelledBy}
+        describedBy={describedBy}
+        onChange={onChange}
       />
-      <span className="shrink-0 text-[11px] text-tertiary">{unitLabel(item)}</span>
-    </div>
-  );
-}
+    );
+  }
 
-function unitLabel(item: SettingItem) {
-  if (item.valueType === "duration_secs") {
-    return "秒";
-  }
-  if (item.key === "logs.file.max_total_size" || item.key === "logs.http_access.max_exchange_bytes") {
-    return "字节";
-  }
-  return "数量";
+  return (
+    <input
+      className="focus-ring h-8 w-full min-w-0 rounded-[8px] border-0 bg-surface-muted px-2.5 text-[12px] tabular-nums text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={String(value)}
+      placeholder={formatSettingDefaultPlaceholder(item)}
+      aria-labelledby={labelledBy}
+      aria-describedby={describedBy}
+      aria-invalid={invalid}
+      disabled={disabled}
+      onChange={(event) => onChange(sanitizeIntegerDraft(event.target.value))}
+    />
+  );
 }

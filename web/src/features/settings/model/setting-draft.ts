@@ -12,6 +12,10 @@ export interface SettingDraftValidation {
   error: string | null;
 }
 
+export function sanitizeIntegerDraft(value: string) {
+  return value.replace(/\D+/gu, "");
+}
+
 export function createSettingDraft(item: SettingItem): SettingDraft {
   return createSettingDraftFromValue(item, item.effectiveValue);
 }

@@ -1,4 +1,4 @@
-import { RotateCcw } from "lucide-react";
+import { RefreshCw, RotateCcw } from "lucide-react";
 
 import type {
   RequestLogFilterOptions,
@@ -19,12 +19,16 @@ interface RequestLogFilterBarProps {
   filters: RequestLogFilters;
   options: RequestLogFilterOptions;
   onChange: (filters: RequestLogFilters) => void;
+  onRefresh: () => void;
+  refreshing: boolean;
 }
 
 export function RequestLogFilterBar({
   filters,
   options,
   onChange,
+  onRefresh,
+  refreshing,
 }: RequestLogFilterBarProps) {
   function change(
     value: string,
@@ -34,13 +38,16 @@ export function RequestLogFilterBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-label="请求日志筛选">
+    <div
+      className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap"
+      aria-label="请求日志筛选"
+    >
       <Select
         value={filters.outcome ?? ""}
         options={outcomeOptions}
         onValueChange={(value) => change(value, "outcome")}
         aria-label="结果"
-        className="w-32"
+        className="w-full sm:w-32"
       />
       <Select
         value={filters.publicModel ?? ""}
@@ -50,7 +57,7 @@ export function RequestLogFilterBar({
         ]}
         onValueChange={(value) => change(value, "publicModel")}
         aria-label="公开模型"
-        className="w-48"
+        className="w-full sm:w-48"
       />
       <Select
         value={filters.gatewayApiKeyId ?? ""}
@@ -60,17 +67,30 @@ export function RequestLogFilterBar({
         ]}
         onValueChange={(value) => change(value, "gatewayApiKeyId")}
         aria-label="Gateway API Key"
-        className="w-48"
+        className="w-full sm:w-48"
       />
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => onChange({})}
-        aria-label="清除请求日志筛选"
-      >
-        <RotateCcw size={14} />
-        清除
-      </Button>
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex">
+        <Button
+          className="w-full sm:w-auto"
+          variant="ghost"
+          size="lg"
+          onClick={() => onChange({})}
+          aria-label="重置请求日志筛选"
+        >
+          <RotateCcw size={14} />
+          重置
+        </Button>
+        <Button
+          className="w-full sm:w-auto"
+          variant="ghost"
+          size="lg"
+          onClick={onRefresh}
+          disabled={refreshing}
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+          刷新
+        </Button>
+      </div>
     </div>
   );
 }

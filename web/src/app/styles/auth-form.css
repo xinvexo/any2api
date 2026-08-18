@@ -39,9 +39,7 @@ html[data-theme="dark"] .auth-panel-glow {
   width: 3.75rem;
   height: 3.75rem;
   border-radius: 0.95rem;
-  object-fit: cover;
   user-select: none;
-  box-shadow: 0 10px 24px rgb(0 113 227 / 24%);
 }
 
 .auth-panel-brand {
@@ -181,19 +179,9 @@ html[data-theme="dark"] .auth-control:focus {
 
 .auth-submit {
   width: 100% !important;
-  height: 2.85rem !important;
-  min-height: 2.85rem !important;
   margin-top: 0.35rem;
-  border-radius: 12px !important;
-  font-size: 0.9375rem !important;
-  letter-spacing: 0.01em;
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 22%) inset,
-    0 10px 24px rgb(0 113 227 / 28%);
 }
 
-.auth-submit:hover:not(:disabled) {
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 22%) inset,
-    0 12px 28px rgb(0 113 227 / 34%);
+.auth-submit:disabled {
+  opacity: 1 !important;
 }

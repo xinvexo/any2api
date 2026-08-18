@@ -21,20 +21,20 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
 
   const metrics: ResourceMetric[] = [
     {
-      label: "any2api 内存",
+      label: "ANY2API 内存",
       value: resources ? formatResourceBytes(resources.process.residentMemoryBytes) : "—",
       note:
         processMemoryShare === null
-          ? "仅统计 any2api"
+          ? "仅统计 ANY2API"
           : `占整机内存 ${formatResourcePercent(processMemoryShare)}`,
       progress: processMemoryShare,
       tone: "blue",
       icon: MemoryStick,
     },
     {
-      label: "any2api CPU",
+      label: "ANY2API CPU",
       value: resources ? formatResourcePercent(resources.process.cpuUsagePercent) : "—",
-      note: "仅统计 any2api",
+      note: "仅统计 ANY2API",
       progress: resources?.process.cpuUsagePercent ?? null,
       tone: "violet",
       icon: Cpu,
@@ -71,7 +71,7 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
             <h2 id="overview-resources-title" className="text-sm font-semibold tracking-tight">
               资源状态
             </h2>
-            <p className="mt-0.5 truncate text-xs text-tertiary">any2api 与整机资源占用</p>
+    <p className="mt-0.5 truncate text-xs text-tertiary">ANY2API 与整机资源占用</p>
           </div>
         </div>
       </div>

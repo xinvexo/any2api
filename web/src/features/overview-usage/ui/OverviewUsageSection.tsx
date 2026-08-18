@@ -194,13 +194,13 @@ export function OverviewChartsLoading() {
       aria-label="正在加载调用图表"
       aria-live="polite"
     >
-      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+      <section className="flex min-w-0 flex-col rounded-[14px] bg-surface-muted/45 p-4">
         <Skeleton className="h-4 w-48" />
         <div className="mt-4 h-64">
           <Skeleton className="h-full w-full rounded-[6px]" />
         </div>
       </section>
-      <section className="flex min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/45 p-4">
+      <section className="flex min-w-0 flex-col rounded-[14px] bg-surface-muted/45 p-4">
         <Skeleton className="h-4 w-28" />
         <div className="mt-4 h-64">
           <Skeleton className="h-full w-full rounded-[6px]" />

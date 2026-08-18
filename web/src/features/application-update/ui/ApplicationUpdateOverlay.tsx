@@ -48,7 +48,7 @@ export function ApplicationUpdateOverlay({
       <section className="application-update-panel">
         <UpdateSymbol phase={view.phase} progress={view.progress} />
 
-        <p className="application-update-eyebrow">any2api update</p>
+        <p className="application-update-eyebrow">ANY2API UPDATE</p>
         <h1 id={titleId} className="application-update-title">{view.title}</h1>
         <p id={descriptionId} className="application-update-description">{view.description}</p>
 

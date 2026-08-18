@@ -43,8 +43,8 @@ test("shows resource and request load bands, then refreshes all overview queries
     </MemoryRouter>,
   );
 
-  expect(screen.getByText("any2api 内存")).toBeInTheDocument();
-  expect(screen.getByText("any2api CPU")).toBeInTheDocument();
+  expect(screen.getByText("ANY2API 内存")).toBeInTheDocument();
+  expect(screen.getByText("ANY2API CPU")).toBeInTheDocument();
   expect(screen.getByText("整机内存")).toBeInTheDocument();
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
@@ -56,6 +56,10 @@ test("shows resource and request load bands, then refreshes all overview queries
     .not.toBeInTheDocument();
   expect(screen.getByText("请求负载")).toBeInTheDocument();
   expect(screen.getByText("资源状态")).toBeInTheDocument();
+  expect(screen.getByText("ANY2API 内存").parentElement?.parentElement)
+    .toHaveClass("rounded-[14px]", "bg-surface-muted/45");
+  expect(screen.getByText("ANY2API 内存").parentElement?.parentElement)
+    .not.toHaveClass("border", "border-subtle");
   expect(screen.getByText("运行正常")).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "系统总览" })).not.toBeInTheDocument();
   expect(screen.queryByText("进程、主机与调用质量")).not.toBeInTheDocument();

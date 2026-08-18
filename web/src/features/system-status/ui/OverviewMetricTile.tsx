@@ -39,7 +39,7 @@ export function OverviewMetricTile({
   }[valueTone];
 
   return (
-    <div className="flex min-h-[7.5rem] min-w-0 flex-col rounded-[8px] border border-subtle bg-surface/70 px-3 py-3 transition-colors hover:border-strong sm:px-3.5">
+    <div className="flex min-h-[7.5rem] min-w-0 flex-col rounded-[14px] bg-surface-muted/45 px-3 py-3 sm:px-3.5">
       <div className="flex min-w-0 items-center gap-2">
         <span
           className="grid size-6 shrink-0 place-items-center rounded-[6px]"

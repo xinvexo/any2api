@@ -18,7 +18,7 @@ export function ProviderLoadSummary() {
         {runtime.providers.map((provider) => (
           <li
             key={provider.providerKind}
-            className="flex min-w-0 items-center justify-between gap-4 rounded-[8px] border border-subtle bg-surface/55 px-3.5 py-3"
+            className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] bg-surface-muted/45 px-3.5 py-3"
           >
             <span className="truncate text-sm font-medium">{providerLabel(provider.providerKind)}</span>
             <span className="shrink-0 text-right text-[11px] tabular-nums text-secondary">

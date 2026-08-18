@@ -1,3 +1,5 @@
+import { buttonClassName } from "@/shared/ui/button-class-name";
+
 export function ErrorRecoveryPage({
   title,
   description,
@@ -17,7 +19,7 @@ export function ErrorRecoveryPage({
         <h1 className="mt-3 text-xl font-semibold tracking-tight">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-secondary">{description}</p>
         <a
-          className="focus-ring mt-6 inline-flex min-h-9 items-center justify-center rounded-[8px] bg-accent px-4 text-sm font-semibold text-on-accent"
+          className={buttonClassName({ variant: "primary", size: "lg", className: "mt-6" })}
           href={reloadHref}
         >
           重新加载

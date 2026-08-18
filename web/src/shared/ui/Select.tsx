@@ -219,10 +219,10 @@ function SelectControl<T extends SelectValue>({
         disabled={disabled}
         data-value={String(value)}
         className={cn(
-          "focus-ring flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] border border-subtle",
-          "bg-surface py-0 pl-2.5 pr-3.5 text-left text-[12px] text-primary transition-colors hover:border-strong",
+          "focus-ring flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px]",
+          "bg-control py-0 pl-2.5 pr-3.5 text-left text-[12px] text-primary transition-colors hover:bg-control-hover",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          invalid && "border-danger/50 bg-danger/[0.05]",
+          invalid && "border border-danger/50 bg-danger/[0.05]",
           className,
         )}
         onClick={() => (isOpen ? setOpen(false) : openMenu())}
@@ -246,7 +246,7 @@ function SelectControl<T extends SelectValue>({
               role="listbox"
               aria-label={ariaLabel}
               aria-labelledby={ariaLabelledBy ?? (ariaLabel ? undefined : triggerId)}
-              className="fixed z-[80] overflow-y-auto rounded-[8px] border border-strong bg-surface p-1 shadow-panel"
+              className="fixed z-[80] overflow-y-auto rounded-[10px] border border-subtle/70 bg-surface/95 p-1 shadow-panel backdrop-blur-xl"
               style={{
                 left: layout?.left ?? 0,
                 top: layout?.top ?? 0,
@@ -275,7 +275,7 @@ function SelectControl<T extends SelectValue>({
                     className={cn(
                       "flex min-h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[12px]",
                       "disabled:cursor-not-allowed disabled:opacity-40",
-                      active ? "bg-accent text-on-accent" : "text-primary",
+                      active ? "bg-control-hover text-primary" : "text-primary",
                     )}
                     onPointerMove={() => !option.disabled && activate(index)}
                     onClick={() => choose(index)}
@@ -285,7 +285,10 @@ function SelectControl<T extends SelectValue>({
                       size={14}
                       strokeWidth={2}
                       aria-hidden="true"
-                      className={cn("shrink-0", selected ? "opacity-100" : "opacity-0")}
+                      className={cn(
+                        "shrink-0",
+                        selected ? "text-accent opacity-100" : "opacity-0",
+                      )}
                     />
                   </button>
                 );

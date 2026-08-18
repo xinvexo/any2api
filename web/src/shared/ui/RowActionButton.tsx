@@ -13,14 +13,13 @@ export interface RowActionButtonProps extends ButtonHTMLAttributes<HTMLButtonEle
 }
 
 const toneClassName: Record<RowActionTone, string> = {
-  neutral: "text-secondary hover:bg-surface-muted hover:text-primary",
-  success: "text-success hover:bg-surface-muted hover:text-success",
-  danger: "text-danger/75 hover:bg-danger/8 hover:text-danger",
+  neutral: "bg-control text-primary hover:bg-control-hover active:bg-control-active",
+  success: "bg-success/10 text-success hover:bg-success/14 active:bg-success/18",
+  danger: "bg-danger/10 text-danger hover:bg-danger/14 active:bg-danger/18",
 };
 
 /**
- * Table/list row action control.
- * Neutral actions stay quiet; success / danger only change icon color.
+ * Table/list row action control with the same quiet fill as page commands.
  */
 export function RowActionButton({
   label,

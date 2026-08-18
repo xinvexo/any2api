@@ -67,16 +67,6 @@ body {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-/* Filled CTAs: white label on solid color. Unlayered + !important so
- * Tailwind preflight `button { color: inherit }` cannot force body text color. */
-.ui-btn-fill,
-.ui-btn-fill:hover,
-.ui-btn-fill:active,
-.ui-btn-fill:focus,
-.ui-btn-fill:disabled {
-  color: #ffffff !important;
-}
-
 .focus-ring:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers";
 import { ADMIN_SESSION_EXPIRED_EVENT, setAdminCsrfToken } from "@/shared/api/http-client";
+import { clearNotifications, NotificationHost } from "@/shared/notifications";
 
 import { useAdminAuth } from "../model/use-admin-auth";
 
@@ -13,6 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   setAdminCsrfToken(null);
+  clearNotifications();
 });
 
 test("local first run completes setup and enters the protected application", async () => {
@@ -36,7 +38,7 @@ test("local first run completes setup and enters the protected application", asy
     </AppProviders>,
   );
 
-  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "ANY2API" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Setup Token"), {
     target: { value: "setup-token" },
   });
@@ -101,7 +103,7 @@ test("remote HTTP login warns before the password is submitted", async () => {
     </AppProviders>,
   );
 
-  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "ANY2API" })).toBeInTheDocument();
   expect(screen.getByText(/当前连接使用明文 HTTP/)).toBeInTheDocument();
 });
 
@@ -127,7 +129,7 @@ test("login input supports the browser password manager", async () => {
     </AppProviders>,
   );
 
-  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "ANY2API" })).toBeInTheDocument();
   const password = screen.getByLabelText("管理员密码");
   expect(password).toHaveValue("");
   expect(password).toHaveAttribute("autocomplete", "current-password");
@@ -141,6 +143,47 @@ test("login input supports the browser password manager", async () => {
 
   expect(await screen.findByText("protected console")).toBeInTheDocument();
   expect(storageWrites.mock.calls.flat().join("\n")).not.toContain(submittedPassword);
+});
+
+test("shows login failures through the default notification host", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/admin/auth/session") {
+        return jsonResponse(session(true, false, null));
+      }
+      if (path === "/api/admin/auth/login" && init?.method === "POST") {
+        return new Response(JSON.stringify({
+          error: {
+            code: "admin_invalid_credentials",
+            message: "invalid credentials",
+          },
+        }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request ${path}`);
+    }),
+  );
+
+  render(
+    <AppProviders>
+      <AdminAuthGate>
+        <p>protected console</p>
+      </AdminAuthGate>
+      <NotificationHost />
+    </AppProviders>,
+  );
+
+  const password = await screen.findByLabelText("管理员密码");
+  fireEvent.change(password, { target: { value: "wrong password" } });
+  fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("管理员密码不正确。");
+  expect(screen.queryByText("invalid credentials")).not.toBeInTheDocument();
+  expect(password).toBeInTheDocument();
 });
 
 test("session expiry immediately closes the protected view", async () => {
@@ -163,7 +206,7 @@ test("session expiry immediately closes the protected view", async () => {
 
   authenticated = false;
   window.dispatchEvent(new Event(ADMIN_SESSION_EXPIRED_EVENT));
-  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "ANY2API" })).toBeInTheDocument();
   expect(screen.queryByText("protected console")).not.toBeInTheDocument();
 });
 
@@ -193,7 +236,7 @@ test("logout returns to the login screen", async () => {
   expect(await screen.findByText("protected console")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "退出" }));
 
-  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "ANY2API" })).toBeInTheDocument();
   expect(screen.queryByText("protected console")).not.toBeInTheDocument();
   expect(screen.getByLabelText("管理员密码")).toBeInTheDocument();
   expect(
