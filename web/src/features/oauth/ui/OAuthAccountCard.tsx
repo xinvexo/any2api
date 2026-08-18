@@ -49,7 +49,7 @@ export function OAuthAccountCard({
     <Surface
       data-floating-bounds
       className={cn(
-        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-0 bg-surface-muted/45 p-0",
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-x-0 border-t-0 border-b border-subtle/45 bg-surface-muted/45 p-0",
         "transition-opacity duration-150",
         hasDangerBackground && [
           "bg-linear-to-b",
@@ -164,8 +164,8 @@ export function OAuthAccountCard({
         </div>
       </div>
 
-      <div className="mt-auto px-3">
-        <div className="flex min-w-0 items-center justify-between gap-1 border-t border-subtle/50 px-0 py-1">
+      <div className="mt-auto px-3 pb-1.5 sm:pb-0">
+        <div className="flex min-w-0 items-center justify-between gap-1 border-t border-subtle/50 px-0 py-2 sm:py-1">
           {lastUpdatedAt === null ? null : (
             <span
               className="min-w-0 truncate text-[10px] tabular-nums text-tertiary"
@@ -174,7 +174,7 @@ export function OAuthAccountCard({
               最后更新 {formatUpdatedAt(lastUpdatedAt)}
             </span>
           )}
-          <div className="ml-auto flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-1">
             <RowActionButton
               quiet
               label={`查看 ${presentation.title} 的可用模型`}

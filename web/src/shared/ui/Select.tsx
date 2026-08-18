@@ -122,7 +122,23 @@ function SelectControl<T extends SelectValue>({
       return;
     }
     const active = document.getElementById(optionId(listboxId, activeIndex));
-    active?.scrollIntoView?.({ block: "nearest" });
+    const menu = menuRef.current;
+    if (!active || !menu) {
+      return;
+    }
+
+    // Keep keyboard/typeahead scrolling inside the portal menu. Calling the
+    // page-level scrollIntoView here can move a wide management page while the
+    // menu is still being positioned, which makes the menu visibly jump.
+    const activeTop = active.offsetTop;
+    const activeBottom = activeTop + active.offsetHeight;
+    const visibleTop = menu.scrollTop;
+    const visibleBottom = visibleTop + menu.clientHeight;
+    if (activeTop < visibleTop) {
+      menu.scrollTop = activeTop;
+    } else if (activeBottom > visibleBottom) {
+      menu.scrollTop = activeBottom - menu.clientHeight;
+    }
   }, [activeIndex, isOpen, listboxId]);
 
   function openMenu() {

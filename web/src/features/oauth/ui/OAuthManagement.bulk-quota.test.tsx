@@ -141,7 +141,10 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(notice.querySelector("svg")).toBeNull();
   const card = notice.closest("[data-floating-bounds]");
   expect(card).toHaveClass(
-    "border-0",
+    "border-x-0",
+    "border-t-0",
+    "border-b",
+    "border-subtle/45",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",

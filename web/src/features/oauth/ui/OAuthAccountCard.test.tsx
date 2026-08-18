@@ -37,7 +37,10 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
     "text-danger",
   );
   expect(expiredBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-0",
+    "border-x-0",
+    "border-t-0",
+    "border-b",
+    "border-subtle/45",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
@@ -76,7 +79,10 @@ test("gives an exhausted account a warning gradient", () => {
   const exhaustedBadge = screen.getByLabelText("账号状态：耗尽");
   expect(exhaustedBadge).toHaveClass("bg-warning/12", "text-warning");
   expect(exhaustedBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-0",
+    "border-x-0",
+    "border-t-0",
+    "border-b",
+    "border-subtle/45",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
@@ -109,7 +115,10 @@ test("gives a healthy account a clear system-green gradient", () => {
   const healthyBadge = screen.getByLabelText("账号状态：正常");
   expect(healthyBadge).toHaveClass("bg-success/10", "text-success");
   expect(healthyBadge.closest("[data-floating-bounds]")).toHaveClass(
-    "border-0",
+    "border-x-0",
+    "border-t-0",
+    "border-b",
+    "border-subtle/45",
     "bg-surface-muted/45",
     "bg-linear-to-b",
     "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
