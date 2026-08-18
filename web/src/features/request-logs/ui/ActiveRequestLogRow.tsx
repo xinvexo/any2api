@@ -22,7 +22,7 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
 }: ActiveRequestLogRowProps) {
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <article role="listitem" className="log-entry-processing min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
+    <article className="log-entry-processing min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
       <div className="flex min-w-0 items-center gap-2">
         <time
           className="shrink-0 text-[11px] tabular-nums text-tertiary"

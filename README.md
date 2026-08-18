@@ -91,7 +91,7 @@ exclusive instance lock and rejects a second owner.
 
 Remote management is enabled by default, but it does not expose a new socket: the listener still defaults to `127.0.0.1:3210` and is controlled by `ANY2API_BIND`. On a new remote deployment, initialize the administrator password with `ANY2API_ADMIN_PASSWORD` because the one-time Setup API remains loopback-only.
 
-Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. Configure **Settings → Basic → Trusted reverse proxy addresses** only with the IP addresses or CIDRs that can connect directly to any2api; leave it empty when no reverse proxy is used. The setting takes effect immediately. Headers from other peers are ignored; requests from a trusted proxy fail closed unless they contain exactly one valid `X-Forwarded-For` and `X-Forwarded-Proto` header.
+Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. Configure **Settings → Basic → Trusted reverse proxy addresses** only with the IP addresses or CIDRs that can connect directly to any2api; leave it empty when no reverse proxy is used. The setting takes effect immediately. Headers from other peers are ignored. For a trusted proxy, a missing `X-Forwarded-For` falls back to the normalized TCP peer and a missing `X-Forwarded-Proto` is treated as insecure HTTP; present but malformed or ambiguous values fail closed. A request that traversed a trusted proxy never gains direct-loopback privileges from either fallback.
 
 For a same-host Nginx proxy, trust only the loopback address actually used by Nginx and send one normalized client address:
 
@@ -120,8 +120,10 @@ If Cloudflare is in front of Nginx, configure Nginx's real-IP module with Cloudf
 Clients authenticate with a Gateway API Key using `Authorization: Bearer <key>` or `x-api-key: <key>`.
 
 - `GET /v1/models`
+- `GET /v1/responses` (returns HTTP 426 `websocket_unavailable` as an HTTP fallback signal; it is not a WebSocket endpoint)
 - `POST /v1/responses`
 - `POST /v1/responses/compact`
+- `POST /v1/alpha/search`
 - `POST /v1/chat/completions`
 - `POST /v1/images/generations`
 - `POST /v1/images/edits`

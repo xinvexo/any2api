@@ -35,7 +35,7 @@ export const RequestLogCard = memo(function RequestLogCard({
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
   return (
-    <div role="listitem">
+    <div>
       <div
         role="button"
         tabIndex={0}

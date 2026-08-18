@@ -15,6 +15,7 @@ import {
   listEntryAnimationClass,
   type ListEntryAnimation,
 } from "@/shared/ui/useListEntryAnimations";
+import { WindowVirtualList } from "@/shared/ui/WindowVirtualList";
 
 interface SystemLogListProps {
   items: readonly SystemLog[];
@@ -69,18 +70,18 @@ export function SystemLogList({
       <div
         ref={mobileTopRef}
         className="management-scroll-viewport space-y-2 md:hidden"
-        role="list"
-        aria-label="系统日志列表"
       >
         <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
-        {items.map((log) => (
-          <div
-            key={log.requestId}
-            className={listEntryAnimationClass(entryAnimations?.get(log.requestId))}
-          >
+        <WindowVirtualList
+          items={items}
+          getItemKey={(log) => log.requestId}
+          renderItem={(log) => (
             <SystemLogCard log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
-          </div>
-        ))}
+          )}
+          ariaLabel="系统日志列表"
+          estimateItemHeight={72}
+          getItemClassName={(log) => listEntryAnimationClass(entryAnimations?.get(log.requestId))}
+        />
         <IntersectionSentinel enabled={hasMore && !loadingMore} rootMargin="400px 0px" onVisibilityChange={handleHistoryVisible} />
         {loadingMore ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
       </div>
@@ -109,7 +110,7 @@ function isMobileViewport() {
 
 function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: boolean; onSelect: (requestId: string) => void }) {
   return (
-    <div role="listitem">
+    <div>
       <div
         role="button"
         tabIndex={0}

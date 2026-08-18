@@ -24,6 +24,7 @@ import {
   listEntryAnimationClass,
   useListEntryAnimations,
 } from "@/shared/ui/useListEntryAnimations";
+import { WindowVirtualList } from "@/shared/ui/WindowVirtualList";
 
 export function RequestLogManagement() {
   const [filters, setFilters] = useState<RequestLogFilters>({});
@@ -128,22 +129,22 @@ export function RequestLogManagement() {
             <div
               ref={mobileTopRef}
               className="management-scroll-viewport space-y-2 md:hidden"
-              role="list"
-              aria-label="请求日志列表"
             >
               <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
-              {query.items.map((item) => (
-                <div
-                  key={item.requestId}
-                  className={listEntryAnimationClass(entryAnimations.get(item.requestId))}
-                >
-                  {isActiveRequestLog(item) ? (
+              <WindowVirtualList
+                items={query.items}
+                getItemKey={requestEntryId}
+                renderItem={(item) =>
+                  isActiveRequestLog(item) ? (
                     <ActiveRequestLogCard log={item} nowMs={nowMs} />
                   ) : (
                     <RequestLogCard log={item} selected={selectedId === item.requestId} onSelect={setSelectedId} />
-                  )}
-                </div>
-              ))}
+                  )
+                }
+                ariaLabel="请求日志列表"
+                estimateItemHeight={72}
+                getItemClassName={(item) => listEntryAnimationClass(entryAnimations.get(item.requestId))}
+              />
               <IntersectionSentinel
                 enabled={query.hasNextPage && !query.isFetchingNextPage}
                 rootMargin="400px 0px"
