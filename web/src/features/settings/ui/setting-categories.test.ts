@@ -9,6 +9,7 @@ test("running protection exposes only the configurable reliability budget", () =
     id: "protection",
     label: "运行保护",
     webGroups: [
+      "入站网络",
       "重试预算",
       "上游网络",
       "OAuth 刷新",

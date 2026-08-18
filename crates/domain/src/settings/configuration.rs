@@ -239,6 +239,10 @@ mod tests {
             (SettingKey::AffinityEnabled, SettingValue::Boolean(true)),
             (SettingKey::AffinityTtl, SettingValue::DurationSecs(120)),
             (
+                SettingKey::NetworkMaxConnections,
+                SettingValue::Integer(512),
+            ),
+            (
                 SettingKey::UpstreamReadTimeout,
                 SettingValue::DurationSecs(2),
             ),
@@ -253,12 +257,46 @@ mod tests {
         assert!(settings.scheduler().fallback_on_rate_limit());
         assert!(settings.affinity().enabled());
         assert_eq!(settings.affinity().ttl_secs(), 120);
+        assert_eq!(settings.network().max_connections().get(), 512);
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 3);
         assert_eq!(
             settings.effective_value(SettingKey::AffinityTtl),
             SettingValue::DurationSecs(120)
+        );
+    }
+
+    #[test]
+    fn inbound_connection_limit_uses_restart_required_bounded_integer_metadata() {
+        let definition = SettingKey::NetworkMaxConnections.definition();
+        assert_eq!(definition.default(), SettingValue::Integer(4_096));
+        assert_eq!(definition.min(), Some(SettingValue::Integer(1)));
+        assert_eq!(definition.max(), Some(SettingValue::Integer(100_000)));
+        assert_eq!(
+            definition.apply_mode(),
+            crate::SettingApplyMode::RestartRequired
+        );
+        assert_eq!(
+            SettingsConfiguration::defaults()
+                .network()
+                .max_connections()
+                .get(),
+            4_096
+        );
+        assert_eq!(
+            SettingOverrides::from_entries([(
+                SettingKey::NetworkMaxConnections,
+                SettingValue::Integer(0),
+            )]),
+            Err(SettingsValidationError::OutOfRange)
+        );
+        assert_eq!(
+            SettingOverrides::from_entries([(
+                SettingKey::NetworkMaxConnections,
+                SettingValue::Integer(100_001),
+            )]),
+            Err(SettingsValidationError::OutOfRange)
         );
     }
 

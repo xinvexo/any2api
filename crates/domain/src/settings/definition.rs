@@ -46,6 +46,18 @@ pub(super) fn duration_definition(
     )
 }
 
+pub(super) fn restart_required_definition(
+    key: SettingKey,
+    value_type: SettingValueType,
+    default: SettingValue,
+    bounds: (Option<SettingValue>, Option<SettingValue>),
+    presentation: (&'static str, &'static str),
+) -> SettingDefinition {
+    let mut definition = definition(key, value_type, default, bounds, &[], presentation);
+    definition.apply_mode = SettingApplyMode::RestartRequired;
+    definition
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SettingValueType {
     Boolean,

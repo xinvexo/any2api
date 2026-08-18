@@ -1,13 +1,10 @@
-use std::{env, net::SocketAddr, num::NonZeroUsize, path::PathBuf};
+use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result};
 use secrecy::SecretString;
 
-use super::listener;
-
 pub(super) struct StartupSettings {
     pub(crate) bind: SocketAddr,
-    pub(crate) max_connections: NonZeroUsize,
     pub(crate) database_path: PathBuf,
     pub(crate) log_directory: PathBuf,
     pub(crate) web_root: Option<PathBuf>,
@@ -20,16 +17,6 @@ impl StartupSettings {
             .unwrap_or_else(|_| "127.0.0.1:3210".to_owned())
             .parse()
             .context("ANY2API_BIND must be a valid socket address")?;
-        let max_connections = env::var("ANY2API_MAX_CONNECTIONS")
-            .ok()
-            .filter(|value| !value.is_empty())
-            .map(|value| {
-                value
-                    .parse::<NonZeroUsize>()
-                    .context("ANY2API_MAX_CONNECTIONS must be a positive integer")
-            })
-            .transpose()?
-            .unwrap_or(listener::DEFAULT_MAX_CONNECTIONS);
         let data_dir = env::var_os("ANY2API_DATA_DIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
@@ -43,7 +30,6 @@ impl StartupSettings {
             .map(SecretString::from);
         Ok(Self {
             bind,
-            max_connections,
             database_path: data_dir.join("any2api.sqlite3"),
             log_directory: data_dir.join("logs"),
             web_root,

@@ -56,6 +56,14 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(trusted_proxies["value_type"], "string_list");
     assert_eq!(trusted_proxies["default_value"], json!([]));
     assert_eq!(trusted_proxies["override_value"], Value::Null);
+    let max_connections = find_setting(&initial, "network.max_connections");
+    assert_eq!(max_connections["value_type"], "integer");
+    assert_eq!(max_connections["default_value"], 4_096);
+    assert_eq!(max_connections["effective_value"], 4_096);
+    assert_eq!(max_connections["min_value"], 1);
+    assert_eq!(max_connections["max_value"], 100_000);
+    assert_eq!(max_connections["apply_mode"], "restart_required");
+    assert_eq!(max_connections["web_group"], "入站网络");
     let models = find_setting(&initial, "models.allowed");
     assert_eq!(models["value_type"], "model_access");
     assert_eq!(models["default_value"], "all");
@@ -181,6 +189,49 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .override_value(SettingKey::SchedulerOnRateLimited),
         None
     );
+}
+
+#[tokio::test]
+async fn restart_required_connection_limit_can_be_saved() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, updated) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/network.max_connections",
+        Some(json!({ "expected_revision": 1, "value": 512 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["config_revision"], 2);
+    let setting = find_setting(&updated, "network.max_connections");
+    assert_eq!(setting["override_value"], 512);
+    assert_eq!(setting["effective_value"], 512);
+    assert_eq!(setting["apply_mode"], "restart_required");
+    assert_eq!(
+        storage
+            .load_configuration()
+            .await
+            .expect("stored connection limit")
+            .settings()
+            .network()
+            .max_connections()
+            .get(),
+        512
+    );
+
+    let (status, invalid) = request_json(
+        app,
+        Method::PATCH,
+        "/api/admin/settings/network.max_connections",
+        Some(json!({ "expected_revision": 2, "value": 0 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid["error"]["code"], "invalid_setting");
 }
 
 #[tokio::test]

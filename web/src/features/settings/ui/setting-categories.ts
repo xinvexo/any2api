@@ -31,6 +31,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
     id: "protection",
     label: "运行保护",
     webGroups: [
+      "入站网络",
       "重试预算",
       "上游网络",
       "OAuth 刷新",

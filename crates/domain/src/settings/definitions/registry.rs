@@ -11,7 +11,9 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::AdminSessionAbsoluteTimeout
         | SettingKey::AdminLoginFailureWindow
         | SettingKey::AdminLoginMaxFailures => admin::definition(key),
-        SettingKey::NetworkTrustedProxyCidrs => network::definition(key),
+        SettingKey::NetworkMaxConnections | SettingKey::NetworkTrustedProxyCidrs => {
+            network::definition(key)
+        }
         SettingKey::ModelsAllowed => models::definition(key),
         SettingKey::AffinityEnabled | SettingKey::AffinityTtl | SettingKey::AffinityWaitTimeout => {
             affinity::definition(key)

@@ -47,6 +47,28 @@ test("accepts empty setting description", () => {
   expect(configuration.items[0]?.description).toBe("");
 });
 
+test("parses restart-required connection limit metadata", () => {
+  const configuration = parseSettingsConfiguration({
+    config_revision: 1,
+    items: [{
+      ...item("network.max_connections", "integer", 4_096, 512, null, 1, 100_000),
+      apply_mode: "restart_required",
+      web_group: "入站网络",
+    }],
+  });
+
+  expect(configuration.items[0]).toMatchObject({
+    key: "network.max_connections",
+    defaultValue: 4_096,
+    overrideValue: 512,
+    effectiveValue: 512,
+    minValue: 1,
+    maxValue: 100_000,
+    applyMode: "restart_required",
+    webGroup: "入站网络",
+  });
+});
+
 test("rejects inconsistent bounds, values, and enum metadata", () => {
   expect(() => parseSettingsConfiguration({
     config_revision: 1,

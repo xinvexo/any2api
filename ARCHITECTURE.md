@@ -2545,7 +2545,7 @@ effective_value = user_override.unwrap_or(compiled_default)
 
 设置值使用带类型的 JSON。Duration 在 SQLite 与管理 HTTP 契约中统一使用整数秒，不接受模糊字符串。未知 key、损坏 JSON、类型错误或越界的持久化覆盖值会使配置加载失败；禁止带着部分默认值继续启动。显式覆盖即使等于当前默认值也必须保留，以表达用户意图并隔离未来默认值变化。
 
-Web 必须同时显示默认值、覆盖值和当前生效值，并允许写入具体覆盖值，但不得提供“恢复默认”按钮、草稿动作或其他清除覆盖入口。删除覆盖记录仍是管理 API、ConfigPublisher 与存储的基础能力，不进入浏览器交互。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。完整决策见 `docs/adr/0071-remove-web-setting-reset-actions.md`。
+Web 必须同时显示默认值、覆盖值和当前生效值，并允许写入具体覆盖值，但不得提供“恢复默认”按钮、草稿动作或其他清除覆盖入口。删除覆盖记录仍是管理 API、ConfigPublisher 与存储的基础能力，不进入浏览器交互。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和发布；`hot_reload` 设置在快照切换后立即作用于新请求，`restart_required` 设置保存后由 Web 明确提示需要重启，并只在下一次进程启动时装配到对应进程资源。完整决策见 `docs/adr/0071-remove-web-setting-reset-actions.md`。
 
 Codex 本机额度费率使用同一注册表中的 `oauth.codex.rate_card`，值类型为经过严格 Schema 校验的
 `codex_rate_card`：包含版本 ID、正整数 `credits_per_usd`，以及按精确模型名列出的 standard/fast
@@ -2600,6 +2600,18 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]` 并继续禁止全部；`"all"` 模式不参与名称裁剪。
 
 `models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/alpha/search`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新策略。完整决策见 `docs/adr/0073-explicit-public-model-access-mode.md`。
+
+#### 入站连接上限
+
+| 设置 | 类型 | 默认值 | 允许范围 | 生效方式 |
+|---|---|---:|---:|---|
+| `network.max_connections` | integer | `4096` | `1..=100_000` | `restart_required` |
+
+`network.max_connections` 限制同时存活的入站 TCP 连接，而不是逻辑 HTTP 请求数；一条 HTTP/2
+连接无论复用多少请求都只占一个名额。进程启动从已加载的 `SettingsConfiguration` 构造固定容量的
+监听器 Semaphore，达到上限后暂停 `accept`，让尚未接收的连接留在内核 backlog。保存新值只更新
+SQLite 配置与 PublishedSnapshot，不调整当前监听器，下一次进程启动才应用；禁止再用环境变量或监听器
+私有常量形成第二套默认值和优先级。
 
 #### 可信反向代理
 

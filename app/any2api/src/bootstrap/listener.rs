@@ -13,8 +13,6 @@ use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore},
 };
 
-pub(super) const DEFAULT_MAX_CONNECTIONS: NonZeroUsize = NonZeroUsize::new(4_096).unwrap();
-
 /// Builds the inbound listener: a concurrent-connection cap plus TCP_NODELAY
 /// on every accepted stream.
 ///
@@ -146,7 +144,7 @@ mod tests {
     use axum::serve::Listener;
     use tokio::net::{TcpListener, TcpStream};
 
-    use super::{DEFAULT_MAX_CONNECTIONS, LimitedListener, inbound_listener};
+    use super::{LimitedListener, inbound_listener};
 
     #[tokio::test]
     async fn accept_pauses_at_the_connection_limit_until_a_permit_is_released() {
@@ -173,7 +171,7 @@ mod tests {
     async fn inbound_listener_enables_nodelay_on_accepted_connections() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
         let address = listener.local_addr().expect("address");
-        let mut listener = inbound_listener(listener, DEFAULT_MAX_CONNECTIONS);
+        let mut listener = inbound_listener(listener, NonZeroUsize::MIN);
         let _client = TcpStream::connect(address).await.expect("client");
         let (mut io, _) = listener.accept().await;
         assert!(io.get_mut().nodelay().expect("nodelay"));

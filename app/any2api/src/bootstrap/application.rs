@@ -37,6 +37,7 @@ pub(super) async fn run(
         .load_configuration()
         .await
         .context("failed to load configuration")?;
+    let max_connections = configuration.settings().network().max_connections();
     let file_logging = FileLogging::initialize(
         bootstrap_tracing,
         settings.log_directory.clone(),
@@ -148,7 +149,7 @@ pub(super) async fn run(
     let listener = TcpListener::bind(settings.bind)
         .await
         .with_context(|| format!("failed to bind {}", settings.bind))?;
-    let listener = listener::inbound_listener(listener, settings.max_connections);
+    let listener = listener::inbound_listener(listener, max_connections);
 
     memory_reclamation::start(&lifecycle);
     anyhow::ensure!(
