@@ -1,8 +1,8 @@
 # any2api 架构基线
 
 > 状态：Current<br>
-> 版本：1.2<br>
-> 最后更新：2026-08-17<br>
+> 版本：1.3<br>
+> 最后更新：2026-08-18<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。专项决策见 [当前 ADR 索引](docs/adr/README.md)。
 
 ## 1. 项目定位
@@ -489,10 +489,11 @@ web: typecheck + lint + unit test + production build
 e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳层契约
 ```
 
-完整应用打包不使用裸 `cargo build` 组合手工前端步骤。唯一入口是 `cargo xtask package`：默认从当前
-Web 源码执行生产构建、同步并复核 `app/any2api/web-assets`，随后以锁定依赖构建 release 二进制；
-`--target <triple>` 选择 Rust 目标。干净 checkout 的发布门禁使用同一命令的 `--check-assets` 模式，
-只读核对已提交内嵌资源后再构建。普通 Cargo 构建继续只读取已提交资源，不启动 Node/pnpm，也不修改工作树。
+完整应用打包不使用裸 `cargo build` 组合手工前端步骤。唯一入口是 `cargo xtask package`：每次从当前
+Web 源码执行生产构建并同步 `app/any2api/web-assets`，复核同步结果后再以锁定依赖构建 release 二进制；
+`--target <triple>` 选择 Rust 目标。CI 和 Release 使用同一自动同步入口，不要求前端变更者额外提交或维护
+哈希文件名产物。普通 Cargo 构建继续只读取最近一次生成的内嵌快照，不启动 Node/pnpm，也不修改工作树；
+需要包含当前 Web 源码的构建必须使用 `cargo xtask package`。
 
 `xtask architecture-check` 负责：
 
@@ -3278,9 +3279,14 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 不依赖外部数据库或 Redis。
 
-React 构建产物属于正式二进制输入，不是运行时旁车目录。前端源码仍以 `web/src` 为真相；仓库提交机器生成的 `app/any2api/web-assets`，Rust `build.rs` 只扫描该目录并生成 `include_bytes!` 清单，不调用 Node、pnpm 或 Vite。因此干净环境只安装 Rust 也能构建当前已同步的正式二进制。
+React 构建产物属于正式二进制输入，不是运行时旁车目录。前端源码仍以 `web/src` 为真相；
+`app/any2api/web-assets` 是由打包入口生成的构建工作区，Rust `build.rs` 只扫描该目录并生成
+`include_bytes!` 清单，不调用 Node、pnpm 或 Vite。仓库可以保留最近一次生成快照供 Rust-only 构建使用，
+但它不再是 Web 源码变更的同步门禁。
 
-前端变更必须通过固定脚本执行“Vite build → 同步内嵌产物”；CI 独立比较 `web/dist` 与已提交产物，二者不一致直接失败。禁止手工编辑内嵌 JS/CSS/HTML，也禁止在 Rust build script 中隐式修改工作树。
+前端变更由固定流程执行“Vite build → 同步内嵌产物”；CI 和 Release 在编译前自动执行该流程，不再因为
+checkout 中的旧哈希文件名拒绝构建。`check:embedded` 只用于同步后的显式诊断。禁止手工编辑内嵌
+JS/CSS/HTML，也禁止在 Rust build script 中隐式修改工作树。
 
 ### 20.1 启动语义
 
@@ -3364,11 +3370,14 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 管理 Web 的外部目录与内嵌资源必须共享同一组 Web 专属安全响应头；全局响应边界再为两者及全部 API 统一添加 `X-Content-Type-Options: nosniff`，避免开发/诊断入口或 API 错误分支形成不同的类型嗅探边界。
 
-提交的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与提交目录只允许普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 对整棵生成目录按原始字节追踪，避免跨平台换行转换改变同一哈希资源的内容。资源缺失、同步校验失败或重复规范路径直接使构建/CI 失败；不为被替换文件名保留兼容别名。
+最终生成的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与生成目录只允许
+普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 若追踪快照则按原始字节保存，避免跨平台换行转换
+改变同一哈希资源的内容。资源缺失、同步失败或重复规范路径直接使当前打包失败；不为被替换文件名保留
+兼容别名。
 
 需要包含当前前后端源码的正式本地二进制时运行 `cargo xtask package`，不得再要求操作者先手工构建
-Web、复制目录、再运行 Cargo。`pnpm build:embedded` 与 `pnpm check:embedded` 只作为打包编排和前端
-维护使用的低层原语。`build.rs` 始终只扫描内嵌目录并在 `OUT_DIR` 生成 Rust 清单，禁止调用 Node、pnpm、
+Web、复制目录、再运行 Cargo。`pnpm build:embedded` 是自动同步的低层原语，`pnpm check:embedded`
+仅供同步后的诊断。`build.rs` 始终只扫描内嵌目录并在 `OUT_DIR` 生成 Rust 清单，禁止调用 Node、pnpm、
 Vite、联网或写入源码树。
 
 完整决策见 `docs/adr/0027-embedded-web-assets.md`。
@@ -3385,9 +3394,9 @@ Vite、联网或写入源码树。
 构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
-Release 的源码到二进制阶段调用 `cargo xtask package --check-assets --target x86_64-unknown-linux-gnu`。
-该模式仍从当前源码构建 `web/dist`，但只读核对 checkout 中已提交的 `web-assets`，差异直接终止发布；
-归档、checksum 与上传继续属于工作流的发行物职责。
+Release 的源码到二进制阶段调用 `cargo xtask package --target x86_64-unknown-linux-gnu`。
+该命令从当前源码构建并同步 `web-assets` 后再编译二进制；归档、checksum 与上传继续属于工作流的发行物
+职责。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、配置、日志或 Secret。

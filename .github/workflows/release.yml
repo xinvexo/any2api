@@ -55,8 +55,8 @@ jobs:
 
       - working-directory: web
         run: pnpm install --frozen-lockfile
-      - name: Build release binary from verified embedded assets
-        run: cargo xtask package --check-assets --target x86_64-unknown-linux-gnu
+      - name: Build release binary from current Web source
+        run: cargo xtask package --target x86_64-unknown-linux-gnu
 
       - name: Verify release binary version
         run: |

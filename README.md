@@ -15,7 +15,7 @@ ANY2API_DATA_DIR=/var/lib/any2api ./target/release/any2api
 ./target/release/any2api --version
 ```
 
-`cargo build --locked --release -p any2api` remains available for Rust-only verification and uses the committed embedded Web snapshot. It does not regenerate the current Web source; use `cargo xtask package` for a distributable binary.
+`cargo build --locked --release -p any2api` remains available for Rust-only verification and uses the latest embedded Web snapshot present in the checkout. It does not regenerate the current Web source; use `cargo xtask package` for a distributable binary. The package command always rebuilds and synchronizes the Web assets before compiling Rust.
 
 The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after startup. On a new data directory, the process prints a one-time administrator setup token. Enter that token in the local Web UI, or set `ANY2API_ADMIN_PASSWORD` only for first-run password initialization.
 
@@ -40,7 +40,8 @@ Run the `Release` workflow manually from GitHub Actions and enter the release ve
 example, `0.0.2`). That workflow input is the release's sole product-version source: it determines the binary's reported
 version, the matching `v<version>` tag, and the release asset names. The Cargo package version is Rust package metadata
 and does not need to match. Before packaging, the workflow runs
-`cargo xtask package --check-assets --target x86_64-unknown-linux-gnu`, then requires the built binary's exact
+`cargo xtask package --target x86_64-unknown-linux-gnu`, which rebuilds and synchronizes the Web assets before
+compiling the binary, then requires the built binary's exact
 `--version` output to match the input. It publishes the Linux AMD64 archive and checksum.
 
 An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly

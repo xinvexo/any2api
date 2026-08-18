@@ -7,11 +7,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-const USAGE: &str = "usage: cargo xtask package [--check-assets] [--target <triple>]";
+const USAGE: &str = "usage: cargo xtask package [--target <triple>]";
 
 #[derive(Debug, PartialEq, Eq)]
 struct Options {
-    check_assets: bool,
     target: Option<String>,
 }
 
@@ -30,11 +29,7 @@ pub(super) fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
         .context("xtask must live directly under the workspace root")?;
     let pnpm = if cfg!(windows) { "pnpm.cmd" } else { "pnpm" };
 
-    if options.check_assets {
-        run_command(root, pnpm, ["--dir", "web", "build"])?;
-    } else {
-        run_command(root, pnpm, ["--dir", "web", "build:embedded"])?;
-    }
+    run_command(root, pnpm, ["--dir", "web", "build:embedded"])?;
     run_command(root, pnpm, ["--dir", "web", "check:embedded"])?;
 
     let cargo = env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
@@ -55,13 +50,10 @@ pub(super) fn run(args: impl IntoIterator<Item = String>) -> Result<()> {
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Action> {
-    let mut check_assets = false;
     let mut target = None;
     let mut args = args.into_iter();
     while let Some(argument) = args.next() {
         match argument.as_str() {
-            "--check-assets" if !check_assets => check_assets = true,
-            "--check-assets" => bail!("--check-assets may only be specified once"),
             "--target" => {
                 let value = args.next().context("--target requires a target triple")?;
                 set_target(&mut target, value)?;
@@ -73,10 +65,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Action> {
             _ => bail!("unknown package argument {argument:?}; {USAGE}"),
         }
     }
-    Ok(Action::Build(Options {
-        check_assets,
-        target,
-    }))
+    Ok(Action::Build(Options { target }))
 }
 
 fn set_target(target: &mut Option<String>, value: String) -> Result<()> {
@@ -143,18 +132,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_default_and_release_check_modes() {
+    fn parses_default_and_target_modes() {
+        assert_eq!(build(&[]), Options { target: None });
         assert_eq!(
-            build(&[]),
+            build(&["--target", "x86_64-unknown-linux-gnu"]),
             Options {
-                check_assets: false,
-                target: None,
-            }
-        );
-        assert_eq!(
-            build(&["--check-assets", "--target", "x86_64-unknown-linux-gnu"]),
-            Options {
-                check_assets: true,
                 target: Some("x86_64-unknown-linux-gnu".to_owned()),
             }
         );
@@ -171,8 +153,7 @@ mod tests {
     #[test]
     fn rejects_unknown_or_duplicate_arguments() {
         for args in [
-            vec!["--check"],
-            vec!["--check-assets", "--check-assets"],
+            vec!["--check-assets"],
             vec!["--target", "linux", "--target=windows"],
             vec!["--target", ""],
         ] {

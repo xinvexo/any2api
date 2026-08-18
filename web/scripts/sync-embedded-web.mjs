@@ -31,7 +31,7 @@ async function checkEmbeddedWeb() {
 async function check(expectedFiles) {
   const actualFiles = await files(target, true);
   if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
-    throw new Error("embedded web asset file list is stale; run cargo xtask package");
+    throw new Error("embedded web assets are stale; run pnpm build:embedded");
   }
   for (const path of expectedFiles) {
     const [expected, actual] = await Promise.all([
@@ -39,7 +39,7 @@ async function check(expectedFiles) {
       readFile(join(target, path)),
     ]);
     if (!expected.equals(actual)) {
-      throw new Error(`embedded web asset ${path} is stale; run cargo xtask package`);
+      throw new Error(`embedded web asset ${path} is stale; run pnpm build:embedded`);
     }
   }
 }
