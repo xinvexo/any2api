@@ -49,8 +49,7 @@ test("rotates the password with the in-memory CSRF token and refreshes the sessi
   });
   fireEvent.click(screen.getByRole("button", { name: "更新密码" }));
 
-  const notification = await screen.findByText("密码已更新，当前会话已刷新。");
-  expect(notification.closest(".notification-card")).not.toBeNull();
+  expect(await screen.findByRole("status")).toHaveTextContent("密码已更新，当前会话已刷新。");
   expect(new Headers(rotationInit?.headers).get("X-CSRF-Token")).toBe("old-csrf");
   expect(JSON.parse(String(rotationInit?.body))).toEqual({
     current_password: "correct horse battery staple",

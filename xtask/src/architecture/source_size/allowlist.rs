@@ -177,7 +177,7 @@ mod tests {
         AllowlistEntry {
             path: PATH.to_owned(),
             reason: "cohesive fixture".to_owned(),
-            adr: "docs/adr/0047-feature-first-crate-layout.md".to_owned(),
+            adr: "docs/adr/0170-current-decision-register.md".to_owned(),
             owner: "maintainer".to_owned(),
             expires_at: expires_at.to_owned(),
         }

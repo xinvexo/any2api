@@ -6,7 +6,7 @@ use crate::header_policy::insert_default;
 
 // This is the Provider fallback when no same-dialect client persona is available.
 // It is deliberately not replaced by one entrypoint's current official persona;
-// see ADR-0131 for the independent exec/TUI evidence.
+// See docs/baselines/official-clients for the independent exec/TUI evidence.
 const DATA_ORIGINATOR: &str = "codex_cli_rs";
 const DATA_USER_AGENT: &str = "codex_cli_rs/0.145.0";
 

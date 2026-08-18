@@ -68,7 +68,8 @@ Before upgrading, take an offline copy of the data directory.
 | `ANY2API_DATA_DIR` | `./data` | SQLite database, instance lock, and logs |
 | `ANY2API_ADMIN_PASSWORD` | unset | Initialize the first administrator password; it does not rotate an existing password |
 | `ANY2API_WEB_DIR` | unset | Explicit external Web assets for development; production normally uses embedded assets |
-| `RUST_LOG` | process default | Console log filter; file-log level is managed in the Web settings |
+| `ANY2API_WORKER_THREADS` | Tokio default | Override the Tokio worker thread count with a positive integer |
+| `RUST_LOG` | `info` | Console log filter; file-log level is managed in the Web settings |
 
 ## Data Protection
 
@@ -146,4 +147,6 @@ pnpm dev
 `pnpm dev` supervises the Vite development server and the automatically rebuilding Rust backend as one session. Use
 `pnpm --dir web dev` only when intentionally running the frontend by itself.
 
-Before submitting changes, run the relevant checks from [AGENTS.md](AGENTS.md). Architecture decisions live in [ARCHITECTURE.md](ARCHITECTURE.md) and [docs/adr](docs/adr).
+Before submitting changes, run the relevant checks from [AGENTS.md](AGENTS.md). Current architecture lives in
+[ARCHITECTURE.md](ARCHITECTURE.md); rationale and discarded directions live in the single register indexed by
+[docs/adr/README.md](docs/adr/README.md).

@@ -12,7 +12,7 @@ export default tseslint.config(
       "coverage",
       "playwright-report",
       "test-results",
-      // ADR-0053: generated wire types; regenerate via `cargo test -p any2api-server export_bindings`.
+      // Generated wire types; regenerate via `cargo test -p any2api-server export_bindings`.
       "src/shared/api/generated",
     ],
   },

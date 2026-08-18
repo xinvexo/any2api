@@ -35,7 +35,6 @@ test("measures and slides to variable-size selected items", () => {
     width: "112px",
     transform: "translate3d(70px, 4px, 0)",
   });
-  expect(indicator).toHaveClass("duration-300");
 });
 
 function Harness() {

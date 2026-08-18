@@ -11,11 +11,10 @@ vi.mock("@/features/system-status", () => ({
 
 import { OverviewPage } from "./OverviewPage";
 
-test("uses the shared page width and puts provider load after call analysis", () => {
+test("puts provider load after call analysis", () => {
   render(<OverviewPage />);
 
   const page = screen.getByTestId("system").parentElement;
-  expect(page).not.toHaveClass("mx-auto", "max-w-[1440px]");
   expect(Array.from(page?.children ?? []).map((child) => child.textContent)).toEqual([
     "系统状态",
     "调用分析",

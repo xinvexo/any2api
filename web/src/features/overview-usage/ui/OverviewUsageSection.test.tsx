@@ -22,7 +22,7 @@ vi.mock("./OverviewCharts", () => ({
   OverviewCharts: () => <div data-testid="overview-charts" />,
 }));
 
-import { OverviewChartsLoading, OverviewUsageSection } from "./OverviewUsageSection";
+import { OverviewUsageSection } from "./OverviewUsageSection";
 
 beforeEach(() => {
   probe.data = parseOverviewUsage(overviewUsageWire());
@@ -53,16 +53,4 @@ test("shows an unknown cache hit rate without input tokens", () => {
   );
 
   expect(screen.getByText("暂无输入 Token")).toBeInTheDocument();
-});
-
-test("uses quiet borderless surfaces while charts are loading", () => {
-  render(<OverviewChartsLoading />);
-
-  const surfaces = screen.getByRole("status", { name: "正在加载调用图表" })
-    .querySelectorAll("section");
-  expect(surfaces).toHaveLength(2);
-  for (const surface of surfaces) {
-    expect(surface).toHaveClass("rounded-[14px]", "bg-surface-muted/45");
-    expect(surface).not.toHaveClass("border", "border-subtle");
-  }
 });

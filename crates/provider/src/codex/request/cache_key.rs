@@ -23,7 +23,7 @@ const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 /// prompt cache across tasks. Officially marked memory requests get a stable
 /// key and an explicit breakpoint after their fixed instructions; anything
 /// ambiguous passes through untouched, because misfiring on a normal turn
-/// would merge every session onto one cache shard (ADR-0154).
+/// would merge every session onto one cache shard.
 pub(super) fn stabilize_memory_prompt_cache(
     upstream_model: &str,
     body: Bytes,

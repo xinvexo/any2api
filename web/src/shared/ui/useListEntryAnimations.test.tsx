@@ -1,10 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
 
-import {
-  listEntrySurfaceAnimationClass,
-  useListEntryAnimations,
-} from "./useListEntryAnimations";
+import { useListEntryAnimations } from "./useListEntryAnimations";
 
 interface Entry {
   id: string;
@@ -13,16 +10,6 @@ interface Entry {
 
 const getId = (entry: Entry) => entry.id;
 const getState = (entry: Entry) => entry.state;
-
-test("maps row-surface animations without reusing full-row effects", () => {
-  expect(listEntrySurfaceAnimationClass("arrive")).toBe(
-    "log-entry-surface-arrive",
-  );
-  expect(listEntrySurfaceAnimationClass("complete")).toBe(
-    "log-entry-surface-complete",
-  );
-  expect(listEntrySurfaceAnimationClass(undefined)).toBeUndefined();
-});
 
 test("marks prepended logs and processing-to-final transitions", async () => {
   const { result, rerender } = renderHook(

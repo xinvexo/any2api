@@ -6,7 +6,7 @@ import type { GatewayApiKeyResponse } from "@/shared/api/generated/GatewayApiKey
 import type { GatewayApiKeyRotateRequest } from "@/shared/api/generated/GatewayApiKeyRotateRequest";
 import type { GatewayApiKeyUpdateRequest } from "@/shared/api/generated/GatewayApiKeyUpdateRequest";
 
-// Wire types are generated from the Rust DTOs (ADR-0053); parsers below keep
+// Wire types are generated from the Rust DTOs; parsers below keep
 // the semantic assertions (token shape, positive versions, usage coherence)
 // that the structural types cannot express.
 export type {

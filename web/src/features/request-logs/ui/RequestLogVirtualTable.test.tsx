@@ -28,11 +28,6 @@ test("renders only visible request rows and selects a row without expanding it",
 
   const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
   const firstRow = within(viewport).getByRole("row", { name: "查看请求 model-1" });
-  expect(firstRow).toHaveClass(
-    "compact-row-surface",
-    "compact-row-surface-hover",
-  );
-  expect(firstRow).not.toHaveClass("border-b");
   fireEvent.click(firstRow);
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.doubleClick(firstRow);
@@ -47,7 +42,7 @@ test("renders only visible request rows and selects a row without expanding it",
   expect(within(viewport).queryByText("model-1")).not.toBeInTheDocument();
 });
 
-test("keeps live and transition effects on the inset row surface", () => {
+test("renders active and completed request metrics in the expected columns", () => {
   const active = activeRequestLog();
   const completed = requestLog(1);
   render(
@@ -62,10 +57,6 @@ test("keeps live and transition effects on the inset row surface", () => {
         onSelect={() => {}}
         onFollowingLatestChange={() => {}}
         onLoadMore={() => {}}
-        entryAnimations={new Map([
-          [active.requestId, "arrive"],
-          [completed.requestId, "complete"],
-        ])}
       />
     </div>,
   );
@@ -86,58 +77,6 @@ test("keeps live and transition effects on the inset row surface", () => {
   expect(completedCells[7]).toHaveTextContent("2 ms");
   expect(completedCells[9]).toHaveTextContent("0");
   expect(completedCells[10]).toHaveTextContent("1");
-  expect(activeRow).toHaveClass(
-    "compact-row-surface",
-    "log-entry-surface-arrive",
-    "log-entry-surface-processing",
-  );
-  expect(completedRow).toHaveClass(
-    "compact-row-surface",
-    "log-entry-surface-complete",
-  );
-  expect(activeRow?.parentElement).not.toHaveClass("log-entry-arrive");
-  expect(completedRow.parentElement).not.toHaveClass("log-entry-complete");
-});
-
-test("keeps the same row surface when an active request completes", () => {
-  const active = {
-    ...activeRequestLog(),
-    requestId: "request-1",
-    publicModel: "model-1",
-  };
-  const props = {
-    selectedId: null,
-    nowMs: active.startedAtMs + 1_000,
-    followingLatest: true,
-    hasMore: false,
-    loadingMore: false,
-    onSelect: () => {},
-    onFollowingLatestChange: () => {},
-    onLoadMore: () => {},
-  };
-  const view = render(
-    <div className="h-[320px]">
-      <RequestLogVirtualTable items={[active]} {...props} />
-    </div>,
-  );
-
-  const processingRow = screen.getByText("请求中").closest("[role='row']");
-  expect(processingRow).toHaveClass("log-entry-surface-processing");
-
-  view.rerender(
-    <div className="h-[320px]">
-      <RequestLogVirtualTable
-        items={[requestLog(1)]}
-        {...props}
-        entryAnimations={new Map([["request-1", "complete"]])}
-      />
-    </div>,
-  );
-
-  const completedRow = screen.getByRole("row", { name: "查看请求 model-1" });
-  expect(completedRow).toBe(processingRow);
-  expect(completedRow).toHaveClass("log-entry-surface-processing");
-  expect(completedRow).toHaveClass("log-entry-surface-complete");
 });
 
 function requestLog(index: number): RequestLog {

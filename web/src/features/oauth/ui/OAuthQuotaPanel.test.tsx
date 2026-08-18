@@ -76,8 +76,7 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   expect(dialog).toHaveTextContent("当前剩余 1 次");
   fireEvent.click(within(dialog).getByRole("button", { name: "重置额度" }));
 
-  const notification = await screen.findByText("已重置 2 个额度窗口。");
-  expect(notification.closest(".notification-card")).not.toBeNull();
+  expect(await screen.findByText("已重置 2 个额度窗口。")).toBeInTheDocument();
   expect(within(panel).queryByText("已重置 2 个额度窗口。")).not.toBeInTheDocument();
   await waitFor(() =>
     expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 0"),

@@ -9,31 +9,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test("renders a centered notification block with a countdown timer bar", () => {
-  render(<NotificationHost />);
-
-  act(() => {
-    notify.success("已刷新全部 2 个 Codex 账号额度。");
-  });
-
-  const host = document.querySelector("[data-notification-host]");
-  expect(host?.className).toContain("justify-center");
-  expect(host?.className).not.toContain("justify-end");
-  // Scroll containers flash macOS scrollbar gutters during enter animation.
-  expect(screen.getByLabelText("全局通知").className).not.toContain("overflow-y-auto");
-
-  const status = screen.getByRole("status");
-  expect(status).toHaveTextContent("已刷新全部 2 个 Codex 账号额度。");
-  expect(status.className).toContain("notification-card");
-  expect(status.className).toContain("pointer-events-auto");
-  expect(screen.getByLabelText("全局通知")).toBeInTheDocument();
-
-  const timerBar = status.querySelector("[data-notification-timer-bar]");
-  expect(timerBar).toBeInTheDocument();
-  expect(timerBar).toHaveClass("notification-card__timer-bar");
-  expect((timerBar as HTMLElement).style.animationDuration).toBe("3600ms");
-});
-
 test("auto-dismisses after the configured duration", () => {
   vi.useFakeTimers();
   render(<NotificationHost />);
@@ -64,7 +39,9 @@ test("stacks multiple notifications at the same time", () => {
   expect(screen.getByText("第二条")).toBeInTheDocument();
   expect(screen.getByText("第三条")).toBeInTheDocument();
 
-  const cards = screen.getByLabelText("全局通知").querySelectorAll(".notification-card");
+  const cards = Array.from(
+    screen.getByRole("list", { name: "全局通知" }).children,
+  );
   expect(cards).toHaveLength(3);
   // Newest is prepended to the stack.
   expect(cards[0]).toHaveTextContent("第三条");

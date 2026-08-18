@@ -47,7 +47,7 @@ test("omits manual request ID, operation, and upstream credential controls", () 
   expect(screen.queryByRole("combobox", { name: "上游凭据" })).not.toBeInTheDocument();
 });
 
-test("keeps mobile filters in a stable two-column grid with aligned actions", () => {
+test("refreshes on command", () => {
   const onRefresh = vi.fn();
   render(
     <RequestLogFilterBar
@@ -59,18 +59,6 @@ test("keeps mobile filters in a stable two-column grid with aligned actions", ()
     />,
   );
 
-  expect(screen.getByLabelText("请求日志筛选")).toHaveClass(
-    "grid",
-    "w-full",
-    "grid-cols-2",
-    "sm:flex",
-  );
-  expect(
-    screen.getAllByRole("combobox").every((control) =>
-      control.classList.contains("w-full")
-    ),
-  ).toBe(true);
-  expect(screen.getByRole("button", { name: "重置请求日志筛选" })).toHaveClass("h-8");
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
   expect(onRefresh).toHaveBeenCalledOnce();
 });

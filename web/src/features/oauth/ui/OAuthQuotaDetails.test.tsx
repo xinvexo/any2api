@@ -20,7 +20,6 @@ test("shows real Credits in dollars and the estimate beside its percentage", () 
   const estimate = screen.getByText("$0.38/$1.00");
   const remaining = screen.getByText("63%");
   expect(estimate.parentElement).toContainElement(remaining);
-  expect(remaining).toHaveClass("text-success");
 });
 
 test("renders unavailable Credits as a dash", () => {

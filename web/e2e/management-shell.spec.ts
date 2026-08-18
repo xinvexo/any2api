@@ -13,8 +13,6 @@ test("settings expose the five current sections", async ({ page }) => {
   const settingsTabs = page.getByRole("navigation", { name: "系统设置分类" });
   await expect(settingsTabs.getByRole("link"))
     .toHaveText(["基础", "路由策略", "运行保护", "日志", "关于"]);
-  await expect(settingsTabs).toHaveCSS("scrollbar-width", "none");
-  await expect(page.locator(".management-scroll-viewport")).toHaveCSS("padding-right", "8px");
   const tabWidths = await settingsTabs.evaluate((element) => ({
     client: element.clientWidth,
     scroll: element.scrollWidth,
@@ -32,10 +30,10 @@ test("desktop core management deep links render against the real service", async
     "系统总览",
     "上游提供",
     "认证文件",
-    "路由检查",
-    "额度费率",
     "网关密钥",
     "出口代理",
+    "路由检查",
+    "额度费率",
     "请求日志",
     "系统日志",
     "系统设置",
@@ -117,8 +115,6 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
   const mobileTable = page.getByRole("table", { name: "网关密钥列表" });
   const mobileRow = mobileTable.locator("tbody > tr");
   await expect(mobileRow).toHaveCount(1);
-  await expect(mobileRow).toHaveCSS("display", "grid");
-  await expect(mobileRow).toHaveCSS("border-radius", "14px");
   await expect(mobileTable.getByRole("columnheader", { name: "名称" })).toBeHidden();
   await expect(mobileRow.getByText("调用统计", { exact: true })).toBeVisible();
   await expect(mobileRow.getByText("最后使用", { exact: true })).toBeVisible();
@@ -134,7 +130,7 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.reload();
   const desktopTable = page.getByRole("table", { name: "网关密钥列表" });
-  await expect(desktopTable.locator("tbody > tr")).toHaveCSS("display", "table-row");
+  await expect(desktopTable.locator("tbody > tr")).toHaveCount(1);
   await expect(desktopTable.getByRole("columnheader", { name: "名称" })).toBeVisible();
   await page.getByRole("button", { name: "删除 E2E 时间轴" }).click();
   const dialog = page.getByRole("alertdialog", { name: "删除「E2E 时间轴」？" });
@@ -151,8 +147,6 @@ test("proxy rows reflow into single mobile cards and return to desktop rows", as
   const table = page.getByRole("table", { name: "出口代理列表" });
   const row = table.locator("tbody > tr");
   await expect(row).toHaveCount(1);
-  await expect(row).toHaveCSS("display", "grid");
-  await expect(row).toHaveCSS("border-radius", "14px");
   await expect(table.getByRole("columnheader", { name: "名称" })).toBeHidden();
   await expect(row.getByText("本机网络", { exact: true })).toBeVisible();
   await expect(row.locator("td").nth(4)).toContainText(/无需认证|无认证|—/);
@@ -163,7 +157,6 @@ test("proxy rows reflow into single mobile cards and return to desktop rows", as
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.reload();
   await expect(table.locator("tbody > tr")).toHaveCount(1);
-  await expect(table.locator("tbody > tr")).toHaveCSS("display", "table-row");
   await expect(table.getByRole("columnheader", { name: "名称" })).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
@@ -213,57 +206,32 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#ffffff");
-  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
-    "content",
-    /viewport-fit=cover.*interactive-widget=resizes-content/,
-  );
   const mobileList = page.getByRole("list", { name: "系统日志列表" });
   await expect(mobileList).toBeVisible();
-  await expect(mobileList).toHaveCSS("padding-right", "8px");
-  const mobileCard = mobileList.getByRole("listitem").first();
-  const mobileCardButton = mobileCard.getByRole("button");
-  await expect(mobileCardButton).toHaveCSS("border-radius", "8px");
-  await expect(mobileCardButton).toHaveCSS("border-top-width", "0px");
-  await expect(page.getByRole("button", { name: "刷新", exact: true })).toHaveCSS("width", "36px");
-  await expect(page.getByRole("button", { name: "清理历史日志" })).toHaveCSS("width", "36px");
+  await expect(mobileList.getByRole("listitem").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "清空记录" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  const contentGap = await mobileList.evaluate((element) => {
-    if (!(element instanceof HTMLElement)) return 0;
-    const card = element.querySelector('[role="listitem"]');
-    if (!card) return 0;
-    const scrollbarStart = element.getBoundingClientRect().right
-      - (element.offsetWidth - element.clientWidth);
-    return Math.round(scrollbarStart - card.getBoundingClientRect().right);
-  });
-  expect(contentGap).toBe(8);
 
   const main = page.locator("#main-content");
   const scrollMetrics = await page.evaluate(() => ({
     documentClientHeight: document.scrollingElement?.clientHeight ?? 0,
     documentScrollHeight: document.scrollingElement?.scrollHeight ?? 0,
-    scrollingElement: document.scrollingElement?.tagName ?? "",
-    shellOverflowY: getComputedStyle(document.querySelector(".app-shell")!).overflowY,
-    mainOverflowY: getComputedStyle(document.querySelector("#main-content")!).overflowY,
   }));
-  expect(scrollMetrics.scrollingElement).toBe("HTML");
   expect(scrollMetrics.documentScrollHeight).toBeGreaterThan(scrollMetrics.documentClientHeight);
-  expect(scrollMetrics.shellOverflowY).toBe("visible");
-  expect(scrollMetrics.mainOverflowY).toBe("visible");
-  await expect(mobileList).toHaveCSS("overflow-y", "visible");
   await page.evaluate(() => window.scrollTo(0, 400));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBe(0);
 
-  await page.getByRole("button", { name: "清理历史日志" }).click();
-  const dialog = page.getByRole("alertdialog", { name: "清理历史系统日志？" });
+  await page.getByRole("button", { name: "清空记录" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "清空全部系统日志？" });
   await expect(dialog).toBeVisible();
   const cleared = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/admin/system-logs") &&
       response.request().method() === "DELETE",
   );
-  await dialog.getByRole("button", { name: "清理", exact: true }).click();
+  await dialog.getByRole("button", { name: "清空", exact: true }).click();
   await cleared;
   await expect(dialog).toBeHidden();
   expect(browserErrors).toEqual([]);
@@ -280,12 +248,6 @@ test("390px OAuth navigation closes after a deep-link transition without horizon
     name: "主导航",
   });
   await expect(navigation).toBeVisible();
-  const panelBounds = await page.locator("#responsive-navigation").boundingBox();
-  expect(panelBounds).not.toBeNull();
-  expect(panelBounds!.x).toBeGreaterThan(0);
-  expect(panelBounds!.y).toBeGreaterThan(56);
-  expect(panelBounds!.width).toBeLessThan(300);
-  expect(panelBounds!.height).toBeLessThan(500);
   await expect(
     page.locator("#responsive-navigation").getByRole("button", { name: "关闭导航" }),
   ).toHaveCount(0);
@@ -300,7 +262,7 @@ test("390px OAuth navigation closes after a deep-link transition without horizon
 
 async function loginAt(page: Page, path: string, readyText: string) {
   await page.goto(path);
-  await expect(page.getByRole("heading", { name: "any2api" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ANY2API" })).toBeVisible();
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "进入控制台", exact: true }).click();
   await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();

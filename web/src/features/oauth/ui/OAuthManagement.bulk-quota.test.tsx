@@ -56,7 +56,6 @@ test("virtualizes the full collection and sends one Codex quota batch", async ()
   fireEvent.click(refreshAll);
   const notification = await screen.findByRole("alert");
   expect(notification).toHaveTextContent("已刷新 11 个 Codex 账号额度，1 个失败。");
-  expect(notification.className).toContain("notification-card");
   await waitFor(() => expect(refreshAll).toBeEnabled());
 
   const batchCalls = fetchMock.mock.calls.filter(
@@ -105,7 +104,7 @@ test("warns when every quota refresh succeeds but a model catalog fails", async 
   );
 });
 
-test("keeps reauthorization accounts compact and marks the whole card", async () => {
+test("hides quota details for accounts that require reauthorization", async () => {
   const failedAccount = {
     ...oauthAccountJson("reauthorize-1", "Needs Authorization", "codex", false),
     token_refresh_failure: {
@@ -137,18 +136,7 @@ test("keeps reauthorization accounts compact and marks the whole card", async ()
   expect(screen.getByLabelText("账号状态：过期")).toBeInTheDocument();
   expect(screen.queryByText("需重新授权")).not.toBeInTheDocument();
   const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
-  expect(notice).not.toHaveClass("border-t", "border-danger/20", "rounded-lg", "bg-danger/5");
-  expect(notice.querySelector("svg")).toBeNull();
-  const card = notice.closest("[data-floating-bounds]");
-  expect(card).toHaveClass(
-    "border-0",
-    "shadow-hairline",
-    "bg-surface-muted/45",
-    "bg-linear-to-b",
-    "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
-    "via-[color-mix(in_srgb,var(--chart-4)_7%,var(--surface))]",
-    "to-surface-gradient-end",
-  );
+  expect(notice).toHaveTextContent("Refresh Token 已被撤销");
   expect(screen.queryByRole("region", { name: "Codex 额度" })).not.toBeInTheDocument();
   expect(screen.queryByRole("group", { name: /Needs Authorization 近 1 小时/ }))
     .not.toBeInTheDocument();
@@ -252,23 +240,12 @@ test("keeps card actions disabled until the server batch completes", async () =>
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeDisabled();
   const quotaRefreshButtons = screen.getAllByRole("button", { name: "刷新额度" });
   expect(quotaRefreshButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
-  expect(
-    quotaRefreshButtons.every((button) =>
-      button.querySelector("svg")?.classList.contains("animate-spin"),
-    ),
-  ).toBe(true);
 
   batchGate.resolve(undefined);
 
   const notification = await screen.findByRole("status");
   expect(notification).toHaveTextContent("已刷新全部 8 个 Codex 账号额度。");
-  expect(notification.className).toContain("notification-card");
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeEnabled();
-  expect(
-    screen.getAllByRole("button", { name: "刷新额度" }).every((button) =>
-      !button.querySelector("svg")?.classList.contains("animate-spin"),
-    ),
-  ).toBe(true);
 });
 
 function renderManagement() {

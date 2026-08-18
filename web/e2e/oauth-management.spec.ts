@@ -188,7 +188,7 @@ async function deleteAccount(page: Page, label: string) {
 
 async function loginAt(page: Page, path: string, readyText: string) {
   await page.goto(path);
-  await expect(page.getByRole("heading", { name: "any2api" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ANY2API" })).toBeVisible();
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "进入控制台", exact: true }).click();
   await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
