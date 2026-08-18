@@ -1,7 +1,8 @@
 use super::super::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{
-        MAX_SETTING_COUNT, definition as setting_definition, restart_required_definition,
+        MAX_SETTING_COUNT, MAX_SETTING_DURATION_SECS, definition as setting_definition,
+        duration_definition, restart_required_definition,
     },
 };
 
@@ -20,6 +21,16 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
                 "同时存活的入站 TCP 连接数量上限；保存后需要重启进程生效。",
             ),
         ),
+        SettingKey::NetworkRequestHeaderTimeout => restart_required_duration(
+            key,
+            30,
+            "HTTP 请求头读取超时；连接在请求头未完整到达前超过此时间会被关闭，保存后需要重启进程生效。",
+        ),
+        SettingKey::NetworkRequestBodyIdleTimeout => restart_required_duration(
+            key,
+            60,
+            "请求体连续两个数据块之间允许的最长空闲时间，适用于公开接口和管理接口；保存后需要重启进程生效。",
+        ),
         SettingKey::NetworkTrustedProxyCidrs => setting_definition(
             key,
             SettingValueType::StringList,
@@ -33,4 +44,21 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         _ => unreachable!(),
     }
+}
+
+fn restart_required_duration(
+    key: SettingKey,
+    default: u64,
+    description: &'static str,
+) -> SettingDefinition {
+    let mut definition = duration_definition(
+        key,
+        default,
+        1,
+        MAX_SETTING_DURATION_SECS,
+        "入站网络",
+        description,
+    );
+    definition.apply_mode = super::super::SettingApplyMode::RestartRequired;
+    definition
 }

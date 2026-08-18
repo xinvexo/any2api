@@ -8,7 +8,8 @@ use any2api_runtime::api::{
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{Router, routing::get};
 use tokio::{
-    net::TcpListener,
+    io::AsyncReadExt,
+    net::{TcpListener, TcpStream},
     sync::{Notify, oneshot},
 };
 
@@ -43,6 +44,7 @@ async fn injected_signal_stops_accepting_and_waits_for_an_active_handler() {
             app,
             server_lifecycle,
             || test_timeouts(1_000, 1_000),
+            Duration::from_secs(30),
             async move {
                 signal_receiver.await.ok();
             },
@@ -73,6 +75,38 @@ async fn injected_signal_stops_accepting_and_waits_for_an_active_handler() {
     server.await.expect("server task").expect("server result");
     let response = client.await.expect("client task");
     assert!(String::from_utf8_lossy(&response).contains("200 OK"));
+}
+
+#[tokio::test]
+async fn an_incomplete_header_connection_is_closed_after_the_configured_deadline() {
+    let lifecycle = ProcessLifecycle::new();
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+    let address = listener.local_addr().expect("address");
+    let (signal_sender, signal_receiver) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        serve_with_timeout_source(
+            listener,
+            Router::new(),
+            lifecycle,
+            || test_timeouts(1, 1),
+            Duration::from_millis(25),
+            async move {
+                signal_receiver.await.ok();
+            },
+        )
+        .await
+        .result
+    });
+
+    let mut client = TcpStream::connect(address).await.expect("client");
+    let mut byte = [0_u8; 1];
+    let result = tokio::time::timeout(Duration::from_secs(1), client.read(&mut byte))
+        .await
+        .expect("header timeout should close the connection");
+    assert!(matches!(result, Ok(0) | Err(_)));
+
+    signal_sender.send(()).expect("shutdown signal");
+    server.await.expect("server task").expect("server result");
 }
 
 #[tokio::test]
@@ -136,6 +170,7 @@ async fn signal_captures_the_latest_published_shutdown_settings() {
         Router::new(),
         runtime.lifecycle(),
         snapshots.as_ref(),
+        Duration::from_secs(30),
         async move {
             signal_receiver.await.ok();
         },

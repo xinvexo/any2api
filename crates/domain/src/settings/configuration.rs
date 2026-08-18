@@ -243,6 +243,14 @@ mod tests {
                 SettingValue::Integer(512),
             ),
             (
+                SettingKey::NetworkRequestHeaderTimeout,
+                SettingValue::DurationSecs(12),
+            ),
+            (
+                SettingKey::NetworkRequestBodyIdleTimeout,
+                SettingValue::DurationSecs(34),
+            ),
+            (
                 SettingKey::UpstreamReadTimeout,
                 SettingValue::DurationSecs(2),
             ),
@@ -258,6 +266,8 @@ mod tests {
         assert!(settings.affinity().enabled());
         assert_eq!(settings.affinity().ttl_secs(), 120);
         assert_eq!(settings.network().max_connections().get(), 512);
+        assert_eq!(settings.network().request_header_timeout_secs(), 12);
+        assert_eq!(settings.network().request_body_idle_timeout_secs(), 34);
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 3);
@@ -297,6 +307,43 @@ mod tests {
                 SettingValue::Integer(100_001),
             )]),
             Err(SettingsValidationError::OutOfRange)
+        );
+    }
+
+    #[test]
+    fn inbound_slowloris_timeouts_are_bounded_and_restart_required() {
+        for (key, default, max) in [
+            (
+                SettingKey::NetworkRequestHeaderTimeout,
+                30,
+                crate::settings::definition::MAX_SETTING_DURATION_SECS,
+            ),
+            (
+                SettingKey::NetworkRequestBodyIdleTimeout,
+                60,
+                crate::settings::definition::MAX_SETTING_DURATION_SECS,
+            ),
+        ] {
+            let definition = key.definition();
+            assert_eq!(definition.default(), SettingValue::DurationSecs(default));
+            assert_eq!(definition.min(), Some(SettingValue::DurationSecs(1)));
+            assert_eq!(definition.max(), Some(SettingValue::DurationSecs(max)));
+            assert_eq!(
+                definition.apply_mode(),
+                crate::SettingApplyMode::RestartRequired
+            );
+        }
+        assert_eq!(
+            SettingsConfiguration::defaults()
+                .network()
+                .request_header_timeout_secs(),
+            30
+        );
+        assert_eq!(
+            SettingsConfiguration::defaults()
+                .network()
+                .request_body_idle_timeout_secs(),
+            60
         );
     }
 

@@ -1462,7 +1462,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
 - Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
 - 公开请求不设置进程级总内存预算、加权内存 Semaphore、Permit 或基于预计工作集的本地 `429`。并发请求不得因端点理论最大 Body、buffered/SSE 硬上限或 Continuation 最大状态而预占尚未实际分配的内存；机器可承载的并发量由实际工作集、分配器与操作系统资源决定，不在应用层另设总量阈值。
-- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计；不超过当前单对象上限的 `Content-Length`/`size_hint` 只可作为初始容量提示。多块聚合跨过 `256 KiB` 后转入匿名映射，最终共享 `Bytes` 持有实际堆 capacity 或映射长度；最后一个所有者 Drop 直接解除大映射。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，并把实际解压产物写入同一映射缓冲；Server 只允许同时执行 2 个 zstd 解压作业，等待许可不产生本地拒绝、不预留 Body 字节，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。最终 Body 需要执行 Provider Profile 规范化或 multipart 重编码时，同样按实际写入增长并让大产物由映射所有；不得在映射输入之外再建立一个同量级普通 `Vec` 高水位。协议和 Transport 继续复用共享 `Bytes` 并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配。
+- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计；不超过当前单对象上限的 `Content-Length`/`size_hint` 只可作为初始容量提示。多块聚合跨过 `256 KiB` 后转入匿名映射，最终共享 `Bytes` 持有实际堆 capacity 或映射长度；最后一个所有者 Drop 直接解除大映射。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，并把实际解压产物写入同一映射缓冲；Server 的 zstd CPU 许可数按 `max(2, available_parallelism / 2)` 自适应，不设置固定的 CPU 总量上限；单个请求最多等待 10 秒，超时产生 `local_rate_limit`，这只是 blocking CPU 队列保护，不是公开请求内存总量准入，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。最终 Body 需要执行 Provider Profile 规范化或 multipart 重编码时，同样按实际写入增长并让大产物由映射所有；不得在映射输入之外再建立一个同量级普通 `Vec` 高水位。协议和 Transport 继续复用共享 `Bytes` 并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
 完整决策见 `docs/adr/0054-openai-images-api.md` 与 `docs/adr/0117-openai-images-chat-completions-bridge.md`。
@@ -2606,12 +2606,21 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 | 设置 | 类型 | 默认值 | 允许范围 | 生效方式 |
 |---|---|---:|---:|---|
 | `network.max_connections` | integer | `4096` | `1..=100_000` | `restart_required` |
+| `network.request_header_timeout` | duration_secs | `30` | `1..=86_400` | `restart_required` |
+| `network.request_body_idle_timeout` | duration_secs | `60` | `1..=86_400` | `restart_required` |
 
 `network.max_connections` 限制同时存活的入站 TCP 连接，而不是逻辑 HTTP 请求数；一条 HTTP/2
 连接无论复用多少请求都只占一个名额。进程启动从已加载的 `SettingsConfiguration` 构造固定容量的
 监听器 Semaphore，达到上限后暂停 `accept`，让尚未接收的连接留在内核 backlog。保存新值只更新
 SQLite 配置与 PublishedSnapshot，不调整当前监听器，下一次进程启动才应用；禁止再用环境变量或监听器
 私有常量形成第二套默认值和优先级。
+
+入站连接还必须有慢速请求保护。`network.request_header_timeout` 从 TCP 连接建立开始约束首个 HTTP
+请求建立前的握手与请求头读取；HTTP/1 后续 keep-alive 请求也由 Hyper 的 Header 读取超时约束，超时
+时尚未形成 Axum Request，直接关闭连接，不生成协议错误正文。`network.request_body_idle_timeout` 在
+请求体每个数据帧之间重置计时，覆盖公开接口、管理 JSON、multipart 上传和未知路由；它限制的是连续
+空闲时间而非整个上传时长，超时后 Body 读取失败并停止进入 Handler/上游。两个值都在启动时装配，修改
+后需要重启；请求取消、连接断开和 Forced shutdown 必须释放等待中的 Body 读取。
 
 #### 可信反向代理
 

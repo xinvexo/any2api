@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-02
-- 修订：2026-08-03
+- 修订：2026-08-18
 - 决策者：maintainer
 
 ## 背景
@@ -16,7 +16,7 @@
 - 删除固定 `256 MiB` 公开请求预算、加权字节 Semaphore、`PublicRequestMemoryAdmission`、响应生命周期 Permit，以及由容量估算产生的本地 `429`。不以其他固定值、动态内存百分比或隐藏并发阈值替代。
 - 保留并严格执行单请求边界：普通 Body `32 MiB`、Images Edit Body `64 MiB`、普通 buffered 响应 `16 MiB`、Images buffered/SSE `64 MiB`、配置化普通 SSE 预算、远程压缩 SSE `64 MiB`，以及 Continuation 单条 `16 MiB`/Registry 合计 `64 MiB`。
 - HTTP Body 使用逐块聚合。公共 `PublicBody` 提取器先按路径确定操作，再把 Runtime 单一 `request_body_limit` 结果显式传给 `collect_body`；该收集器是公共路由请求体大小的唯一执行点。公共路由不安装 Axum `DefaultBodyLimit`：自定义提取器直接消费原始 Body，不读取该扩展，保留它只会制造一份看似生效的死配置。管理端使用 Axum `Multipart` 提取器的独立上传限制不受此决定影响。每个数据块写入前以 checked arithmetic 校验累计实际长度，不根据端点最大值或 `Content-Length` 预分配整个缓冲区；聚合完成后以共享 `Bytes` 交给协议层，避免入口再复制一份完整 Body。
-- zstd 以固定 `16 KiB` 缓冲逐块解压，只保留实际输出，并读取最多 `上限 + 1` 字节判定 `413`。Server 使用固定 2 个许可只约束同时占用 Tokio 共享 blocking 池的 zstd CPU 作业；等待许可不返回本地 `429`、不按 Body 上限预留内存，也不影响 Route、RPM 或 Credential 选择，因此不恢复已删除的公开请求全局内存准入。取得许可后，压缩输入与许可一同移入唯一 `ProcessLifecycle` 的受管 blocking closure；HTTP Future 被取消时，已经开始且不可取消的任务仍保持 TaskTracker 计数、输入所有权和许可，直到解码实际返回。
+- zstd 以固定 `16 KiB` 缓冲逐块解压，只保留实际输出，并读取最多 `上限 + 1` 字节判定 `413`。Server 使用 `max(2, available_parallelism / 2)` 个许可约束同时占用 Tokio 共享 blocking 池的 zstd CPU 作业，不设置固定 CPU 总量上限；单个等待者最多排队 10 秒，超时返回 `local_rate_limit`。该门闩只保护 blocking CPU 队列，不按 Body 上限预留内存，也不影响 Route、RPM 或 Credential 选择，因此不恢复已删除的公开请求全局内存准入。取得许可后，压缩输入与许可一同移入唯一 `ProcessLifecycle` 的受管 blocking closure；HTTP Future 被取消时，已经开始且不可取消的任务仍保持 TaskTracker 计数、输入所有权和许可，直到解码实际返回。
 - multipart 结构化解析、请求重编码、重试 payload、buffered 响应与 SSE 继续使用现有单对象硬上限和所有权生命周期。共享 `Bytes`、流式背压、EOF/错误/断连/Drop 负责尽早释放真实对象，不再附着与实际对象无关的估算容量 Guard。
 - RPM 仍是唯一参与 Credential 准入的可配置本地限制。内存分配失败由分配器/操作系统处理；应用不把尚未发生的 OOM 猜测成可重试 429。
 
@@ -31,13 +31,13 @@
 
 - 远程压缩、图片或其他大请求不会因理论最大工作集阻止实际很小的并发请求；所有已配置 Credential 都能参与统一调度和负载均衡。
 - 多个合法最大请求可以同时消耗真实内存，极端并发下进程可能受到系统内存压力甚至被 OOM 终止。这是取消应用级总量阈值的明确取舍；后续优化应减少复制、缩短所有权和改进流式处理，而不是重新引入固定总预算。
-- 超过 2 个并发 zstd 请求会在完成请求体聚合后等待解压许可；它们仍持有已经实际聚合的压缩 Body，但不会继续占用新的 blocking 线程。等待可由请求取消或 Forced shutdown 终止，已经进入 blocking 池的解压则按进程受管任务完成或触发有界停机失败。
-- 客户端不会再看到 `server request memory budget is exhausted`。本地 429 只来自真实 RPM/调度限速语义，上游 429 继续按既有错误契约处理。
+- 超过自适应许可数的并发 zstd 请求会在完成请求体聚合后等待解压许可；它们仍持有已经实际聚合的压缩 Body，但不会继续占用新的 blocking 线程。等待最多持续 10 秒，超时返回 `local_rate_limit`；请求取消或 Forced shutdown 可更早终止等待，已经进入 blocking 池的解压则按进程受管任务完成或触发有界停机失败。
+- 客户端不会再看到 `server request memory budget is exhausted`。本地 429 不来自已删除的内存预算；它可以来自真实 RPM/调度限速或 zstd CPU 队列超时，上游 429 继续按既有错误契约处理。
 
 ## 验证
 
 - Server/契约测试覆盖任意 Body 分块、普通 `32 MiB` 与 Images Edit `64 MiB` 操作上限、Images Generation 仍使用普通上限、一个已聚合到 `64 MiB` 且仍 Pending 的请求不阻塞并发小请求，以及取消后真实 Body 所有权释放；这些边界必须由显式 `collect_body` 路径独立成立。
-- zstd 测试覆盖有效输入、损坏输入、增量输出和解压后超过 `32 MiB` 返回 `413`；并发测试固定最多 2 个 closure 同时开始，取消等待者不会事后启动，已开始任务在 HTTP waiter 取消及 Forced shutdown 后仍由 TaskTracker 跟踪并持有许可直到返回；公开代理契约继续覆盖入口解压、模型改写与 identity 上游正文。
+- zstd 测试覆盖有效输入、损坏输入、增量输出和解压后超过 `32 MiB` 返回 `413`；并发测试注入显式许可数验证排队、超时与取消语义，另由默认构造测试验证许可数按 `max(2, available_parallelism / 2)` 计算；已开始任务在 HTTP waiter 取消及 Forced shutdown 后仍由 TaskTracker 跟踪并持有许可直到返回；公开代理契约继续覆盖入口解压、模型改写与 identity 上游正文。
 - Runtime 与 HTTP 契约不再包含内存容量 429、Permit 扩缩或响应 Guard 测试；既有 buffered/SSE 实际硬上限、流式 EOF/错误/断连/Drop 和上游取消测试继续通过。
 
 本 ADR 取代 ADR-0054 第 11 条的全局内存预算，并取代 ADR-0076 的 Continuation 在途工作集 Permit；两份 ADR 的单对象硬上限与其余协议语义继续生效。

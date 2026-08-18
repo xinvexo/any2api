@@ -164,3 +164,4 @@
 | [0164](0164-alternate-path-failure-recovery.md) | ADR-0164：分离重放证据与候选故障恢复 |
 | [0166](0166-node-owned-development-build-and-package-lifecycle.md) | ADR-0166: Node 统一拥有开发、构建与打包生命周期 |
 | [0167](0167-live-route-admission-and-pending-rebase.md) | ADR-0167：实时路由准入撤销与 Pending 请求重规划 |
+| [0168](0168-inbound-slowloris-timeouts.md) | ADR-0168：入站请求头与请求体空闲超时 |

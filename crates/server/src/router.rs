@@ -4,15 +4,25 @@ use axum::{
     middleware,
     routing::{any, get},
 };
+use std::time::Duration;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
-    admin, embedded_web, health::health, http_access_log, public, request_lifecycle,
-    response_security_headers, state::AppState, web_assets::WebAssets, web_security_headers,
+    admin, embedded_web, health::health, http_access_log, public, request_body_timeout,
+    request_lifecycle, response_security_headers, state::AppState, web_assets::WebAssets,
+    web_security_headers,
 };
 
 pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router {
     let lifecycle = state.runtime().lifecycle();
+    let body_idle_timeout = Duration::from_secs(
+        state
+            .snapshots()
+            .load()
+            .settings()
+            .network()
+            .request_body_idle_timeout_secs(),
+    );
     let public_root = public::namespace_root(state.clone());
     let router = Router::new()
         .route("/api/", any(api_not_found))
@@ -39,6 +49,9 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
             request_lifecycle::track,
         ))
         .layer(middleware::from_fn(response_security_headers::add_nosniff))
+        .layer(middleware::from_fn(move |request, next| {
+            request_body_timeout::apply(request, next, body_idle_timeout)
+        }))
         .layer(middleware::from_fn_with_state(
             state,
             http_access_log::record,

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
@@ -175,6 +175,13 @@ pub(super) async fn run(
         app,
         lifecycle.clone(),
         snapshots.as_ref(),
+        Duration::from_secs(
+            snapshots
+                .load()
+                .settings()
+                .network()
+                .request_header_timeout_secs(),
+        ),
         async {
             tokio::select! {
                 () = shutdown_signal.wait() => {}

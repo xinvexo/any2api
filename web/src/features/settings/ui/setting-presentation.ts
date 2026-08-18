@@ -8,6 +8,8 @@ const labels: Record<string, string> = {
   "admin.login.max_failures": "最大登录失败次数",
   "network.max_connections": "入站连接数上限",
   "network.trusted_proxy_cidrs": "可信反向代理地址",
+  "network.request_header_timeout": "HTTP 请求头读取超时",
+  "network.request_body_idle_timeout": "请求体空闲超时",
   "models.allowed": "客户端可使用模型",
   "affinity.enabled": "启用会话粘性",
   "affinity.ttl": "会话绑定 TTL",

@@ -45,7 +45,7 @@ http-body = "1.0.1"
 http-body-util = "0.1.5"
 hyper = { version = "1.11.0", features = ["client", "http1", "http2"] }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
-hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "http1", "http2", "tokio"] }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "http1", "http2", "server-auto", "service", "tokio"] }
 ipnet = "2.12.1"
 memmap2 = "0.9.11"
 multer = "3.1.0"
@@ -75,7 +75,7 @@ tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring
 toml = "1.1.4"
 tower = { version = "0.5.3", features = ["util"] }
 tower-service = "0.3.3"
-tower-http = { version = "0.7.0", features = ["fs"] }
+tower-http = { version = "0.7.0", features = ["fs", "timeout"] }
 ts-rs = { version = "12.0.1", features = ["serde-compat"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
