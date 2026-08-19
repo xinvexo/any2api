@@ -1,5 +1,5 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, QuotaServiceTier,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, QuotaCostUnit,
     RequestSpeedTier, TransportMode,
 };
 use base64::Engine as _;
@@ -28,7 +28,7 @@ fn request_context(
 }
 
 #[test]
-fn gates_responses_speed_tier_and_maps_oauth_quota_without_body_parsing() {
+fn gates_responses_speed_tier_and_oauth_request_costs_without_body_parsing() {
     let driver = CodexDriver::new();
     let headers = HeaderMap::new();
     let responses = request_context(&headers, ProtocolOperation::Responses, true);
@@ -42,12 +42,8 @@ fn gates_responses_speed_tier_and_maps_oauth_quota_without_body_parsing() {
         Some(RequestSpeedTier::Fast)
     );
     assert_eq!(
-        driver.oauth_quota_service_tier(responses, Some(RequestSpeedTier::Fast)),
-        Some(QuotaServiceTier::Fast)
-    );
-    assert_eq!(
-        driver.oauth_quota_service_tier(responses, None),
-        Some(QuotaServiceTier::Standard)
+        driver.oauth_request_quota_cost_unit(responses),
+        Some(QuotaCostUnit::CodexCredits)
     );
     assert_eq!(
         driver.request_speed_tier(
@@ -61,6 +57,14 @@ fn gates_responses_speed_tier_and_maps_oauth_quota_without_body_parsing() {
             ProtocolOperation::ChatCompletions,
             Some(RequestSpeedTier::Fast),
         ),
+        None
+    );
+    assert_eq!(
+        driver.oauth_request_quota_cost_unit(request_context(
+            &headers,
+            ProtocolOperation::Responses,
+            false,
+        )),
         None
     );
 }

@@ -2,7 +2,7 @@ use std::{io::Write, time::Duration};
 
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode, QuotaCostUnit,
-    RequestQuotaCostRate, RequestSpeedTier,
+    RequestQuotaCostRates, RequestSpeedTier,
 };
 use any2api_payload_buffer::PayloadBuffer;
 use any2api_protocol::api::{
@@ -36,7 +36,7 @@ struct BuiltRequest<'a> {
     upstream_operation: ProtocolOperation,
     exchange: ProtocolExchange,
     request: TransportRequest,
-    quota_cost_rate: Option<RequestQuotaCostRate>,
+    quota_cost_rates: Option<RequestQuotaCostRates>,
     requested_speed_tier: Option<RequestSpeedTier>,
 }
 
@@ -95,7 +95,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         upstream_operation,
         exchange,
         request,
-        quota_cost_rate,
+        quota_cost_rates,
         requested_speed_tier,
     } = match result {
         Ok(prepared) => prepared,
@@ -111,7 +111,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
             return Err(AttemptFailure::Public(error));
         }
     };
-    attempt_recorder.observe_quota_cost_rate(quota_cost_rate);
+    attempt_recorder.observe_quota_cost_rates(quota_cost_rates);
     attempt_recorder.observe_requested_speed_tier(requested_speed_tier);
     let SelectedCandidate { permit, health, .. } = selected;
     Ok(PreparedAttempt {
@@ -201,15 +201,15 @@ fn build_request<'a>(
         .map_err(provider_request_error)?;
     let requested_speed_tier =
         driver.request_speed_tier(request_context, encoded.requested_speed_tier);
-    let quota_cost_rate = driver
-        .oauth_quota_service_tier(request_context, requested_speed_tier)
-        .filter(|_| driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
-        .and_then(|tier| {
+    let quota_cost_rates = driver
+        .oauth_request_quota_cost_unit(request_context)
+        .filter(|unit| *unit == QuotaCostUnit::CodexCredits)
+        .and_then(|_| {
             policy
                 .settings()
                 .oauth()
                 .codex_rate_card()
-                .cost_rate(&candidate.upstream_model, tier)
+                .cost_rates(&candidate.upstream_model)
         });
     let mut headers = driver
         .prepare_request_headers(request_context)
@@ -238,7 +238,7 @@ fn build_request<'a>(
         ingress_operation,
         upstream_operation,
         exchange,
-        quota_cost_rate,
+        quota_cost_rates,
         requested_speed_tier,
         request: TransportRequest {
             method: encoded.method,

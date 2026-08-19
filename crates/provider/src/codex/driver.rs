@@ -3,8 +3,8 @@ use super::{
     oauth as codex_oauth, quota as codex_quota, request as codex_request,
 };
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, QuotaServiceTier,
-    RequestBodyEncoding, RequestSpeedTier, TransportMode,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
+    RequestSpeedTier, TransportMode,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -265,18 +265,12 @@ impl ProviderDriver for CodexDriver {
         Some(any2api_domain::QuotaCostUnit::CodexCredits)
     }
 
-    fn oauth_quota_service_tier(
+    fn oauth_request_quota_cost_unit(
         &self,
         context: ProviderRequestContext<'_>,
-        requested_speed_tier: Option<RequestSpeedTier>,
-    ) -> Option<QuotaServiceTier> {
-        if !context.oauth || context.upstream_operation != ProtocolOperation::Responses {
-            return None;
-        }
-        Some(match requested_speed_tier {
-            Some(RequestSpeedTier::Fast) => QuotaServiceTier::Fast,
-            Some(RequestSpeedTier::Standard) | None => QuotaServiceTier::Standard,
-        })
+    ) -> Option<any2api_domain::QuotaCostUnit> {
+        (context.oauth && context.upstream_operation == ProtocolOperation::Responses)
+            .then_some(any2api_domain::QuotaCostUnit::CodexCredits)
     }
 
     fn classify_oauth_quota_rejection(

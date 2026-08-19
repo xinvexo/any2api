@@ -1140,7 +1140,7 @@ request_logs
 
 `input_tokens` 是 Provider 无关的归一化输入总量。对 Anthropic Messages，ProtocolAdapter 在上游明确提供这些字段时把 `input_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens` 相加后写入该字段；`cache_read_tokens` 仍只保存缓存读取明细，不能再次加入总量。缓存创建没有单独的 RequestLog/SQLite 字段，但其已知数量不能从归一化输入中丢失。
 
-`requested_speed_tier` 与 `effective_speed_tier` 是独立于额度计价的请求执行事实，只接受 `standard | fast`：前者冻结最终 Attempt 发给上游的明确档位，后者只在 Provider 响应明确确认实际档位时写入。Codex 仅把 Responses 请求/Response 的 `service_tier = priority` 归一化为 `fast`；Claude 仅把 Messages 请求的 `speed = fast` 和响应 `usage.speed = fast` 归一化为 `fast`。其他已知非快速值归一化为 `standard`，缺失或未知值保持 `NULL`。Grok 与 Kimi 的高速模型已由模型名表达，不得用模型名子串猜测通用速度档位。识别必须复用已有顶层 JSON 解码/原始字段扫描结果，不得为日志再次完整反序列化请求或响应 Body。桌面管理列表以独立列展示流/非流，Fast 徽章紧跟模型名且只依据 `requested_speed_tier`，不因 Provider 实际执行档位或降级结果改变；移动列表在模型名后紧凑展示相同信息。
+`requested_speed_tier` 与 `effective_speed_tier` 是彼此独立的请求执行事实，只接受 `standard | fast`：前者冻结最终 Attempt 发给上游的明确档位，后者只在 Provider 响应明确确认实际档位时写入。请求档位不参与额度计价；响应确认的实际档位是额度费率档位选择的唯一证据，缺失或未知响应按 Standard 计价。Codex 仅把 Responses 请求/Response 的 `service_tier = priority` 归一化为 `fast`；Claude 仅把 Messages 请求的 `speed = fast` 和响应 `usage.speed = fast` 归一化为 `fast`。其他已知非快速值归一化为 `standard`，缺失或未知值保持 `NULL`。Grok 与 Kimi 的高速模型已由模型名表达，不得用模型名子串猜测通用速度档位。识别必须复用已有顶层 JSON 解码/原始字段扫描结果，不得为日志再次完整反序列化请求或响应 Body。桌面管理列表以独立列展示流/非流，Fast 徽章紧跟模型名且只依据 `requested_speed_tier`，不因 Provider 实际执行档位或降级结果改变；移动列表在模型名后紧凑展示相同信息。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
@@ -2838,7 +2838,7 @@ Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请�
 
 额度管理 API 把缓存读取与权威刷新分开：`GET /api/admin/oauth/accounts/{id}/quota` 只读取 SQLite，未曾成功刷新时返回 `null`；`POST /api/admin/oauth/accounts/{id}/quota/refresh` 才执行 Provider 只读查询。手动、批量和自动 Worker 的并发 refresh 必须共享同一个账号级 singleflight；同时到达的调用只产生一条 Provider 查询链并取得同一成功或失败结果。Reset 与 refresh 使用同一账号级操作门闩串行，禁止重置完成后由更早开始的查询重新写回旧快照。手动刷新必须在快照成功持久化后才返回成功，失败保留上一份成功快照。单节点内以账号级操作提交顺序作为额度观测顺序，SQLite upsert 无条件保存后完成的成功查询；`fetched_at` 只表示展示时间，不参与新旧判定，因此同秒抓取和系统时钟回拨都不能拒绝当前结果。读取持久化快照不得同步路由健康；权威刷新仍按当前进程的配置代际应用当前健康证据。额度查询与 reset 不进入数据面 Route 选择或预留本地数据面 RPM，但继续受账号解析后的 OAuth 代理、严格 SSRF、禁重定向、有界 Body、读取超时、账号级操作门闩、自动 Worker 的固定并发/账号最小间隔，以及与登录和 Token 刷新共用的 Provider 级请求起始间隔约束。
 
-真实公共请求只有在选中 OAuthAccount 且 Attempt 已进入 Transport 后才记录额度活动；buffered 请求在 Attempt 结算时记录，streaming 请求在 EOF、错误、断连或 Drop 时由同一资源 Guard 只记录一次。Guard 只负责调度已有的活动驱动额度刷新。Runtime 在最终请求准备阶段从请求捕获的 PublishedSnapshot 按精确模型与 `standard`/`fast` 速度档冻结版本化 Codex Credits 费率；RequestLog 完成时只要存在完整 input/output usage，就把输入、缓存输入和输出换算为整数 nano-Credits，与状态、取消、错误或 HTTP 结果无关。cache usage 缺失按零处理；未知模型、未知 tier 或缺 usage 保持未计价。费率在请求时冻结，禁止未来用新费率重算旧 Token；没有官方 Codex quota cache-write 倍率证据时不纳入 cache write。
+真实公共请求只有在选中 OAuthAccount 且 Attempt 已进入 Transport 后才记录额度活动；buffered 请求在 Attempt 结算时记录，streaming 请求在 EOF、错误、断连或 Drop 时由同一资源 Guard 只记录一次。Guard 只负责调度已有的活动驱动额度刷新。Runtime 在最终请求准备阶段从请求捕获的 PublishedSnapshot 按精确模型同时冻结版本化 Codex Credits 的 `standard` 与可选 `fast` 费率；精确模型决定 input、cached input 与 output 的基础费率，Provider 最终响应决定速度档。RequestLog 完成时只在 Provider 最终明确返回实际档位为 `fast` 时选用该模型的 Fast 费率，返回任意其他值、未知值或未返回档位时一律选用该模型的 Standard 费率；请求声明的档位只记录执行意图，绝不参与费率档位选择。只要存在完整 input/output usage，就把输入、缓存输入和输出换算为整数 nano-Credits，与状态、取消、错误或 HTTP 结果无关，并把实际选用的估算档位写入 `quota_service_tier`。cache usage 缺失按零处理；未知模型、明确 Fast 但无对应费率或缺 usage 保持未计价。两套候选费率均在请求时冻结，禁止未来用新费率重算旧 Token；没有官方 Codex quota cache-write 倍率证据时不纳入 cache write。
 
 本机容量统计以当前官方额度周期为唯一窗口。RequestTelemetry 只为实际入队的 OAuth RequestLog 分配当前进程内单调 sequence；日志策略关闭时不建立记录，也不伪造遗漏位置。primary usage Body 完整接收后、任何 supplement/reset-credit 查询前，在短临界区内捕获当前位置和墙钟，并把 flush barrier 排入同一个日志 Writer；额度刷新等待 barrier 完成。SQL 以 `reset_at - limit_window_seconds`（含）到 observation 墙钟（含）之间的 `started_at_ms + latency_ms` 作为完成时间范围；reset credit 刚生效而推导周期起点短暂晚于 observation 时，本次周期本地总和直接为零，不查询或改写官方周期身份。查询汇总该 OAuthAccount、目标 Credits 单位的全部已落库 RequestLog；对当前 process ID 还必须要求 `telemetry_sequence <= observation.sequence`，使 barrier 之后的记录即使先落库也不能进入本次结果。该查询允许纳入旧 process ID 的同周期记录，因此进程重启或漏掉一次刷新不会重新冷启动或丢失前半周期。公开请求继续使用有界 `try_send`，不等待 SQLite。
 
@@ -3525,6 +3525,7 @@ OAuth Quota Snapshot = SQLite Last Successful Safe Observation + Never Restores 
 OAuth Quota Auto Refresh = Actual OAuth Transport Activity + Per-Account Coalescing + No Idle Scan
 Codex Credits = Upstream hasCredits / unlimited / balance + Configured Versioned Credits Per USD Display + Never Conflated With Reset Credits
 Quota Estimate = Current Official Cycle RequestLog Sum + Whole-Cycle used% Ratio After 2pp + Display Only
+Quota Cost Tier = Provider-Confirmed Final Fast Only + Standard For Every Other/Absent Result + Requested Tier Is Telemetry Only
 Transport Isolation = RoutingCredentialId + Routing Generation + Authentication Version + Traffic Class
 Transport Traffic Class = DataPlane / OAuthToken / OAuthQuota / Diagnostic
 TLS Resumption Store = Per Transport Client / Never Cross Transport Isolation

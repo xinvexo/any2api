@@ -75,8 +75,8 @@ pub use telemetry::{
     MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
     RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestLogFilter,
-    RequestLogOutcomeFilter, RequestQuotaCost, RequestQuotaCostRate, RequestRoutingMode,
-    RequestSpeedTier, RequestTelemetryPosition, RequestTransportResolverMode,
+    RequestLogOutcomeFilter, RequestQuotaCost, RequestQuotaCostRate, RequestQuotaCostRates,
+    RequestRoutingMode, RequestSpeedTier, RequestTelemetryPosition, RequestTransportResolverMode,
     RequestTransportTrafficClass, TokenUsage, bound_error_message, bound_thinking_level,
     gateway_auth_rejected_capacity,
 };

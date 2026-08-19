@@ -36,3 +36,4 @@
 "0035_reject_removed_reliability_setting_overrides.sql" = "82d6b37e2cfd5277649325f87d04ed0522e2ccfe1ebf5dc764ae92acf6db59ab"
 "0036_whole_cycle_codex_quota_estimator.sql" = "71ded90db9adf9e93fdbced4b61ab946df7599e9317b11c21ff28ec1c6b63502"
 "0037_add_request_log_speed_tiers.sql" = "7865c949ad9cdf29e8c7186fc408e162ad70d1e92feb9e02cd00ba18de6e99f1"
+"0038_correct_request_log_quota_tiers.sql" = "fd2dae1de1d61c2eb72b16b5fcb9b0d90df2cd71f99175cbd9d82c5486150ff3"

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    QuotaCostUnit, QuotaServiceTier, RequestQuotaCostRate, SettingsValidationError,
-    UpstreamModelName,
+    QuotaCostUnit, QuotaServiceTier, RequestQuotaCostRate, RequestQuotaCostRates,
+    SettingsValidationError, UpstreamModelName,
 };
 
 pub const MAX_CODEX_RATE_CARD_MODELS: usize = 256;
@@ -92,6 +92,13 @@ impl CodexQuotaRateCard {
             rate.input_nanos_per_million,
             rate.cached_input_nanos_per_million,
             rate.output_nanos_per_million,
+        )
+    }
+
+    pub fn cost_rates(&self, model: &str) -> Option<RequestQuotaCostRates> {
+        RequestQuotaCostRates::new(
+            self.cost_rate(model, QuotaServiceTier::Standard)?,
+            self.cost_rate(model, QuotaServiceTier::Fast),
         )
     }
 
@@ -209,12 +216,27 @@ mod tests {
             312_500_000_000
         );
         let cost = card
-            .cost_rate("gpt-5.6-sol", QuotaServiceTier::Standard)
-            .expect("cost rate")
-            .estimate(crate::TokenUsage::new(Some(2_000), Some(100), Some(500)))
+            .cost_rates("gpt-5.6-sol")
+            .expect("model cost rates")
+            .estimate(
+                crate::TokenUsage::new(Some(2_000), Some(100), Some(500)),
+                None,
+            )
             .expect("complete usage");
         assert_eq!(cost.amount_nanos, 268_750_000);
         assert_eq!(cost.rate_card, card.id());
+        assert_eq!(cost.service_tier, QuotaServiceTier::Standard);
+
+        let fast = card
+            .cost_rates("gpt-5.6-sol")
+            .expect("model cost rates")
+            .estimate(
+                crate::TokenUsage::new(Some(2_000), Some(100), Some(500)),
+                Some(crate::RequestSpeedTier::Fast),
+            )
+            .expect("complete usage");
+        assert_eq!(fast.amount_nanos, 671_875_000);
+        assert_eq!(fast.service_tier, QuotaServiceTier::Fast);
     }
 
     #[test]

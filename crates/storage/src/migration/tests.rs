@@ -9,6 +9,7 @@ use tempfile::tempdir;
 
 use super::{MIGRATOR, run};
 
+mod correct_request_log_quota_tiers;
 mod credential_public_model_alias;
 mod duplicate_attempt_index;
 mod gateway_api_key_prefix;
@@ -116,6 +117,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             ),
             (36, "whole cycle codex quota estimator".to_owned()),
             (37, "add request log speed tiers".to_owned()),
+            (38, "correct request log quota tiers".to_owned()),
         ]
     );
 

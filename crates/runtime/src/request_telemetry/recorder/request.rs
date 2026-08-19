@@ -7,7 +7,7 @@ use std::{
 use any2api_domain::{
     ActiveRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
-    RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, RequestQuotaCostRate,
+    RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, RequestQuotaCostRates,
     RequestSpeedTier, TokenUsage, bound_error_message,
 };
 
@@ -44,7 +44,7 @@ pub(super) struct RequestRecorderState {
     pub(super) final_target: Option<FinalTarget>,
     pub(super) attempts: Vec<RequestAttempt>,
     pub(super) observation: RequestObservation,
-    pub(super) quota_cost_rate: Option<RequestQuotaCostRate>,
+    pub(super) quota_cost_rates: Option<RequestQuotaCostRates>,
     pub(super) requested_speed_tier: Option<RequestSpeedTier>,
     pub(super) effective_speed_tier: Option<RequestSpeedTier>,
     pub(super) finished: bool,
@@ -153,7 +153,7 @@ impl RequestRecorder {
         };
         let mut state = inner.state.lock().expect("request recorder state");
         state.final_target = Some(target);
-        state.quota_cost_rate = None;
+        state.quota_cost_rates = None;
         state.requested_speed_tier = None;
         state.effective_speed_tier = None;
         drop(state);
@@ -260,13 +260,13 @@ impl RequestRecorder {
         }
     }
 
-    pub(super) fn observe_quota_cost_rate(&self, rate: Option<RequestQuotaCostRate>) {
+    pub(super) fn observe_quota_cost_rates(&self, rates: Option<RequestQuotaCostRates>) {
         let Some(inner) = &self.inner else {
             return;
         };
         let mut state = inner.state.lock().expect("request recorder state");
         if !state.finished {
-            state.quota_cost_rate = rate;
+            state.quota_cost_rates = rates;
         }
     }
 
