@@ -29,7 +29,11 @@ export function RequestStreamBadge({ isStream }: { isStream: boolean | null }) {
   return (
     <span
       aria-label={`请求模式：${isStream ? "流式" : "非流式"}`}
-      className="inline-flex shrink-0 rounded-full bg-surface-muted px-1.5 py-px text-[10px] font-medium leading-4 text-secondary"
+      className={
+        isStream
+          ? "inline-flex shrink-0 rounded-full bg-accent/12 px-1.5 py-0.5 text-xs font-medium leading-4 text-accent-copy"
+          : "inline-flex shrink-0 rounded-full bg-surface-muted px-1.5 py-0.5 text-xs font-medium leading-4 text-secondary"
+      }
     >
       {isStream ? "流" : "非流"}
     </span>

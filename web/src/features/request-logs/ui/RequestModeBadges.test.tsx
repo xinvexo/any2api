@@ -11,7 +11,7 @@ test("shows confirmed request modes", () => {
     />,
   );
 
-  expect(screen.getByLabelText("请求模式：流式")).toHaveTextContent("流");
+  expect(screen.getByLabelText("请求模式：流式")).toHaveClass("bg-accent/12", "text-accent-copy", "text-xs");
   expect(screen.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
 });
 
@@ -23,7 +23,7 @@ test("shows requested Fast without considering the effective tier", () => {
     />,
   );
 
-  expect(screen.getByLabelText("请求模式：非流式")).toHaveTextContent("非流");
+  expect(screen.getByLabelText("请求模式：非流式")).toHaveClass("bg-surface-muted", "text-secondary", "text-xs");
   expect(screen.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
 });
 
