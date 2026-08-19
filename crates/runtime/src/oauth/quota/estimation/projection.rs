@@ -1,6 +1,6 @@
 use any2api_provider::api::OAuthQuotaUsage;
 
-use super::state::{QuotaEstimatorState, QuotaWindowKey, QuotaWindowState};
+use super::state::{OfficialQuotaCycle, QuotaEstimatorState, QuotaWindowKey, QuotaWindowState};
 use crate::oauth::quota::types::OAuthQuotaEstimate;
 
 pub(in crate::oauth::quota) fn project(
@@ -18,6 +18,10 @@ pub(in crate::oauth::quota) fn project(
         .filter_map(|window| {
             let key = QuotaWindowKey::from_window(window);
             let state = state.windows.iter().find(|state| state.key == key)?;
+            let cycle = OfficialQuotaCycle::from_window(window)?;
+            if !state.matches_cycle(cycle) {
+                return None;
+            }
             Some(project_window(window.used_percent, window.reset_at, state))
         })
         .collect()
@@ -28,8 +32,8 @@ fn project_window(
     window_reset_at: Option<i64>,
     state: &QuotaWindowState,
 ) -> OAuthQuotaEstimate {
-    let capacity = state.capacity_credits();
-    let used = capacity.map(|value| value * used_percent.clamp(0.0, 100.0) / 100.0);
+    let used = Some(state.local_cost_credits());
+    let capacity = state.capacity_credits(used_percent);
     let remaining = capacity
         .zip(used)
         .map(|(capacity, used)| (capacity - used).max(0.0));
@@ -41,6 +45,5 @@ fn project_window(
         estimated_capacity_credits: capacity,
         estimated_used_credits: used,
         estimated_remaining_credits: remaining,
-        completed_interval_count: state.completed_interval_count,
     }
 }

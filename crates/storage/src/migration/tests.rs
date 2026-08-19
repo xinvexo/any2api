@@ -20,6 +20,7 @@ mod oauth_account_documents;
 mod oauth_account_proxy_selection;
 mod oauth_model_catalog_snapshots;
 mod oauth_quota_estimation_boundaries;
+mod oauth_quota_snapshot_v10;
 mod oauth_quota_snapshot_v5;
 mod oauth_quota_snapshot_v6;
 mod oauth_quota_snapshot_v7;
@@ -113,6 +114,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
                 35,
                 "reject removed reliability setting overrides".to_owned()
             ),
+            (36, "whole cycle codex quota estimator".to_owned()),
         ]
     );
 
@@ -182,7 +184,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
-    assert!(oauth_quota_schema.contains("schema_version = 9"));
+    assert!(oauth_quota_schema.contains("schema_version = 10"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
     let oauth_model_catalog_schema = table_schema(&pool, "oauth_model_catalog_snapshots").await;

@@ -10,7 +10,6 @@ pub(super) struct OAuthQuotaEstimateResponse {
     estimated_capacity_credits: Option<f64>,
     estimated_used_credits: Option<f64>,
     estimated_remaining_credits: Option<f64>,
-    completed_interval_count: u32,
 }
 
 impl From<OAuthQuotaEstimate> for OAuthQuotaEstimateResponse {
@@ -23,7 +22,6 @@ impl From<OAuthQuotaEstimate> for OAuthQuotaEstimateResponse {
             estimated_capacity_credits: value.estimated_capacity_credits,
             estimated_used_credits: value.estimated_used_credits,
             estimated_remaining_credits: value.estimated_remaining_credits,
-            completed_interval_count: value.completed_interval_count,
         }
     }
 }

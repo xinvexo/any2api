@@ -1,16 +1,13 @@
 //! Local capacity estimation for OAuth quota windows.
 //!
-//! Premise: an OAuth account managed by any2api is consumed
-//! exclusively through any2api, so the local RequestLog stream is the
-//! complete consumption record. Between two official snapshots,
-//! `capacity = local_cost × 100 / Δused%` measures the account's absolute
-//! quota capacity directly. Every positive local-cost/official-delta pair
-//! contributes to one cumulative ratio.
+//! Premise: an OAuth account managed by any2api is consumed through
+//! any2api, so the current official quota cycle can be measured by summing
+//! the account's persisted RequestLogs. Each refresh recomputes that whole
+//! cycle; adjacent refreshes are never treated as independent samples.
 
-mod interval;
+mod cycle;
 mod projection;
 pub(super) mod state;
-mod transition;
 
 #[cfg(test)]
 mod tests;
@@ -19,9 +16,11 @@ use std::sync::Arc;
 
 use any2api_domain::{OAuthAccountId, QuotaCostUnit};
 use any2api_provider::api::OAuthQuotaUsage;
-use any2api_storage::api::OAuthQuotaEstimationRepository;
+use any2api_storage::api::{OAuthQuotaEstimationRepository, StorageError};
 
-use self::state::{QuotaEstimatorState, QuotaWindowKey};
+use self::state::{
+    MAX_WINDOWS, OfficialQuotaCycle, QuotaEstimatorState, QuotaWindowKey, QuotaWindowState,
+};
 use super::types::OAuthQuotaEstimate;
 use crate::request_telemetry::QuotaObservationBoundary;
 
@@ -47,10 +46,12 @@ impl OAuthQuotaEstimator {
         credential_fingerprint: String,
         expected_unit: QuotaCostUnit,
         observation: QuotaObservationBoundary,
-    ) -> EstimationResult {
+    ) -> Result<EstimationResult, StorageError> {
+        let had_previous = previous.is_some();
         let mut state =
             previous.unwrap_or_else(|| QuotaEstimatorState::new(credential_fingerprint.clone()));
-        let mut signature_changed = state.credential_fingerprint != credential_fingerprint;
+        let mut signature_changed =
+            had_previous && state.credential_fingerprint != credential_fingerprint;
         state.credential_fingerprint = credential_fingerprint;
         // A different subscription tier means a different capacity; missing
         // tier data is not a change.
@@ -65,30 +66,49 @@ impl OAuthQuotaEstimator {
             state.subscription_tier = Some(tier.to_owned());
         }
         if signature_changed {
-            state.windows.clear();
+            state
+                .windows
+                .iter_mut()
+                .for_each(QuotaWindowState::block_capacity);
         }
         let current_windows = usage
             .rate_limit
             .as_ref()
             .map_or(&[][..], |rate| rate.windows.as_slice());
-        let mut next_windows = Vec::with_capacity(current_windows.len());
-        for window in current_windows {
+        let mut next_windows = Vec::with_capacity(current_windows.len().min(MAX_WINDOWS));
+        for window in current_windows.iter().take(MAX_WINDOWS) {
             let key = QuotaWindowKey::from_window(window);
-            let previous = state.windows.iter().find(|value| value.key == key).cloned();
-            let window_state = match previous {
-                Some(previous) if !transition::official_reset(&previous, window) => {
-                    interval::observe(self, id, window, previous, expected_unit, &observation).await
-                }
-                Some(previous) => {
-                    transition::rollover_window(previous, window, observation.position)
-                }
-                None => transition::new_window(key, window, observation.position),
+            let Some(cycle) = OfficialQuotaCycle::from_window(window) else {
+                continue;
             };
+            let previous = state.windows.iter().find(|value| value.key == key).cloned();
+            let capacity_eligible = !signature_changed
+                && previous
+                    .as_ref()
+                    .is_none_or(|state| !state.matches_cycle(cycle) || state.capacity_eligible);
+            let window_state = cycle::measure(
+                self,
+                id,
+                key,
+                cycle,
+                capacity_eligible,
+                expected_unit,
+                &observation,
+            )
+            .await?;
             next_windows.push(window_state);
+        }
+        for previous in state.windows {
+            if next_windows.len() == MAX_WINDOWS {
+                break;
+            }
+            if next_windows.iter().all(|window| window.key != previous.key) {
+                next_windows.push(previous);
+            }
         }
         state.windows = next_windows;
         let estimates = projection::project(usage, Some(&state));
-        EstimationResult { state, estimates }
+        Ok(EstimationResult { state, estimates })
     }
 }
 

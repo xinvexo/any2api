@@ -74,6 +74,5 @@ const quota: OAuthQuotaSnapshot = {
     estimatedCapacityCredits: 25,
     estimatedUsedCredits: 9.375,
     estimatedRemainingCredits: 15.625,
-    completedIntervalCount: 3,
   }],
 };

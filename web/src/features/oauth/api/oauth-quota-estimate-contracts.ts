@@ -8,7 +8,6 @@ export interface OAuthQuotaEstimate {
   estimatedCapacityCredits: number | null;
   estimatedUsedCredits: number | null;
   estimatedRemainingCredits: number | null;
-  completedIntervalCount: number;
 }
 
 export function parseOAuthQuotaEstimates(value: unknown): OAuthQuotaEstimate[] {
@@ -26,7 +25,6 @@ function parseEstimate(value: unknown): OAuthQuotaEstimate {
     estimatedCapacityCredits: readNullableNumber(value.estimated_capacity_credits),
     estimatedUsedCredits: readNullableNumber(value.estimated_used_credits),
     estimatedRemainingCredits: readNullableNumber(value.estimated_remaining_credits),
-    completedIntervalCount: readInteger(value.completed_interval_count),
   };
 }
 

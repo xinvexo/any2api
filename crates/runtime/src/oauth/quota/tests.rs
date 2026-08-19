@@ -4,7 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_storage::api::{OAuthModelCatalogSnapshotRepository, OAuthQuotaSnapshotRepository};
+use any2api_storage::api::OAuthModelCatalogSnapshotRepository;
 use any2api_transport::api::TransportTrafficClass;
 
 use super::{
@@ -130,7 +130,7 @@ async fn manual_batch_refreshes_twenty_codex_accounts_with_two_plan_catalog_quer
 }
 
 #[tokio::test]
-async fn reset_preserves_statistics_until_the_next_official_window() {
+async fn reset_keeps_the_old_cycle_until_the_next_official_observation() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
     let mut changes = context.service.subscribe_quota_changes();
     let quota = context
@@ -166,34 +166,8 @@ async fn reset_preserves_statistics_until_the_next_official_window() {
         Some(quota.clone())
     );
     assert_eq!(context.transport.usage_calls(), 1);
-    let mut stored = context
-        .storage
-        .load_oauth_quota_snapshot(context.account_id)
-        .await
-        .expect("stored quota snapshot")
-        .expect("persisted quota snapshot");
-    let mut payload: serde_json::Value =
-        serde_json::from_slice(&stored.payload).expect("quota snapshot payload");
-    payload["estimator_state"]["windows"][0]["total_delta_used_percent"] = serde_json::json!(10.0);
-    payload["estimator_state"]["windows"][0]["total_local_cost_credits"] = serde_json::json!(150.0);
-    payload["estimator_state"]["windows"][0]["completed_interval_count"] = serde_json::json!(1);
-    stored.payload = serde_json::to_vec(&payload).expect("seed cumulative statistics");
-    context
-        .storage
-        .upsert_oauth_quota_snapshot(&stored)
-        .await
-        .expect("persist cumulative statistics");
-    let accumulated = context
-        .service
-        .cached_quota(context.account_id)
-        .await
-        .expect("cached quota with cumulative statistics")
-        .expect("persisted quota with cumulative statistics");
-    assert_eq!(
-        accumulated.estimates[0].estimated_capacity_credits,
-        Some(1_500.0)
-    );
-    assert_eq!(accumulated.estimates[0].completed_interval_count, 1);
+    assert_eq!(quota.estimates[0].estimated_used_credits, Some(0.0));
+    assert_eq!(quota.estimates[0].estimated_capacity_credits, None);
 
     let snapshot = context.snapshots.load();
     let generation = Arc::clone(
@@ -235,11 +209,7 @@ async fn reset_preserves_statistics_until_the_next_official_window() {
         .await
         .expect("cached quota after reset")
         .expect("persisted pre-reset observation");
-    assert_eq!(before_new_window.estimates, accumulated.estimates);
-    assert_eq!(
-        before_new_window.estimates[0].estimated_capacity_credits,
-        Some(1_500.0)
-    );
+    assert_eq!(before_new_window.estimates, quota.estimates);
     assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
     assert!(context.runtime.scheduler_epoch() > epoch_before);
 
@@ -250,11 +220,8 @@ async fn reset_preserves_statistics_until_the_next_official_window() {
         .expect("post-reset quota refresh");
     changes.changed().await.expect("new quota window change");
     assert_eq!(*changes.borrow_and_update(), 3);
-    assert_eq!(next_window.estimates[0].completed_interval_count, 1);
-    assert_eq!(
-        next_window.estimates[0].estimated_capacity_credits,
-        Some(1_500.0)
-    );
+    assert_eq!(next_window.estimates[0].estimated_used_credits, Some(0.0));
+    assert_eq!(next_window.estimates[0].estimated_capacity_credits, None);
 
     let captured = context.transport.captured();
     assert_eq!(

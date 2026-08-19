@@ -35,7 +35,8 @@ pub(super) async fn build(
                 unit,
                 observation.boundary.clone(),
             )
-            .await;
+            .await
+            .map_err(|error| OAuthQuotaError::Persistence(std::sync::Arc::new(error)))?;
         (Some(result.state), result.estimates)
     } else {
         (None, Vec::new())

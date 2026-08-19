@@ -76,7 +76,6 @@ describe("OAuth quota contracts", () => {
           estimated_capacity_credits: 25,
           estimated_used_credits: 9.375,
           estimated_remaining_credits: 15.625,
-          completed_interval_count: 3,
         }],
       }),
     ).toEqual({
@@ -122,7 +121,6 @@ describe("OAuth quota contracts", () => {
         estimatedCapacityCredits: 25,
         estimatedUsedCredits: 9.375,
         estimatedRemainingCredits: 15.625,
-        completedIntervalCount: 3,
       }],
     });
   });

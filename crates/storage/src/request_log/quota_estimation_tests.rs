@@ -16,7 +16,7 @@ use crate::{
 const RATE_CARD: &str = "openai_codex_credits_2026_08_11";
 
 #[tokio::test]
-async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
+async fn quota_usage_filters_account_and_official_window_and_sums_frozen_costs() {
     let (_directory, store, id) = store_with_account().await;
     let other_id = OAuthAccountId::new();
     let records = vec![
@@ -33,7 +33,13 @@ async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
         .expect("append request logs");
 
     let usage = store
-        .oauth_quota_local_cost_nanos(id, position(1), position(4), QuotaCostUnit::CodexCredits)
+        .oauth_quota_window_local_cost_nanos(
+            id,
+            1_000,
+            2_000,
+            position(4),
+            QuotaCostUnit::CodexCredits,
+        )
         .await
         .expect("quota log usage");
 
@@ -57,14 +63,20 @@ async fn status_is_irrelevant_and_only_local_cost_is_summed() {
         .expect("append mixed logs");
 
     let usage = store
-        .oauth_quota_local_cost_nanos(id, position(0), position(3), QuotaCostUnit::CodexCredits)
+        .oauth_quota_window_local_cost_nanos(
+            id,
+            1_000,
+            2_000,
+            position(3),
+            QuotaCostUnit::CodexCredits,
+        )
         .await
         .expect("quota log usage");
     assert_eq!(usage, 150);
 }
 
 #[tokio::test]
-async fn request_after_official_observation_is_excluded_regardless_of_wall_clock() {
+async fn current_process_request_after_observation_is_excluded_regardless_of_wall_clock() {
     let (_directory, store, id) = store_with_account().await;
     let before_observation = record(id, 10_000, 500, Some(100), position(1));
     let after_observation = record(id, 1, 1, Some(900), position(2));
@@ -77,11 +89,55 @@ async fn request_after_official_observation_is_excluded_regardless_of_wall_clock
         .expect("append boundary logs");
 
     let usage = store
-        .oauth_quota_local_cost_nanos(id, position(0), position(1), QuotaCostUnit::CodexCredits)
+        .oauth_quota_window_local_cost_nanos(
+            id,
+            0,
+            20_000,
+            position(1),
+            QuotaCostUnit::CodexCredits,
+        )
         .await
         .expect("usage at official observation fence");
 
     assert_eq!(usage, 100);
+}
+
+#[tokio::test]
+async fn prior_process_records_in_the_official_window_are_included() {
+    let (_directory, store, id) = store_with_account().await;
+    let previous_process = RequestTelemetryPosition {
+        process_id: "55555555-5555-4555-8555-555555555555"
+            .parse()
+            .expect("process UUID"),
+        sequence: 9,
+    };
+    let later_previous_process = RequestTelemetryPosition {
+        sequence: 10,
+        ..previous_process
+    };
+    store
+        .append_request_logs(
+            &[
+                record(id, 900, 50, Some(10), previous_process),
+                record(id, 1_100, 50, Some(200), later_previous_process),
+            ],
+            MAX_REQUEST_LOG_ROWS,
+        )
+        .await
+        .expect("append previous process logs");
+
+    let usage = store
+        .oauth_quota_window_local_cost_nanos(
+            id,
+            1_000,
+            2_000,
+            position(1),
+            QuotaCostUnit::CodexCredits,
+        )
+        .await
+        .expect("cross-process quota log usage");
+
+    assert_eq!(usage, 200);
 }
 
 async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId) {

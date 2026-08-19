@@ -32,7 +32,6 @@ pub struct OAuthQuotaEstimate {
     pub estimated_capacity_credits: Option<f64>,
     pub estimated_used_credits: Option<f64>,
     pub estimated_remaining_credits: Option<f64>,
-    pub completed_interval_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

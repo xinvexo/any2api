@@ -30,7 +30,6 @@ fn serializes_real_codex_credits_and_capacity_estimate() {
             estimated_capacity_credits: Some(25.0),
             estimated_used_credits: Some(2.75),
             estimated_remaining_credits: Some(22.25),
-            completed_interval_count: 3,
         }],
         rate_card: Some(OAuthQuotaRateCard {
             id: "openai_codex_credits_2026_08_11".to_owned(),
@@ -43,7 +42,6 @@ fn serializes_real_codex_credits_and_capacity_estimate() {
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
     assert_eq!(value["estimates"][0]["estimated_capacity_credits"], 25.0);
     assert_eq!(value["rate_card"]["credits_per_usd"], 25);
-    assert_eq!(value["estimates"][0]["completed_interval_count"], 3);
 }
 
 #[test]
