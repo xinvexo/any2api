@@ -48,6 +48,11 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(screen.getByText("整机内存")).toBeInTheDocument();
   expect(screen.getByText("正文映射内存")).toBeInTheDocument();
   expect(screen.getByText("内存回收阻塞")).toBeInTheDocument();
+  expect(screen.getByText("正文堆内存").closest("dl")).toHaveClass(
+    "rounded-[14px]",
+    "bg-surface-muted/35",
+    "shadow-hairline",
+  );
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
   expect(screen.getByText("账号与密钥")).toBeInTheDocument();

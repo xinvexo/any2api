@@ -137,7 +137,7 @@ function MemoryOwnershipDetails({
   ];
 
   return (
-    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 border-t border-border/70 pt-3 sm:grid-cols-3">
+    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline sm:grid-cols-3">
       {details.map((detail) => (
         <div key={detail.label} className="min-w-0">
           <dt className="truncate text-[11px] leading-4 text-tertiary">{detail.label}</dt>
