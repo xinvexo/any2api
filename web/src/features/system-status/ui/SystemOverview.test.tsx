@@ -47,13 +47,15 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(screen.getByText("ANY2API CPU")).toBeInTheDocument();
   expect(screen.getByText("整机内存")).toBeInTheDocument();
   expect(screen.getByText("正文映射内存")).toBeInTheDocument();
-  expect(screen.getByText("内存回收阻塞")).toBeInTheDocument();
+  expect(screen.queryByText("遥测待写")).not.toBeInTheDocument();
+  expect(screen.queryByText("遥测写入中")).not.toBeInTheDocument();
+  expect(screen.queryByText("内存回收阻塞")).not.toBeInTheDocument();
   expect(screen.getByText("正文堆内存").closest("dl")).toHaveClass(
     "rounded-[14px]",
     "bg-surface-muted/35",
     "shadow-hairline",
     "lg:col-span-2",
-    "lg:grid-cols-6",
+    "min-[360px]:grid-cols-3",
   );
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
@@ -173,12 +175,6 @@ interface ResourcesQuery {
         httpBodyCaptureCurrentBytes: number;
         httpBodyCapturePeakBytes: number;
       };
-      telemetry: {
-        queuedOwnedBytes: number;
-        inFlightOwnedBytes: number;
-        reservedOwnedBytes: number;
-      };
-      reclamation: { blockers: number; completedRuns: number; lastDurationMicros: number };
     };
   };
   isError: boolean;
@@ -239,12 +235,6 @@ function resourcesQuery(refetch: () => Promise<{ isSuccess: boolean }>): Resourc
           httpBodyCaptureCurrentBytes: 512 * 1024,
           httpBodyCapturePeakBytes: 1 * 1024 ** 2,
         },
-        telemetry: {
-          queuedOwnedBytes: 256 * 1024,
-          inFlightOwnedBytes: 128 * 1024,
-          reservedOwnedBytes: 384 * 1024,
-        },
-        reclamation: { blockers: 0, completedRuns: 12, lastDurationMicros: 725 },
       },
     },
     isError: false,

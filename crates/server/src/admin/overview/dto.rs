@@ -1,8 +1,7 @@
 use any2api_payload_buffer::PayloadBufferMetricsSnapshot;
 use any2api_runtime::api::{
-    MemoryReclamationMetrics, RequestLogOverview, RequestLogOverviewBucket,
-    RequestLogOverviewModel, RequestLogOverviewTotals, RequestTelemetryMetrics,
-    SystemMetricsSnapshot,
+    RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel,
+    RequestLogOverviewTotals, SystemMetricsSnapshot,
 };
 use serde::Serialize;
 
@@ -64,8 +63,6 @@ struct OverviewSystemResourcesResponse {
 )]
 struct OverviewMemoryOwnershipResponse {
     payload_buffers: OverviewPayloadBufferResourcesResponse,
-    telemetry: OverviewTelemetryMemoryResponse,
-    reclamation: OverviewMemoryReclamationResponse,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -83,36 +80,10 @@ struct OverviewPayloadBufferResourcesResponse {
     http_body_capture_peak_bytes: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(
-    test,
-    derive(ts_rs::TS),
-    ts(export_to = "OverviewTelemetryMemoryResponse.ts")
-)]
-struct OverviewTelemetryMemoryResponse {
-    queued_owned_bytes: usize,
-    in_flight_owned_bytes: usize,
-    reserved_owned_bytes: usize,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(
-    test,
-    derive(ts_rs::TS),
-    ts(export_to = "OverviewMemoryReclamationResponse.ts")
-)]
-struct OverviewMemoryReclamationResponse {
-    blockers: usize,
-    completed_runs: u64,
-    last_duration_micros: u64,
-}
-
 impl OverviewResourcesResponse {
     pub(crate) fn new(
         system: SystemMetricsSnapshot,
         payload_buffers: PayloadBufferMetricsSnapshot,
-        telemetry: RequestTelemetryMetrics,
-        reclamation: MemoryReclamationMetrics,
     ) -> Self {
         Self {
             sampled_at_ms: system.sampled_at_ms,
@@ -134,16 +105,6 @@ impl OverviewResourcesResponse {
                     http_body_capture_current_bytes: payload_buffers
                         .http_body_capture_current_bytes(),
                     http_body_capture_peak_bytes: payload_buffers.http_body_capture_peak_bytes(),
-                },
-                telemetry: OverviewTelemetryMemoryResponse {
-                    queued_owned_bytes: telemetry.queued_owned_bytes,
-                    in_flight_owned_bytes: telemetry.in_flight_owned_bytes,
-                    reserved_owned_bytes: telemetry.reserved_owned_bytes,
-                },
-                reclamation: OverviewMemoryReclamationResponse {
-                    blockers: reclamation.blockers(),
-                    completed_runs: reclamation.completed_runs(),
-                    last_duration_micros: reclamation.last_duration_micros(),
                 },
             },
         }

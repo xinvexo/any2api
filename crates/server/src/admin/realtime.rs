@@ -178,12 +178,7 @@ async fn sample_once(
         public_requests.transport_runtime_snapshot(),
         telemetry_metrics,
     );
-    let resources = OverviewResourcesResponse::new(
-        metrics,
-        payload_buffer_metrics(),
-        telemetry_metrics,
-        lifecycle.memory_reclamation_metrics(),
-    );
+    let resources = OverviewResourcesResponse::new(metrics, payload_buffer_metrics());
     Ok(OverviewSnapshot::fresh(
         metrics.sampled_at_ms,
         resources,

@@ -18,16 +18,6 @@ export interface OverviewResources {
       httpBodyCaptureCurrentBytes: number;
       httpBodyCapturePeakBytes: number;
     };
-    telemetry: {
-      queuedOwnedBytes: number;
-      inFlightOwnedBytes: number;
-      reservedOwnedBytes: number;
-    };
-    reclamation: {
-      blockers: number;
-      completedRuns: number;
-      lastDurationMicros: number;
-    };
   };
 }
 
@@ -37,8 +27,6 @@ export function parseOverviewResources(value: unknown): OverviewResources {
   const system = record(root.system);
   const ownership = record(root.ownership);
   const payloadBuffers = record(ownership.payload_buffers);
-  const telemetry = record(ownership.telemetry);
-  const reclamation = record(ownership.reclamation);
   const usedMemoryBytes = integer(system.used_memory_bytes);
   const totalMemoryBytes = positive(system.total_memory_bytes);
   if (usedMemoryBytes > totalMemoryBytes) throw invalid();
@@ -63,16 +51,6 @@ export function parseOverviewResources(value: unknown): OverviewResources {
           payloadBuffers.http_body_capture_current_bytes,
         ),
         httpBodyCapturePeakBytes: integer(payloadBuffers.http_body_capture_peak_bytes),
-      },
-      telemetry: {
-        queuedOwnedBytes: integer(telemetry.queued_owned_bytes),
-        inFlightOwnedBytes: integer(telemetry.in_flight_owned_bytes),
-        reservedOwnedBytes: integer(telemetry.reserved_owned_bytes),
-      },
-      reclamation: {
-        blockers: integer(reclamation.blockers),
-        completedRuns: integer(reclamation.completed_runs),
-        lastDurationMicros: integer(reclamation.last_duration_micros),
       },
     },
   };

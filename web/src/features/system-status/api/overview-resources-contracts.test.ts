@@ -19,12 +19,6 @@ const resources = () => ({
       http_body_capture_current_bytes: 524_288,
       http_body_capture_peak_bytes: 1_048_576,
     },
-    telemetry: {
-      queued_owned_bytes: 262_144,
-      in_flight_owned_bytes: 131_072,
-      reserved_owned_bytes: 393_216,
-    },
-    reclamation: { blockers: 1, completed_runs: 12, last_duration_micros: 725 },
   },
 });
 
@@ -46,12 +40,6 @@ test("parses process and system resource snapshots", () => {
         httpBodyCaptureCurrentBytes: 524_288,
         httpBodyCapturePeakBytes: 1_048_576,
       },
-      telemetry: {
-        queuedOwnedBytes: 262_144,
-        inFlightOwnedBytes: 131_072,
-        reservedOwnedBytes: 393_216,
-      },
-      reclamation: { blockers: 1, completedRuns: 12, lastDurationMicros: 725 },
     },
   });
 });

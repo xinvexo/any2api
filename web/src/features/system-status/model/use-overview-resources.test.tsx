@@ -66,12 +66,6 @@ function resources(sampledAt: number) {
         http_body_capture_current_bytes: 1,
         http_body_capture_peak_bytes: 2,
       },
-      telemetry: {
-        queued_owned_bytes: 1,
-        in_flight_owned_bytes: 2,
-        reserved_owned_bytes: 3,
-      },
-      reclamation: { blockers: 0, completed_runs: 1, last_duration_micros: 50 },
     },
   };
 }

@@ -114,29 +114,10 @@ export function MemoryOwnershipDetails({
         ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.httpBodyCapturePeakBytes)}`
         : "等待采样",
     },
-    {
-      label: "遥测待写",
-      value: ownership ? formatResourceBytes(ownership.telemetry.queuedOwnedBytes) : "—",
-      note: ownership
-        ? `总保留 ${formatResourceBytes(ownership.telemetry.reservedOwnedBytes)}`
-        : "等待采样",
-    },
-    {
-      label: "遥测写入中",
-      value: ownership ? formatResourceBytes(ownership.telemetry.inFlightOwnedBytes) : "—",
-      note: "当前 Writer 批次",
-    },
-    {
-      label: "内存回收阻塞",
-      value: ownership ? ownership.reclamation.blockers.toLocaleString("zh-CN") : "—",
-      note: ownership
-        ? `已完成 ${ownership.reclamation.completedRuns.toLocaleString("zh-CN")} 次 · 最近 ${formatMicros(ownership.reclamation.lastDurationMicros)}`
-        : "等待采样",
-    },
   ];
 
   return (
-    <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+    <dl className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline min-[360px]:grid-cols-3 lg:col-span-2">
       {details.map((detail) => (
         <div key={detail.label} className="min-w-0">
           <dt className="truncate text-[11px] leading-4 text-tertiary">{detail.label}</dt>
@@ -166,10 +147,4 @@ interface ResourceMetric {
 
 function ratioPercent(used: number, total: number) {
   return total > 0 ? (used / total) * 100 : null;
-}
-
-function formatMicros(value: number) {
-  if (value === 0) return "尚无";
-  if (value < 1_000) return `${value.toLocaleString("zh-CN")} µs`;
-  return `${(value / 1_000).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} ms`;
 }

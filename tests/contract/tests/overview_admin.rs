@@ -150,18 +150,8 @@ async fn overview_resources_exposes_current_process_and_system_load() {
     ] {
         assert!(payload_buffers[field].as_u64().is_some(), "missing {field}");
     }
-    let telemetry = &body["ownership"]["telemetry"];
-    for field in [
-        "queued_owned_bytes",
-        "in_flight_owned_bytes",
-        "reserved_owned_bytes",
-    ] {
-        assert!(telemetry[field].as_u64().is_some(), "missing {field}");
-    }
-    let reclamation = &body["ownership"]["reclamation"];
-    for field in ["blockers", "completed_runs", "last_duration_micros"] {
-        assert!(reclamation[field].as_u64().is_some(), "missing {field}");
-    }
+    assert!(body["ownership"].get("telemetry").is_none());
+    assert!(body["ownership"].get("reclamation").is_none());
 }
 
 #[tokio::test]

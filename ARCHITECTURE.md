@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.6<br>
-> 最后更新：2026-08-19<br>
+> 最后更新：2026-08-20<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 文档所有权
@@ -334,9 +334,11 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
   workspace 与回收基础测试后再链接 release 二进制。
 - `payload-buffer` 在实际分配、扩容、冻结和最后一个 `Bytes` 所有者 Drop 时，以进程级原子计数维护普通堆、
   匿名映射和其中 HTTP Body 捕获用途的当前/峰值 owned bytes；只在分配生命周期边界更新，不按写入字节逐次
-  计数。RequestTelemetry 同时公开队列中、Writer in-flight 和总 reserved owned bytes，进程回收状态公开当前
-  blocker、完成次数与最近一次耗时。AdminRealtimeHub 把这些固定规模只读值并入既有 2 秒资源快照；指标不写
-  SQLite、不建立新采样任务、不包含正文或 Secret，也不参与并发、路由、限流、回收决策或资源准入。
+  计数。RequestTelemetry 仍在内部维护队列中、Writer in-flight 和总 reserved owned bytes，供字节准入、
+  生命周期校验和测试使用；进程回收也继续维护 blocker、完成次数与最近耗时供内部诊断。上述状态通常只存在
+  数毫秒或只描述实现机制，不进入总览 DTO 或 2 秒资源快照。AdminRealtimeHub 只把正文堆、匿名映射和
+  HTTP Body 捕获的固定规模只读值并入既有资源快照；指标不写 SQLite、不建立新采样任务、不包含正文或
+  Secret，也不参与并发、路由、限流、回收决策或资源准入。
 - SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
   回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
 
@@ -3078,7 +3080,7 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.10 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态、any2api RSS/CPU、系统内存/CPU，以及固定规模的正文堆/映射、HTTP 捕获、遥测 owned bytes 和进程堆回收状态投影到首屏。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态、any2api RSS/CPU、系统内存/CPU，以及固定规模的正文堆/映射和 HTTP 捕获投影到首屏。遥测 queued/in-flight/reserved owned bytes 与进程堆回收 blocker/次数/耗时属于内部实现诊断，不进入总览资源契约。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
 
 总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。AdminRealtimeHub 每 2 秒读取并广播一次聚合结果；调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。`overview_snapshot` 只包含安全聚合字段、`sampled_at_ms` 和 freshness/error 状态，不包含日志正文或任何 Secret。
 
@@ -3247,7 +3249,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 实时运行态统一订阅已认证的 `/api/admin/events`：管理壳只创建一个共享 `EventSource`，由 `AdminRealtimeProvider` 将 `overview_snapshot` 分发给总览、日志、系统日志和 Provider 视图。服务端共享 sampler 每 2 秒广播一次最新资源/运行态快照；连接建立和重连立即发送当前快照，连接存在但连续 7 秒没有 fresh snapshot 时 Web 也把最近值标记为陈旧。快照不需要回放，日志仍以 epoch 失效通知和游标 HTTP 查询作为事实来源；旧 `/api/admin/log-events` 不再作为独立连接入口；
 - SSE 断线时保留最近快照并显示 stale/disconnected 状态，不把暂时不可达渲染成零值；重连成功后以最新快照替换。session 失效或收到 401/403 后关闭 EventSource、停止自动重连并回到管理员登录态，避免重连风暴。总览仍保留手动 HTTP 刷新作为回退；历史 usage 统计继续按当前范围每 60 秒 HTTP 刷新，实时快照不得触发聚合查询风暴；
 - 页面在应用主 Surface 内使用标题、资源网格、请求负载面板、调用分析和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行使用紧凑列表，不使用卡片套卡片；
-- 首屏把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠；资源区在主指标下以紧凑定义列表显示正文堆内存、正文映射内存、HTTP 捕获、遥测待写/写入中和进程堆回收状态的当前值与必要峰值。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
+- 首屏把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠；资源区在主指标下以紧凑定义列表显示正文堆内存、正文映射内存和 HTTP 捕获的当前值与峰值，不展示采样周期无法稳定观测的遥测 Writer 瞬时字节或进程堆回收实现计数。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
 - 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、成功率、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；无请求时成功率显示为无数据而不是 0%；
 - 平均 RPM 固定等于所选时间段最终请求数除以该时间段完整分钟数，不按活跃分钟、成功请求或时间桶平均值另造口径；日志关闭、遥测丢弃或上游未返回 usage 时不得猜测缺失 Token；
 - 图表在宽屏固定左侧平滑时间曲线、右侧紧凑模型占比饼图，窄屏按相同顺序上下排列；时间曲线保留固定空桶并标出失败调用。饼图本体不得挤占主要趋势空间，最多展示八个扇区：按调用量取前七项，剩余项只在 Web 展示层守恒合并为“其余 N 个模型”，不改写管理 API 原始统计。两图直接并列展示，不增加时间/模型切换；图形必须使用语义 Token、清晰坐标和非颜色唯一的摘要，不能以大面积高饱和柱块压过数据内容；
