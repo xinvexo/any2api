@@ -56,6 +56,18 @@ test("desktop core management deep links render against the real service", async
     await expectNoHorizontalOverflow(page);
   }
 
+  await page.goto("/logs");
+  const requestLogFilters = page.getByLabel("请求日志筛选", { exact: true });
+  const [filterBox, toolbarBox] = await Promise.all([
+    requestLogFilters.boundingBox(),
+    requestLogFilters.locator("..").boundingBox(),
+  ]);
+  expect(filterBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  expect(Math.abs(
+    toolbarBox!.x + toolbarBox!.width - (filterBox!.x + filterBox!.width),
+  )).toBeLessThanOrEqual(1);
+
   expect(browserErrors).toEqual([]);
 });
 

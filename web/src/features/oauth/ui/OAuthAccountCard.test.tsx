@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest";
 import { OAuthAccountCard } from "./OAuthAccountCard";
 
 test("keeps the latest quota timestamp and renders model expiry metrics", () => {
-  render(
+  const { container } = render(
     <OAuthAccountCard
       presentation={{
         id: "account-1",
@@ -33,6 +33,10 @@ test("keeps the latest quota timestamp and renders model expiry metrics", () => 
     .toHaveTextContent("过期2026/8/23 14:03");
   expect(screen.getByLabelText("账号状态：过期")).toBeInTheDocument();
   expect(screen.queryByText("状态")).not.toBeInTheDocument();
+  const card = container.firstElementChild;
+  expect(card).toHaveClass("bg-surface");
+  expect(card?.getAttribute("class")).not.toContain("bg-linear-to-b");
+  expect(card?.firstElementChild?.getAttribute("class")).toContain("var(--chart-4)");
   const updatedAt = screen.getByText(/最后更新 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
   expect(within(updatedAt.parentElement!).getByRole("button", {
     name: "编辑 Primary Codex",

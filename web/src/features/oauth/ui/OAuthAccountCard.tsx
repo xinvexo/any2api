@@ -53,35 +53,23 @@ export function OAuthAccountCard({
     <Surface
       data-floating-bounds
       className={cn(
-        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-0 bg-surface-muted/45 p-0 shadow-hairline",
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border-0 bg-surface p-0 shadow-hairline",
         "transition-opacity duration-150",
-        hasDangerBackground && [
-          "bg-linear-to-b",
-          "from-[color-mix(in_srgb,var(--chart-4)_14%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-4)_7%,var(--surface))]",
-          "to-surface-gradient-end",
-        ],
-        hasExhaustedBackground && [
-          "bg-linear-to-b",
-          "from-[color-mix(in_srgb,var(--chart-5)_16%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-5)_8%,var(--surface))]",
-          "to-surface-gradient-end",
-        ],
-        hasHealthyBackground && [
-          "bg-linear-to-b",
-          "from-[color-mix(in_srgb,var(--chart-6)_16%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-6)_8%,var(--surface))]",
-          "to-surface-gradient-end",
-        ],
-        hasDisabledBackground && [
-          "bg-linear-to-b",
-          "from-[color-mix(in_srgb,var(--chart-8)_14%,var(--surface))]",
-          "via-[color-mix(in_srgb,var(--chart-8)_8%,var(--surface))]",
-          "to-surface-gradient-end",
-        ],
       )}
     >
-      <div className="flex items-start gap-2 px-3 pt-2.5 pb-0">
+      <div
+        className={cn(
+          "flex items-start gap-2 border-b border-subtle/50 px-3 py-2.5",
+          hasDangerBackground
+            && "bg-[color-mix(in_srgb,var(--chart-4)_10%,var(--surface))]",
+          hasExhaustedBackground
+            && "bg-[color-mix(in_srgb,var(--chart-5)_12%,var(--surface))]",
+          hasHealthyBackground
+            && "bg-[color-mix(in_srgb,var(--chart-6)_9%,var(--surface))]",
+          hasDisabledBackground
+            && "bg-[color-mix(in_srgb,var(--chart-8)_9%,var(--surface))]",
+        )}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <h3
@@ -148,9 +136,8 @@ export function OAuthAccountCard({
         </div>
       </div>
 
-      {/* Inset hairlines — stop short of card edges to avoid table-like full rules. */}
       <div className="px-3 py-2">
-        <div className="border-t border-subtle/50 pt-2">
+        <div>
           {presentation.metrics.length > 0 ? (
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px]">
               {presentation.metrics.map((metric) => (

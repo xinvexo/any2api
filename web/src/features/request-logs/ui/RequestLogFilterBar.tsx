@@ -39,7 +39,7 @@ export function RequestLogFilterBar({
 
   return (
     <div
-      className="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap"
+      className="grid w-full grid-cols-2 items-center gap-2 sm:ml-auto sm:flex sm:w-auto sm:flex-wrap"
       aria-label="请求日志筛选"
     >
       <Select
