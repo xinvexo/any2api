@@ -137,14 +137,6 @@ function QuotaTooltip({
           <p className="text-[10px] tabular-nums text-tertiary">
             Credits {formatCredits(used)} / {capacity === null ? "暂无" : formatCredits(capacity)}{rateCard ? ` · ${rateCard.creditsPerUsd} Credits = $1` : ""}
           </p>
-          <p className="mt-1 text-[10px] text-tertiary">
-            本地已用为当前官方周期 RequestLog 直接总和。
-          </p>
-          <p className="text-[10px] text-tertiary">
-            {capacity === null
-              ? "总量需整周期可比、官方使用率至少 2% 且本地已用为正，当前暂不推算。"
-              : "总量按当前周期本地已用与官方使用率的比例推算至整周期。"}
-          </p>
         </>
       )}
     </div>

@@ -30,8 +30,8 @@ test("shows direct local usage while capacity is waiting for enough official usa
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("本地已用 $0.40 · 总量暂无");
-  expect(tooltip).toHaveTextContent("当前官方周期 RequestLog 直接总和");
-  expect(tooltip).toHaveTextContent("整周期可比、官方使用率至少 2% 且本地已用为正");
+  expect(tooltip).not.toHaveTextContent("RequestLog");
+  expect(tooltip).not.toHaveTextContent("官方使用率");
 });
 
 test("shows pending capacity in Credits when no rate card exists", () => {
@@ -51,8 +51,8 @@ test("statistics expose the stable capacity calculation on hover", () => {
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("剩余 $0.60");
   expect(tooltip).toHaveTextContent("25 Credits = $1");
-  expect(tooltip).toHaveTextContent("当前官方周期 RequestLog 直接总和");
-  expect(tooltip).toHaveTextContent("比例推算至整周期");
+  expect(tooltip).not.toHaveTextContent("RequestLog");
+  expect(tooltip).not.toHaveTextContent("比例推算");
 });
 
 const base: OAuthQuotaEstimate = {
