@@ -304,11 +304,14 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
   Runtime；当前帧增量写入 `payload-buffer`，超过阈值后由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
-- 应用二进制使用 mimalloc 作为 Rust 全局分配器，不启用 `override`、`secure`、`no_thp` 等行为 feature，
-  也不依赖操作系统环境变量或服务器级 allocator 配置。该选择覆盖通过 Rust `GlobalAlloc` 产生的通用堆
-  分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；大块 payload 和 zstd workspace 仍按各自阈值
-  使用匿名映射。mimalloc 自行按 allocator 生命周期清理各线程 heap；`mi_collect` 只能收集调用线程的 heap，
-  不得从独立后台线程把它误用为全进程回收。
+- 应用二进制固定使用 mimalloc 作为 Rust 全局分配器，不保留系统分配器构建分支，不启用 `override`、
+  `secure`、`no_thp` 等行为 feature，也不依赖操作系统环境变量或服务器级 allocator 配置。该选择覆盖通过
+  Rust `GlobalAlloc` 产生的通用堆分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；大块 payload 和
+  zstd workspace 仍按各自阈值使用匿名映射。Composition Root 在创建 Tokio Runtime 时把调度线程和
+  Blocking Pool 线程显式标记为 mimalloc thread-pool thread，使跨线程释放按线程池负载处理，避免任意任务
+  所属关系让单个长期线程无限承担其他线程的回收。Blocking Pool 和调度线程都在创建时完成该标记；此后
+  由 mimalloc 的跨线程回收、默认 purge 和线程退出生命周期管理各自的页。应用不调用 `mi_collect`，不唤醒
+  空闲线程、不在请求路径执行强制收集，也不把独立后台线程伪装成全进程回收。
 - Composition Root 在发生过请求或受管后台活动且当前没有会产生大块瞬态分配的请求时，调用平台原生的
   进程堆压力释放以覆盖仍使用系统分配器的原生依赖；OAuth Token/额度等后台 Worker 的活动必须推进同一
   活动 epoch，不能因没有公共请求而跳过回收。触发使用进程内事件通知而不是固定周期轮询：无阻塞后台活动和
@@ -321,8 +324,10 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
   该豁免只能由服务端可信响应类型显式标记，客户端 Header 或路由参数无权声明。Linux
   GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用
   `HeapSetInformation(NULL, HeapOptimizeResources, ...)` 并传入当前版本的初始化参数结构；不提供该能力的
-  平台保持安全 no-op。平台进程堆压力释放 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate；zstd
-  native workspace FFI 只允许存在于独立、可审计的 `zstd-workspace` crate；zstd 已观测的约 96 KiB 与
+  平台保持安全 no-op。mimalloc 线程生命周期 FFI 与平台原生堆压力释放 FFI 只允许存在于独立、可审计的
+  `memory-reclaimer` crate；前者只向 Composition Root 暴露安全的当前线程标记操作，后者只由空闲期后台任务
+  调用，两者不得共享含混的“进程回收”入口。zstd native workspace FFI 只允许存在于独立、可审计的
+  `zstd-workspace` crate；zstd 已观测的约 96 KiB 与
   2.4 MiB 解码 workspace 都使用匿名映射，因此该专用 allocator 的映射阈值为 `64 KiB`，不复用通用
   payload 的 `256 KiB` 阈值。其他 Workspace 继续禁止
   unsafe。两个 crate 都不向业务层暴露指针或 unsafe API；macOS/Windows 原生 CI 必须实际运行映射、zstd
@@ -337,7 +342,7 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 
 该策略替换 Rust 全局分配器但不覆盖原生依赖的系统分配器，也不承诺空闲 RSS 精确等于冷启动 RSS；连接池、
 运行时栈、代码页和仍被复用的小对象会形成稳定基线。目标是在 Linux、macOS、Windows 上让大块短命工作集
-具有确定的页归还路径，并在请求突发结束后让 mimalloc 自身回收与平台系统堆压力释放各自处理其拥有的空页。
+具有确定的页归还路径，并让 mimalloc 自身与平台原生堆压力释放各自处理其拥有的空页。
 
 ## 5. 总体架构
 

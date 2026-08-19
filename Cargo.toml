@@ -48,6 +48,7 @@ hyper = { version = "1.11.0", features = ["client", "http1", "http2"] }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "http1", "http2", "server-auto", "service", "tokio"] }
 ipnet = "2.12.1"
+libmimalloc-sys = { version = "0.1.49", default-features = false, features = ["extended"] }
 memmap2 = "0.9.11"
 mimalloc = { version = "0.1.52", default-features = false }
 multer = "3.1.0"

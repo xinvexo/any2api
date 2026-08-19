@@ -10,7 +10,7 @@ use windows_sys::Win32::System::{
     },
 };
 
-pub fn reclaim_process_memory() {
+pub fn relieve_native_allocator_pressure() {
     let _ = optimize_process_heaps();
 }
 

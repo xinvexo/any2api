@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use any2api_memory_reclaimer::reclaim_process_memory;
+use any2api_memory_reclaimer::relieve_native_allocator_pressure;
 use any2api_runtime::api::ProcessLifecycle;
 use tokio::time::{Instant, sleep_until};
 
@@ -31,14 +31,17 @@ async fn run(lifecycle: ProcessLifecycle) {
             continue;
         };
         let started = Instant::now();
-        match lifecycle.spawn_blocking(reclaim_process_memory).await {
+        match lifecycle
+            .spawn_blocking(relieve_native_allocator_pressure)
+            .await
+        {
             Ok(()) => {
                 lifecycle.record_memory_reclamation(started.elapsed());
                 state.record_reclaimed(activity_epoch);
                 next_reclaim_at = Instant::now() + RECLAIM_COOLDOWN;
             }
             Err(error) => {
-                tracing::debug!(%error, "process memory reclamation task did not complete");
+                tracing::debug!(%error, "native allocator pressure relief did not complete");
             }
         }
     }

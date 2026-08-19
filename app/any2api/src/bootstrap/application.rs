@@ -13,8 +13,8 @@ use tokio::net::TcpListener;
 
 use super::{
     admin_credentials::SqliteAdminCredentialStore, environment::StartupSettings, listener,
-    memory_reclamation, public_request_components::build_public_request_components_with_telemetry,
-    web_assets,
+    native_memory_reclamation,
+    public_request_components::build_public_request_components_with_telemetry, web_assets,
 };
 use crate::{
     logging::{AppSnapshotReconciler, BootstrapTracing, FileLogging},
@@ -152,7 +152,7 @@ pub(super) async fn run(
         .with_context(|| format!("failed to bind {}", settings.bind))?;
     let listener = listener::inbound_listener(listener, max_connections);
 
-    memory_reclamation::start(&lifecycle);
+    native_memory_reclamation::start(&lifecycle);
     anyhow::ensure!(
         oauth.start_refresh_worker(&lifecycle),
         "OAuth refresh worker was already started"

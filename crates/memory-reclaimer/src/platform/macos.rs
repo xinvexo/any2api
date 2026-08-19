@@ -7,7 +7,7 @@ unsafe extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
 }
 
-pub fn reclaim_process_memory() {
+pub fn relieve_native_allocator_pressure() {
     // SAFETY: a null zone asks libSystem to inspect every malloc zone, and a
     // zero goal requests maximal best-effort relief. No Rust pointer is shared.
     let _ = unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };

@@ -1,11 +1,16 @@
+mod mimalloc;
 mod platform;
 
-pub use platform::reclaim_process_memory;
+pub use mimalloc::mark_current_thread_as_mimalloc_pool_worker;
+pub use platform::relieve_native_allocator_pressure;
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn native_reclaimer_is_safe_to_invoke() {
-        super::reclaim_process_memory();
+    fn allocator_maintenance_is_safe_to_invoke() {
+        std::thread::spawn(super::mark_current_thread_as_mimalloc_pool_worker)
+            .join()
+            .expect("mimalloc thread-pool marker should not panic");
+        super::relieve_native_allocator_pressure();
     }
 }

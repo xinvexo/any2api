@@ -1,1 +1,1 @@
-pub fn reclaim_process_memory() {}
+pub fn relieve_native_allocator_pressure() {}

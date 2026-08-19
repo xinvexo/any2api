@@ -9,7 +9,7 @@ use any2api_updater::api::{
 use anyhow::Context;
 
 use super::{
-    application,
+    allocator_runtime, application,
     environment::StartupSettings,
     instance_lock::{self, InstanceLock},
 };
@@ -128,6 +128,7 @@ pub fn run() -> anyhow::Result<()> {
 fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all();
+    allocator_runtime::install(&mut builder);
     if let Some(value) = std::env::var("ANY2API_WORKER_THREADS")
         .ok()
         .filter(|value| !value.is_empty())
