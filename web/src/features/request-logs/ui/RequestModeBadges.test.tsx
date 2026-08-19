@@ -8,7 +8,6 @@ test("shows confirmed request modes", () => {
     <RequestModeBadges
       isStream
       requestedSpeedTier="fast"
-      effectiveSpeedTier="fast"
     />,
   );
 
@@ -16,29 +15,33 @@ test("shows confirmed request modes", () => {
   expect(screen.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
 });
 
-test("suppresses requested Fast when the effective tier is standard", () => {
+test("shows requested Fast without considering the effective tier", () => {
   render(
     <RequestModeBadges
       isStream={false}
       requestedSpeedTier="fast"
-      effectiveSpeedTier="standard"
     />,
   );
 
   expect(screen.getByLabelText("请求模式：非流式")).toHaveTextContent("非流");
-  expect(screen.queryByText("Fast")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
 });
 
-test("shows requested Fast as unconfirmed while omitting an unknown stream mode", () => {
+test("shows requested Fast while omitting an unknown stream mode", () => {
   render(
     <RequestModeBadges
       isStream={null}
       requestedSpeedTier="fast"
-      effectiveSpeedTier={null}
     />,
   );
 
   expect(screen.queryByText("流")).not.toBeInTheDocument();
   expect(screen.queryByText("非流")).not.toBeInTheDocument();
-  expect(screen.getByLabelText("请求 Fast，上游尚未确认")).toHaveTextContent("Fast");
+  expect(screen.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
+});
+
+test("omits Fast for standard requests", () => {
+  render(<RequestModeBadges isStream requestedSpeedTier="standard" />);
+
+  expect(screen.queryByText("Fast")).not.toBeInTheDocument();
 });

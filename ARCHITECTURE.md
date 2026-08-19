@@ -1140,7 +1140,7 @@ request_logs
 
 `input_tokens` 是 Provider 无关的归一化输入总量。对 Anthropic Messages，ProtocolAdapter 在上游明确提供这些字段时把 `input_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens` 相加后写入该字段；`cache_read_tokens` 仍只保存缓存读取明细，不能再次加入总量。缓存创建没有单独的 RequestLog/SQLite 字段，但其已知数量不能从归一化输入中丢失。
 
-`requested_speed_tier` 与 `effective_speed_tier` 是独立于额度计价的请求执行事实，只接受 `standard | fast`：前者冻结最终 Attempt 发给上游的明确档位，后者只在 Provider 响应明确确认实际档位时写入。Codex 仅把 Responses 请求/Response 的 `service_tier = priority` 归一化为 `fast`；Claude 仅把 Messages 请求的 `speed = fast` 和响应 `usage.speed = fast` 归一化为 `fast`。其他已知非快速值归一化为 `standard`，缺失或未知值保持 `NULL`。Grok 与 Kimi 的高速模型已由模型名表达，不得用模型名子串猜测通用速度档位。识别必须复用已有顶层 JSON 解码/原始字段扫描结果，不得为日志再次完整反序列化请求或响应 Body。管理列表同时展示流/非流徽章；Fast 徽章优先依据 `effective_speed_tier`，响应尚未确认时才使用 `requested_speed_tier`。
+`requested_speed_tier` 与 `effective_speed_tier` 是独立于额度计价的请求执行事实，只接受 `standard | fast`：前者冻结最终 Attempt 发给上游的明确档位，后者只在 Provider 响应明确确认实际档位时写入。Codex 仅把 Responses 请求/Response 的 `service_tier = priority` 归一化为 `fast`；Claude 仅把 Messages 请求的 `speed = fast` 和响应 `usage.speed = fast` 归一化为 `fast`。其他已知非快速值归一化为 `standard`，缺失或未知值保持 `NULL`。Grok 与 Kimi 的高速模型已由模型名表达，不得用模型名子串猜测通用速度档位。识别必须复用已有顶层 JSON 解码/原始字段扫描结果，不得为日志再次完整反序列化请求或响应 Body。桌面管理列表以独立列展示流/非流，Fast 徽章紧跟模型名且只依据 `requested_speed_tier`，不因 Provider 实际执行档位或降级结果改变；移动列表在模型名后紧凑展示相同信息。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 

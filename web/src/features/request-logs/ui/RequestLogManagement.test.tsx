@@ -36,14 +36,16 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   );
 
   expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "流式" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "输入" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "缓存命中" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
   expect(screen.getByRole("cell", { name: "203.0.113.8" })).toBeInTheDocument();
   expect(within(screen.getByRole("list", { name: "请求日志列表" })).getByText("claude-test")).toBeInTheDocument();
   const mobileList = screen.getByRole("list", { name: "请求日志列表" });
-  expect(within(mobileList).getByLabelText("请求模式：流式")).toHaveTextContent("流");
-  expect(within(mobileList).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
+  const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
+  expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
+  expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
