@@ -1,6 +1,6 @@
 use std::fmt;
 
-use any2api_domain::TokenUsage;
+use any2api_domain::{RequestSpeedTier, TokenUsage};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use serde_json::Value;
@@ -31,6 +31,7 @@ pub enum DecodedResponsePayload {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProtocolResponseTelemetry {
     pub token_usage: TokenUsage,
+    pub effective_speed_tier: Option<RequestSpeedTier>,
 }
 
 #[derive(Clone)]

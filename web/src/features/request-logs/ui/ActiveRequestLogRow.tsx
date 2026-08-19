@@ -8,6 +8,7 @@ import {
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
+import { RequestModeBadges } from "./RequestModeBadges";
 import { RequestLogTableCell as Cell } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
 
@@ -30,8 +31,15 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
         >
           {formatLogTime(log.startedAtMs)}
         </time>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
-          {model}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
+            {model}
+          </span>
+          <RequestModeBadges
+            isStream={log.isStream}
+            requestedSpeedTier={log.requestedSpeedTier}
+            effectiveSpeedTier={log.effectiveSpeedTier}
+          />
         </span>
         <StatusBadge />
       </div>
@@ -64,7 +72,14 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
           </span>
         )}
       </Cell>
-      <Cell className="font-medium text-primary">{model}</Cell>
+      <Cell className="flex items-center gap-1.5 font-medium text-primary">
+        <span className="min-w-0 flex-1 truncate">{model}</span>
+        <RequestModeBadges
+          isStream={log.isStream}
+          requestedSpeedTier={log.requestedSpeedTier}
+          effectiveSpeedTier={log.effectiveSpeedTier}
+        />
+      </Cell>
       <Cell>{log.thinkingLevel ?? "-"}</Cell>
       <Cell><StatusBadge /></Cell>
       <Cell className="tabular-nums text-secondary">{elapsed(log, nowMs)}</Cell>

@@ -1,13 +1,69 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, QuotaServiceTier,
+    RequestSpeedTier, TransportMode,
 };
 use base64::Engine as _;
-use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
+use http::{HeaderMap, StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
 use crate::api::{
     OAuthGrant, OAuthTokenMaterial, ProviderDriver, ProviderRequestContext, ProviderSecret,
 };
+
+fn request_context(
+    headers: &HeaderMap,
+    operation: ProtocolOperation,
+    oauth: bool,
+) -> ProviderRequestContext<'_> {
+    ProviderRequestContext {
+        ingress_dialect: operation.dialect(),
+        upstream_operation: operation,
+        upstream_model: "model",
+        client_headers: headers,
+        oauth,
+        allow_credential_bound: true,
+        allow_session_replay: true,
+        allow_turn_state: false,
+    }
+}
+
+#[test]
+fn gates_responses_speed_tier_and_maps_oauth_quota_without_body_parsing() {
+    let driver = CodexDriver::new();
+    let headers = HeaderMap::new();
+    let responses = request_context(&headers, ProtocolOperation::Responses, true);
+
+    assert_eq!(
+        driver.request_speed_tier(responses, Some(RequestSpeedTier::Fast)),
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        driver.response_speed_tier(ProtocolOperation::Responses, Some(RequestSpeedTier::Fast),),
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        driver.oauth_quota_service_tier(responses, Some(RequestSpeedTier::Fast)),
+        Some(QuotaServiceTier::Fast)
+    );
+    assert_eq!(
+        driver.oauth_quota_service_tier(responses, None),
+        Some(QuotaServiceTier::Standard)
+    );
+    assert_eq!(
+        driver.request_speed_tier(
+            request_context(&headers, ProtocolOperation::ChatCompletions, false),
+            Some(RequestSpeedTier::Fast),
+        ),
+        None
+    );
+    assert_eq!(
+        driver.response_speed_tier(
+            ProtocolOperation::ChatCompletions,
+            Some(RequestSpeedTier::Fast),
+        ),
+        None
+    );
+}
 
 #[test]
 fn builds_responses_paths_and_bearer_authentication() {

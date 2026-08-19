@@ -115,7 +115,7 @@ pub(super) async fn run(
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();
     let embedded_web = settings.web_root.is_none();
-    let restart = RestartSignal::new();
+    let restart = RestartSignal::new(cfg!(unix) && !executable_path.as_os_str().is_empty());
     let update_tasks = Arc::new(LifecycleUpdateTaskExecutor::new(lifecycle.clone()));
     let application_updates = Arc::new(
         GitHubReleaseUpdater::official(
@@ -143,7 +143,8 @@ pub(super) async fn run(
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
-        .with_application_updates(application_updates),
+        .with_application_updates(application_updates)
+        .with_restart_requester(Arc::new(restart.clone())),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)
@@ -211,5 +212,5 @@ pub(super) async fn run(
     }
     let outcome = shutdown::ShutdownOutcome::after_finalization(result, finalized, served.timeouts);
     FileLogging::finish(file_logging);
-    Ok(outcome.with_restart_requested(restart.requested()))
+    Ok(outcome.with_restart_kind(restart.kind()))
 }

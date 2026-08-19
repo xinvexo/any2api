@@ -14,6 +14,7 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
             &["completion_tokens"],
             &["prompt_tokens_details", "cached_tokens"],
         ),
+        effective_speed_tier: None,
     }
 }
 
@@ -26,6 +27,7 @@ pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
             &["completion_tokens"],
             &["prompt_tokens_details", "cached_tokens"],
         ),
+        effective_speed_tier: None,
     }
 }
 
@@ -44,6 +46,7 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
             &["completion_tokens"],
             &["prompt_tokens_details", "cached_tokens"],
         ),
+        effective_speed_tier: None,
         has_content_delta: choices
             .and_then(|choices| raw_array(choices.get().as_bytes()))
             .is_some_and(|choices| choices.iter().any(|choice| choice_has_content(choice))),

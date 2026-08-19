@@ -45,6 +45,19 @@ html[data-theme="dark"] .app-shell {
   z-index: 1;
 }
 
+/* Keep the app chrome visible while the mobile document scrolls. */
+@media (max-width: 47.999rem) {
+  .app-shell-header.app-shell-layer {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+    background: color-mix(in srgb, var(--canvas) 78%, transparent);
+    backdrop-filter: blur(20px) saturate(1.35);
+    -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  }
+}
+
 /* Soft ambient bloom behind chrome */
 .app-shell-fx-bloom {
   background:

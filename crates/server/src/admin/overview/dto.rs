@@ -1,6 +1,8 @@
+use any2api_payload_buffer::PayloadBufferMetricsSnapshot;
 use any2api_runtime::api::{
-    RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel,
-    RequestLogOverviewTotals, SystemMetricsSnapshot,
+    MemoryReclamationMetrics, RequestLogOverview, RequestLogOverviewBucket,
+    RequestLogOverviewModel, RequestLogOverviewTotals, RequestTelemetryMetrics,
+    SystemMetricsSnapshot,
 };
 use serde::Serialize;
 
@@ -28,6 +30,7 @@ pub(crate) struct OverviewResourcesResponse {
     sampled_at_ms: u64,
     process: OverviewProcessResourcesResponse,
     system: OverviewSystemResourcesResponse,
+    ownership: OverviewMemoryOwnershipResponse,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -53,18 +56,95 @@ struct OverviewSystemResourcesResponse {
     cpu_usage_percent: f32,
 }
 
-impl From<SystemMetricsSnapshot> for OverviewResourcesResponse {
-    fn from(value: SystemMetricsSnapshot) -> Self {
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewMemoryOwnershipResponse.ts")
+)]
+struct OverviewMemoryOwnershipResponse {
+    payload_buffers: OverviewPayloadBufferResourcesResponse,
+    telemetry: OverviewTelemetryMemoryResponse,
+    reclamation: OverviewMemoryReclamationResponse,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewPayloadBufferResourcesResponse.ts")
+)]
+struct OverviewPayloadBufferResourcesResponse {
+    heap_current_bytes: usize,
+    heap_peak_bytes: usize,
+    mapped_current_bytes: usize,
+    mapped_peak_bytes: usize,
+    http_body_capture_current_bytes: usize,
+    http_body_capture_peak_bytes: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewTelemetryMemoryResponse.ts")
+)]
+struct OverviewTelemetryMemoryResponse {
+    queued_owned_bytes: usize,
+    in_flight_owned_bytes: usize,
+    reserved_owned_bytes: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "OverviewMemoryReclamationResponse.ts")
+)]
+struct OverviewMemoryReclamationResponse {
+    blockers: usize,
+    completed_runs: u64,
+    last_duration_micros: u64,
+}
+
+impl OverviewResourcesResponse {
+    pub(crate) fn new(
+        system: SystemMetricsSnapshot,
+        payload_buffers: PayloadBufferMetricsSnapshot,
+        telemetry: RequestTelemetryMetrics,
+        reclamation: MemoryReclamationMetrics,
+    ) -> Self {
         Self {
-            sampled_at_ms: value.sampled_at_ms,
+            sampled_at_ms: system.sampled_at_ms,
             process: OverviewProcessResourcesResponse {
-                resident_memory_bytes: value.process_resident_memory_bytes,
-                cpu_usage_percent: value.process_cpu_usage_percent,
+                resident_memory_bytes: system.process_resident_memory_bytes,
+                cpu_usage_percent: system.process_cpu_usage_percent,
             },
             system: OverviewSystemResourcesResponse {
-                used_memory_bytes: value.system_used_memory_bytes,
-                total_memory_bytes: value.system_total_memory_bytes,
-                cpu_usage_percent: value.system_cpu_usage_percent,
+                used_memory_bytes: system.system_used_memory_bytes,
+                total_memory_bytes: system.system_total_memory_bytes,
+                cpu_usage_percent: system.system_cpu_usage_percent,
+            },
+            ownership: OverviewMemoryOwnershipResponse {
+                payload_buffers: OverviewPayloadBufferResourcesResponse {
+                    heap_current_bytes: payload_buffers.heap_current_bytes(),
+                    heap_peak_bytes: payload_buffers.heap_peak_bytes(),
+                    mapped_current_bytes: payload_buffers.mapped_current_bytes(),
+                    mapped_peak_bytes: payload_buffers.mapped_peak_bytes(),
+                    http_body_capture_current_bytes: payload_buffers
+                        .http_body_capture_current_bytes(),
+                    http_body_capture_peak_bytes: payload_buffers.http_body_capture_peak_bytes(),
+                },
+                telemetry: OverviewTelemetryMemoryResponse {
+                    queued_owned_bytes: telemetry.queued_owned_bytes,
+                    in_flight_owned_bytes: telemetry.in_flight_owned_bytes,
+                    reserved_owned_bytes: telemetry.reserved_owned_bytes,
+                },
+                reclamation: OverviewMemoryReclamationResponse {
+                    blockers: reclamation.blockers(),
+                    completed_runs: reclamation.completed_runs(),
+                    last_duration_micros: reclamation.last_duration_micros(),
+                },
             },
         }
     }

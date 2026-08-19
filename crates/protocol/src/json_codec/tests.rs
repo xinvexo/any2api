@@ -1,9 +1,12 @@
-use any2api_domain::ProtocolOperation;
+use any2api_domain::{ProtocolOperation, RequestSpeedTier};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue};
 use serde_json::json;
 
-use super::{encode_response, extract_affinity, request_execution_profile_raw};
+use super::{
+    encode_json_request, encode_raw_json_request, encode_response, extract_affinity,
+    request_execution_profile_raw,
+};
 use crate::api::{
     DecodedResponsePayload, DecodedUpstreamResponse, IngressAffinity, RawJsonPayload,
     RequestExecutionProfile,
@@ -14,6 +17,73 @@ fn raw(value: serde_json::Value) -> RawJsonPayload {
         serde_json::to_vec(&value).expect("encode request"),
     ))
     .expect("raw request")
+}
+
+#[test]
+fn extracts_supported_request_speed_tiers_without_changing_wire_encoding() {
+    for (operation, field, tier, expected) in [
+        (
+            ProtocolOperation::Responses,
+            "service_tier",
+            "priority",
+            Some(RequestSpeedTier::Fast),
+        ),
+        (
+            ProtocolOperation::Responses,
+            "service_tier",
+            "auto",
+            Some(RequestSpeedTier::Standard),
+        ),
+        (
+            ProtocolOperation::Messages,
+            "speed",
+            "fast",
+            Some(RequestSpeedTier::Fast),
+        ),
+        (
+            ProtocolOperation::Messages,
+            "speed",
+            "standard",
+            Some(RequestSpeedTier::Standard),
+        ),
+    ] {
+        let mut value = json!({"model":"upstream"});
+        value[field] = json!(tier);
+        let raw_value = raw(value.clone());
+        let raw_encoded =
+            encode_raw_json_request(operation, &HeaderMap::new(), &raw_value, "upstream")
+                .expect("raw request");
+        let structured_encoded =
+            encode_json_request(operation, &HeaderMap::new(), &value, "upstream")
+                .expect("structured request");
+
+        assert_eq!(raw_encoded.requested_speed_tier, expected);
+        assert_eq!(structured_encoded.requested_speed_tier, expected);
+    }
+
+    let unknown = json!({"model":"upstream","service_tier":"future"});
+    assert_eq!(
+        encode_json_request(
+            ProtocolOperation::Responses,
+            &HeaderMap::new(),
+            &unknown,
+            "upstream",
+        )
+        .expect("unknown tier request")
+        .requested_speed_tier,
+        None
+    );
+    assert_eq!(
+        encode_json_request(
+            ProtocolOperation::ImagesGenerations,
+            &HeaderMap::new(),
+            &json!({"model":"upstream","service_tier":"priority"}),
+            "upstream",
+        )
+        .expect("image request")
+        .requested_speed_tier,
+        None
+    );
 }
 
 #[test]

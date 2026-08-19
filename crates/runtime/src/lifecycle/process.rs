@@ -5,9 +5,10 @@ use std::{
         Arc,
         atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 use tokio_util::{
     sync::CancellationToken,
     task::{TaskTracker, task_tracker::TaskTrackerToken},
@@ -35,6 +36,30 @@ impl ShutdownPhase {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MemoryReclamationMetrics {
+    blockers: usize,
+    completed_runs: u64,
+    last_duration_micros: u64,
+}
+
+impl MemoryReclamationMetrics {
+    #[must_use]
+    pub const fn blockers(self) -> usize {
+        self.blockers
+    }
+
+    #[must_use]
+    pub const fn completed_runs(self) -> u64 {
+        self.completed_runs
+    }
+
+    #[must_use]
+    pub const fn last_duration_micros(self) -> u64 {
+        self.last_duration_micros
+    }
+}
+
 #[derive(Clone)]
 pub struct ProcessLifecycle {
     inner: Arc<LifecycleInner>,
@@ -43,11 +68,19 @@ pub struct ProcessLifecycle {
 struct LifecycleInner {
     phase: AtomicU8,
     activity_epoch: AtomicU64,
-    memory_reclamation_blockers: Arc<AtomicUsize>,
+    memory_reclamation: Arc<MemoryReclamationState>,
     requests: TaskTracker,
     background: TaskTracker,
     draining: CancellationToken,
     forced: CancellationToken,
+}
+
+#[derive(Default)]
+struct MemoryReclamationState {
+    blockers: AtomicUsize,
+    requested: Notify,
+    completed_runs: AtomicU64,
+    last_duration_micros: AtomicU64,
 }
 
 impl ProcessLifecycle {
@@ -57,7 +90,7 @@ impl ProcessLifecycle {
             inner: Arc::new(LifecycleInner {
                 phase: AtomicU8::new(RUNNING),
                 activity_epoch: AtomicU64::new(0),
-                memory_reclamation_blockers: Arc::new(AtomicUsize::new(0)),
+                memory_reclamation: Arc::new(MemoryReclamationState::default()),
                 requests: TaskTracker::new(),
                 background: TaskTracker::new(),
                 draining: CancellationToken::new(),
@@ -107,7 +140,7 @@ impl ProcessLifecycle {
             return None;
         }
         let memory_reclamation =
-            MemoryReclamationBlocker::new(Arc::clone(&self.inner.memory_reclamation_blockers));
+            MemoryReclamationBlocker::new(Arc::clone(&self.inner.memory_reclamation));
         let token = self.inner.requests.token();
         if self.phase() != ShutdownPhase::Running {
             return None;
@@ -126,18 +159,54 @@ impl ProcessLifecycle {
 
     #[must_use]
     pub fn activity_epoch(&self) -> u64 {
-        self.inner.activity_epoch.load(Ordering::Relaxed)
+        self.inner.activity_epoch.load(Ordering::Acquire)
     }
 
     pub fn record_activity(&self) {
-        self.inner.activity_epoch.fetch_add(1, Ordering::Relaxed);
+        self.inner.activity_epoch.fetch_add(1, Ordering::AcqRel);
+        if self.memory_reclamation_blockers() == 0 {
+            self.inner.memory_reclamation.requested.notify_one();
+        }
     }
 
     #[must_use]
     pub fn memory_reclamation_blockers(&self) -> usize {
         self.inner
-            .memory_reclamation_blockers
+            .memory_reclamation
+            .blockers
             .load(Ordering::Acquire)
+    }
+
+    pub async fn memory_reclamation_requested(&self) {
+        self.inner.memory_reclamation.requested.notified().await;
+    }
+
+    pub fn record_memory_reclamation(&self, duration: Duration) {
+        self.inner.memory_reclamation.last_duration_micros.store(
+            duration.as_micros().try_into().unwrap_or(u64::MAX),
+            Ordering::Release,
+        );
+        self.inner
+            .memory_reclamation
+            .completed_runs
+            .fetch_add(1, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn memory_reclamation_metrics(&self) -> MemoryReclamationMetrics {
+        MemoryReclamationMetrics {
+            blockers: self.memory_reclamation_blockers(),
+            completed_runs: self
+                .inner
+                .memory_reclamation
+                .completed_runs
+                .load(Ordering::Acquire),
+            last_duration_micros: self
+                .inner
+                .memory_reclamation
+                .last_duration_micros
+                .load(Ordering::Acquire),
+        }
     }
 
     pub async fn wait_for_requests(&self) {
@@ -247,23 +316,24 @@ impl ActiveRequestGuard {
 }
 
 struct MemoryReclamationBlocker {
-    counter: Option<Arc<AtomicUsize>>,
+    state: Option<Arc<MemoryReclamationState>>,
 }
 
 impl MemoryReclamationBlocker {
-    fn new(counter: Arc<AtomicUsize>) -> Self {
-        counter.fetch_add(1, Ordering::AcqRel);
-        Self {
-            counter: Some(counter),
-        }
+    fn new(state: Arc<MemoryReclamationState>) -> Self {
+        state.blockers.fetch_add(1, Ordering::AcqRel);
+        Self { state: Some(state) }
     }
 
     fn release(&mut self) {
-        let Some(counter) = self.counter.take() else {
+        let Some(state) = self.state.take() else {
             return;
         };
-        let previous = counter.fetch_sub(1, Ordering::AcqRel);
+        let previous = state.blockers.fetch_sub(1, Ordering::AcqRel);
         debug_assert!(previous > 0, "memory reclamation blocker underflow");
+        if previous == 1 {
+            state.requested.notify_one();
+        }
     }
 }
 
@@ -346,6 +416,60 @@ mod tests {
         lifecycle.record_activity();
 
         assert_eq!(lifecycle.activity_epoch(), 1);
+    }
+
+    #[test]
+    fn memory_reclamation_metrics_report_blockers_runs_and_duration() {
+        let lifecycle = ProcessLifecycle::new();
+        let guard = lifecycle.track_request().expect("request");
+        lifecycle.record_memory_reclamation(Duration::from_micros(725));
+
+        assert_eq!(
+            lifecycle.memory_reclamation_metrics(),
+            super::MemoryReclamationMetrics {
+                blockers: 1,
+                completed_runs: 1,
+                last_duration_micros: 725,
+            }
+        );
+
+        drop(guard);
+        assert_eq!(lifecycle.memory_reclamation_metrics().blockers(), 0);
+    }
+
+    #[tokio::test]
+    async fn unblocked_background_activity_notifies_memory_reclamation() {
+        let lifecycle = ProcessLifecycle::new();
+
+        lifecycle.record_activity();
+
+        tokio::time::timeout(
+            Duration::from_millis(10),
+            lifecycle.memory_reclamation_requested(),
+        )
+        .await
+        .expect("memory reclamation notification");
+    }
+
+    #[tokio::test]
+    async fn only_the_last_request_blocker_notifies_memory_reclamation() {
+        let lifecycle = ProcessLifecycle::new();
+        let first = lifecycle.track_request().expect("first request");
+        let mut second = lifecycle.track_request().expect("second request");
+        let notification = lifecycle.memory_reclamation_requested();
+        tokio::pin!(notification);
+
+        second.release_memory_reclamation_blocker();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), &mut notification)
+                .await
+                .is_err()
+        );
+
+        drop(first);
+        tokio::time::timeout(Duration::from_millis(10), notification)
+            .await
+            .expect("last blocker notification");
     }
 
     #[tokio::test]

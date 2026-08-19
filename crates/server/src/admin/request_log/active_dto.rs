@@ -24,6 +24,8 @@ pub(super) struct ActiveRequestLogResponse {
     proxy_profile_label: Option<String>,
     attempt_count: u32,
     is_stream: Option<bool>,
+    requested_speed_tier: Option<&'static str>,
+    effective_speed_tier: Option<&'static str>,
 }
 
 impl ActiveRequestLogResponse {
@@ -73,6 +75,8 @@ impl ActiveRequestLogResponse {
             proxy_profile_label,
             attempt_count: value.attempt_count,
             is_stream: value.is_stream,
+            requested_speed_tier: value.requested_speed_tier.map(|tier| tier.as_str()),
+            effective_speed_tier: value.effective_speed_tier.map(|tier| tier.as_str()),
         }
     }
 }

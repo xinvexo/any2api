@@ -5,20 +5,27 @@ import {
   LoaderCircle,
   RefreshCw,
   Sparkles,
+  RotateCw,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { UpdateCheckResult } from "../api/update-contracts";
 import { useApplicationUpdateInstall } from "../model/application-update-context";
+import { useApplicationRestart } from "../model/application-restart-context";
 import { getUpdateErrorMessage } from "../model/update-error";
+import { getRestartErrorMessage } from "../model/restart-error";
 import { useApplicationUpdate } from "../model/use-application-update";
 import { cn } from "@/shared/lib/cn";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { Surface } from "@/shared/ui/Surface";
 
 export function AboutSettings() {
   const update = useApplicationUpdate();
   const installation = useApplicationUpdateInstall();
+  const restart = useApplicationRestart();
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
 
   if (update.about.isPending && !update.about.data) {
     return (
@@ -49,7 +56,7 @@ export function AboutSettings() {
   }
 
   return (
-    <div className="space-y-6" aria-busy={update.isPending || installation.active}>
+    <div className="space-y-6" aria-busy={update.isPending || installation.active || restart.active || restart.pending}>
       <section aria-label="版本信息" className="space-y-1">
         <AboutRow
           label="当前版本"
@@ -114,8 +121,60 @@ export function AboutSettings() {
           ) : null}
         </div>
       </section>
+
+      <section aria-labelledby="about-service-heading" className="space-y-1">
+        <div className="grid gap-3 px-1 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
+          <div className="min-w-0">
+            <h3 id="about-service-heading" className="text-[13px] font-medium text-primary">
+              服务控制
+            </h3>
+            <p className="mt-0.5 text-[12px] leading-5 text-secondary">
+              等待正在处理的请求结束后重新启动服务
+            </p>
+          </div>
+          <div className="flex sm:justify-end">
+            <Button
+              className="w-full sm:w-auto"
+              size="sm"
+              onClick={() => setRestartConfirmOpen(true)}
+              disabled={update.isPending || installation.active || restart.active || restart.pending}
+            >
+              <RotateCw size={14} />
+              重启服务
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <ConfirmDialog
+        open={restartConfirmOpen}
+        title="重启 ANY2API？"
+        description="服务会短暂中断，并等待正在处理的请求结束后重启。重启后当前登录会话失效，需要重新登录。"
+        confirmLabel="重启"
+        cancelLabel="取消"
+        pending={restart.pending}
+        onConfirm={() => void confirmRestart(restart, () => setRestartConfirmOpen(false))}
+        onClose={() => {
+          if (!restart.pending) {
+            setRestartConfirmOpen(false);
+          }
+        }}
+      />
     </div>
   );
+}
+
+async function confirmRestart(
+  restart: ReturnType<typeof useApplicationRestart>,
+  close: () => void,
+) {
+  try {
+    await restart.beginRestart();
+    close();
+  } catch (error) {
+    close();
+    notify.danger(getRestartErrorMessage(error));
+  }
 }
 
 function AboutRow({ label, value }: { label: string; value: ReactNode }) {

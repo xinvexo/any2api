@@ -9,7 +9,7 @@ use std::{
 use any2api_domain::{
     ANY2API_UPSTREAM_TIMEOUT_MESSAGE, CredentialId, ErrorClass, OAuthAccountId, ProxyProfileId,
     RequestAttempt, RequestAttemptOutcome, RequestId, RequestQuotaCostRate, RequestRoutingMode,
-    RetrySafety, RouteTargetId, TokenUsage,
+    RequestSpeedTier, RetrySafety, RouteTargetId, TokenUsage,
 };
 
 use super::attempt_diagnostics::AttemptDiagnostics;
@@ -107,6 +107,14 @@ impl AttemptRecorder {
 
     pub(crate) fn observe_quota_cost_rate(&self, rate: Option<RequestQuotaCostRate>) {
         self.request.observe_quota_cost_rate(rate);
+    }
+
+    pub(crate) fn observe_requested_speed_tier(&self, tier: Option<RequestSpeedTier>) {
+        self.request.observe_requested_speed_tier(tier);
+    }
+
+    pub(crate) fn observe_effective_speed_tier(&self, tier: Option<RequestSpeedTier>) {
+        self.request.observe_effective_speed_tier(tier);
     }
 
     pub(crate) fn observe_transport(

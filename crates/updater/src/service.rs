@@ -9,8 +9,8 @@ use semver::Version;
 
 use crate::{
     api::{
-        ApplicationAbout, ApplicationUpdateService, RestartRequester, UpdateCheck, UpdateError,
-        UpdateErrorKind, UpdateStatus, UpdateTask, UpdateTaskExecutor,
+        ApplicationAbout, ApplicationUpdateService, RestartKind, RestartRequester, UpdateCheck,
+        UpdateError, UpdateErrorKind, UpdateStatus, UpdateTask, UpdateTaskExecutor,
     },
     github::{self, REPOSITORY_URL},
     install,
@@ -156,7 +156,7 @@ impl UpdaterInner {
 
     fn complete_install(&self, version: &str) {
         self.task.restarting(version);
-        self.restart.request_restart();
+        self.restart.request_restart(RestartKind::Update);
     }
 }
 

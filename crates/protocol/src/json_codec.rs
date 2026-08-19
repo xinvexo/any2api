@@ -1,5 +1,5 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, RequestBodyEncoding, bound_thinking_level,
+    ProtocolDialect, ProtocolOperation, RequestBodyEncoding, RequestSpeedTier, bound_thinking_level,
 };
 use any2api_payload_buffer::PayloadBuffer;
 use bytes::Bytes;
@@ -219,6 +219,7 @@ fn encode_raw_json_request(
     value: &RawJsonPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
+    let requested_speed_tier = raw_request_speed_tier(operation, value);
     let stream = value
         .parse_field::<bool>("stream")
         .transpose()
@@ -243,6 +244,7 @@ fn encode_raw_json_request(
         uri: Uri::from_static("/"),
         headers,
         body,
+        requested_speed_tier,
     })
 }
 
@@ -259,6 +261,7 @@ pub(crate) fn encode_json_request(
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let requested_speed_tier = request_speed_tier(operation, value);
     let body = request_encoding::encode(operation, value, upstream_model)?;
     let mut headers = forwarded.clone();
     headers.insert(
@@ -279,7 +282,50 @@ pub(crate) fn encode_json_request(
         uri: Uri::from_static("/"),
         headers,
         body,
+        requested_speed_tier,
     })
+}
+
+fn raw_request_speed_tier(
+    operation: ProtocolOperation,
+    value: &RawJsonPayload,
+) -> Option<RequestSpeedTier> {
+    let field = match operation.dialect() {
+        ProtocolDialect::OpenAiResponses => "service_tier",
+        ProtocolDialect::AnthropicMessages => "speed",
+        ProtocolDialect::OpenAiChatCompletions | ProtocolDialect::OpenAiImages => return None,
+    };
+    parse_request_speed_tier(
+        operation.dialect(),
+        value.field(field).and_then(raw_string).as_deref(),
+    )
+}
+
+fn request_speed_tier(operation: ProtocolOperation, value: &Value) -> Option<RequestSpeedTier> {
+    let field = match operation.dialect() {
+        ProtocolDialect::OpenAiResponses => "service_tier",
+        ProtocolDialect::AnthropicMessages => "speed",
+        ProtocolDialect::OpenAiChatCompletions | ProtocolDialect::OpenAiImages => return None,
+    };
+    parse_request_speed_tier(
+        operation.dialect(),
+        value.get(field).and_then(Value::as_str),
+    )
+}
+
+fn parse_request_speed_tier(
+    dialect: ProtocolDialect,
+    value: Option<&str>,
+) -> Option<RequestSpeedTier> {
+    match (dialect, value) {
+        (ProtocolDialect::OpenAiResponses, Some("priority"))
+        | (ProtocolDialect::AnthropicMessages, Some("fast")) => Some(RequestSpeedTier::Fast),
+        (ProtocolDialect::OpenAiResponses, Some("default" | "auto" | "flex" | "standard"))
+        | (ProtocolDialect::AnthropicMessages, Some("standard")) => {
+            Some(RequestSpeedTier::Standard)
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn parse_response_body(body: &Bytes) -> Result<Value, ProtocolError> {

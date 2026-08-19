@@ -118,8 +118,8 @@ impl RequestLogRepository for SqliteStore {
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
              output_tokens, cache_read_tokens, cache_creation_tokens, quota_cost_unit, quota_cost_nanos, \
-             quota_cost_rate_card, quota_service_tier, telemetry_process_id, \
-             telemetry_sequence, is_stream \
+             quota_cost_rate_card, quota_service_tier, requested_speed_tier, \
+             effective_speed_tier, telemetry_process_id, telemetry_sequence, is_stream \
              FROM request_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())

@@ -4,7 +4,7 @@ use super::{
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, QuotaServiceTier,
-    RequestBodyEncoding, TransportMode,
+    RequestBodyEncoding, RequestSpeedTier, TransportMode,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -105,6 +105,26 @@ impl ProviderDriver for CodexDriver {
         body: Bytes,
     ) -> Result<Bytes, ProviderError> {
         codex_request::prepare(context, body)
+    }
+
+    fn request_speed_tier(
+        &self,
+        context: ProviderRequestContext<'_>,
+        requested_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        (context.upstream_operation == ProtocolOperation::Responses)
+            .then_some(requested_speed_tier)
+            .flatten()
+    }
+
+    fn response_speed_tier(
+        &self,
+        operation: ProtocolOperation,
+        observed_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        (operation == ProtocolOperation::Responses)
+            .then_some(observed_speed_tier)
+            .flatten()
     }
 
     fn prepare_request_headers(
@@ -248,11 +268,15 @@ impl ProviderDriver for CodexDriver {
     fn oauth_quota_service_tier(
         &self,
         context: ProviderRequestContext<'_>,
-        prepared_body: &[u8],
+        requested_speed_tier: Option<RequestSpeedTier>,
     ) -> Option<QuotaServiceTier> {
-        (context.oauth && context.upstream_operation == ProtocolOperation::Responses)
-            .then(|| codex_request::quota_service_tier(prepared_body))
-            .flatten()
+        if !context.oauth || context.upstream_operation != ProtocolOperation::Responses {
+            return None;
+        }
+        Some(match requested_speed_tier {
+            Some(RequestSpeedTier::Fast) => QuotaServiceTier::Fast,
+            Some(RequestSpeedTier::Standard) | None => QuotaServiceTier::Standard,
+        })
     }
 
     fn classify_oauth_quota_rejection(

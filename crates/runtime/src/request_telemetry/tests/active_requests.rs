@@ -2,6 +2,7 @@ use std::sync::{Arc, atomic::Ordering};
 
 use any2api_domain::{
     ConfigRevision, ErrorClass, GatewayApiKeyId, ProtocolOperation, RequestId, RequestLogFilter,
+    RequestSpeedTier,
 };
 
 use super::support::{BlockingRepository, logging_settings, record, wait_for};
@@ -32,11 +33,21 @@ async fn active_request_remains_visible_until_the_final_log_commits() {
         ProtocolOperation::Responses,
     );
     recorder.set_request_metadata("gpt-live".into(), true, Some("high".into()));
+    recorder.observe_requested_speed_tier(Some(RequestSpeedTier::Fast));
+    recorder.observe_effective_speed_tier(Some(RequestSpeedTier::Standard));
 
     let active = telemetry.list_active_requests(&RequestLogFilter::default(), 20);
     assert_eq!(active.total, 1);
     assert_eq!(active.items[0].request_id, request_id);
     assert_eq!(active.items[0].public_model.as_deref(), Some("gpt-live"));
+    assert_eq!(
+        active.items[0].requested_speed_tier,
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        active.items[0].effective_speed_tier,
+        Some(RequestSpeedTier::Standard)
+    );
 
     recorder.finish(200, None);
     wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
@@ -49,6 +60,17 @@ async fn active_request_remains_visible_until_the_final_log_commits() {
 
     repository.release_first.notify_waiters();
     wait_for(|| telemetry.metrics().persisted_records == 1).await;
+    {
+        let records = repository.request_logs.lock().expect("request logs");
+        assert_eq!(
+            records[0].request.requested_speed_tier,
+            Some(RequestSpeedTier::Fast)
+        );
+        assert_eq!(
+            records[0].request.effective_speed_tier,
+            Some(RequestSpeedTier::Standard)
+        );
+    }
     assert_eq!(
         telemetry
             .list_active_requests(&RequestLogFilter::default(), 20)

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ErrorClass, OAuthAccountId, ProtocolOperation, PublicError, TokenUsage, UpstreamError,
+    ErrorClass, OAuthAccountId, ProtocolOperation, PublicError, RequestSpeedTier, TokenUsage,
+    UpstreamError,
 };
 use any2api_protocol::api::{
     BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
@@ -184,6 +185,18 @@ impl PreparedAttempt<'_> {
     pub(in crate::public_request::upstream) fn observe_token_usage(&mut self, usage: TokenUsage) {
         if let Some(recorder) = &self.attempt_recorder {
             recorder.observe_token_usage(usage);
+        }
+    }
+
+    pub(in crate::public_request::upstream) fn observe_effective_speed_tier(
+        &mut self,
+        tier: Option<RequestSpeedTier>,
+    ) {
+        let tier = self
+            .driver
+            .response_speed_tier(self.upstream_operation, tier);
+        if let Some(recorder) = &self.attempt_recorder {
+            recorder.observe_effective_speed_tier(tier);
         }
     }
 

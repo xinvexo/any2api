@@ -4,7 +4,7 @@ use super::{
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    TransportMode,
+    RequestSpeedTier, TransportMode,
 };
 use http::{HeaderMap, HeaderValue};
 use url::Url;
@@ -100,6 +100,26 @@ impl ProviderDriver for ClaudeDriver {
         context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
         claude_headers::request(context)
+    }
+
+    fn request_speed_tier(
+        &self,
+        context: ProviderRequestContext<'_>,
+        requested_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        (context.upstream_operation == ProtocolOperation::Messages)
+            .then_some(requested_speed_tier)
+            .flatten()
+    }
+
+    fn response_speed_tier(
+        &self,
+        operation: ProtocolOperation,
+        observed_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        (operation == ProtocolOperation::Messages)
+            .then_some(observed_speed_tier)
+            .flatten()
     }
 
     fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {

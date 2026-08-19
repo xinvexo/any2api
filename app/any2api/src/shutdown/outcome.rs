@@ -1,12 +1,14 @@
 use std::time::Duration;
 
+use any2api_updater::api::RestartKind;
+
 use super::ShutdownTimeouts;
 
 pub(crate) struct ShutdownOutcome {
     result: anyhow::Result<()>,
     timeouts: ShutdownTimeouts,
     fatal: bool,
-    restart_requested: bool,
+    restart_kind: Option<RestartKind>,
 }
 
 impl ShutdownOutcome {
@@ -20,13 +22,13 @@ impl ShutdownOutcome {
                 result: server_result,
                 timeouts,
                 fatal: false,
-                restart_requested: false,
+                restart_kind: None,
             },
             Err(error) => Self {
                 result: Err(error),
                 timeouts,
                 fatal: true,
-                restart_requested: false,
+                restart_kind: None,
             },
         }
     }
@@ -39,12 +41,12 @@ impl ShutdownOutcome {
         self.fatal
     }
 
-    pub(crate) const fn restart_requested(&self) -> bool {
-        self.restart_requested
+    pub(crate) const fn restart_kind(&self) -> Option<RestartKind> {
+        self.restart_kind
     }
 
-    pub(crate) fn with_restart_requested(mut self, requested: bool) -> Self {
-        self.restart_requested = requested;
+    pub(crate) fn with_restart_kind(mut self, kind: Option<RestartKind>) -> Self {
+        self.restart_kind = kind;
         self
     }
 
@@ -55,16 +57,18 @@ impl ShutdownOutcome {
 
 #[cfg(test)]
 mod tests {
+    use any2api_updater::api::RestartKind;
+
     use super::{ShutdownOutcome, ShutdownTimeouts};
 
     #[test]
     fn restart_request_survives_successful_critical_finalization() {
         let outcome =
             ShutdownOutcome::after_finalization(Ok(()), Ok(()), ShutdownTimeouts::defaults())
-                .with_restart_requested(true);
+                .with_restart_kind(Some(RestartKind::Manual));
 
         assert!(!outcome.is_fatal());
-        assert!(outcome.restart_requested());
+        assert_eq!(outcome.restart_kind(), Some(RestartKind::Manual));
         outcome.into_result().expect("successful shutdown");
     }
 
@@ -75,10 +79,10 @@ mod tests {
             Err(anyhow::anyhow!("sqlite did not close")),
             ShutdownTimeouts::defaults(),
         )
-        .with_restart_requested(true);
+        .with_restart_kind(Some(RestartKind::Update));
 
         assert!(outcome.is_fatal());
-        assert!(outcome.restart_requested());
+        assert_eq!(outcome.restart_kind(), Some(RestartKind::Update));
         assert!(outcome.into_result().is_err());
     }
 }

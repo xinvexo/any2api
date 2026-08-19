@@ -46,8 +46,8 @@ pub(crate) fn rewrite_known_model(
 /// Byte ranges of every `model` string value that must change: the top-level
 /// field plus the known `response`/`message` containers, ordered ascending.
 fn model_spans(data: &[u8], public_model: &str) -> Vec<Range<usize>> {
-    let mut spans = Vec::new();
-    let mut containers = Vec::new();
+    let mut spans = Vec::with_capacity(3);
+    let mut containers = Vec::with_capacity(2);
     scan_object_fields(
         data,
         &["model", "response", "message"],

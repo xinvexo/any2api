@@ -139,6 +139,29 @@ async fn overview_resources_exposes_current_process_and_system_load() {
             .as_f64()
             .is_some_and(|value| (0.0..=100.0).contains(&value))
     );
+    let payload_buffers = &body["ownership"]["payload_buffers"];
+    for field in [
+        "heap_current_bytes",
+        "heap_peak_bytes",
+        "mapped_current_bytes",
+        "mapped_peak_bytes",
+        "http_body_capture_current_bytes",
+        "http_body_capture_peak_bytes",
+    ] {
+        assert!(payload_buffers[field].as_u64().is_some(), "missing {field}");
+    }
+    let telemetry = &body["ownership"]["telemetry"];
+    for field in [
+        "queued_owned_bytes",
+        "in_flight_owned_bytes",
+        "reserved_owned_bytes",
+    ] {
+        assert!(telemetry[field].as_u64().is_some(), "missing {field}");
+    }
+    let reclamation = &body["ownership"]["reclamation"];
+    for field in ["blockers", "completed_runs", "last_duration_micros"] {
+        assert!(reclamation[field].as_u64().is_some(), "missing {field}");
+    }
 }
 
 #[tokio::test]
@@ -293,6 +316,8 @@ fn record(
             cache_read_tokens,
             cache_creation_tokens: None,
             quota_cost: None,
+            requested_speed_tier: None,
+            effective_speed_tier: None,
             is_stream: false,
         },
         attempts: Vec::new(),

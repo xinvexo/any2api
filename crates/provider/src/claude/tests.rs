@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, TransportMode, UpstreamErrorKind,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, RequestSpeedTier, TransportMode,
+    UpstreamErrorKind,
 };
 use http::{
     HeaderMap, StatusCode,
@@ -10,6 +11,48 @@ use super::ClaudeDriver;
 use crate::api::{
     OAuthGrant, ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
 };
+
+#[test]
+fn gates_speed_tier_to_messages_requests() {
+    let driver = ClaudeDriver::new();
+    let headers = HeaderMap::new();
+    let context = |operation| ProviderRequestContext {
+        ingress_dialect: ProtocolDialect::AnthropicMessages,
+        upstream_operation: operation,
+        upstream_model: "claude",
+        client_headers: &headers,
+        oauth: false,
+        allow_credential_bound: true,
+        allow_session_replay: true,
+        allow_turn_state: false,
+    };
+
+    assert_eq!(
+        driver.request_speed_tier(
+            context(ProtocolOperation::Messages),
+            Some(RequestSpeedTier::Fast),
+        ),
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        driver.response_speed_tier(ProtocolOperation::Messages, Some(RequestSpeedTier::Fast),),
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        driver.request_speed_tier(
+            context(ProtocolOperation::MessagesCountTokens),
+            Some(RequestSpeedTier::Fast),
+        ),
+        None
+    );
+    assert_eq!(
+        driver.response_speed_tier(
+            ProtocolOperation::MessagesCountTokens,
+            Some(RequestSpeedTier::Fast),
+        ),
+        None
+    );
+}
 
 #[test]
 fn builds_messages_paths_and_anthropic_headers() {

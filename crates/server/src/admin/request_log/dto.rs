@@ -141,6 +141,8 @@ struct RequestLogResponse {
     output_tokens: Option<u64>,
     cache_read_tokens: Option<u64>,
     cache_creation_tokens: Option<u64>,
+    requested_speed_tier: Option<&'static str>,
+    effective_speed_tier: Option<&'static str>,
     is_stream: bool,
 }
 
@@ -215,6 +217,8 @@ impl RequestLogResponse {
             output_tokens: value.output_tokens,
             cache_read_tokens: value.cache_read_tokens,
             cache_creation_tokens: value.cache_creation_tokens,
+            requested_speed_tier: value.requested_speed_tier.map(|tier| tier.as_str()),
+            effective_speed_tier: value.effective_speed_tier.map(|tier| tier.as_str()),
             is_stream: value.is_stream,
         }
     }
@@ -263,6 +267,7 @@ impl RequestLogOutcome {
 mod tests {
     use any2api_domain::{
         ConfigRevision, ErrorClass, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+        RequestSpeedTier,
     };
 
     use super::RequestLogResponse;
@@ -295,6 +300,8 @@ mod tests {
                 cache_read_tokens: Some(30),
                 cache_creation_tokens: Some(11),
                 quota_cost: None,
+                requested_speed_tier: Some(RequestSpeedTier::Fast),
+                effective_speed_tier: Some(RequestSpeedTier::Standard),
                 is_stream: true,
             },
             Some("Codex upstream".into()),
@@ -317,6 +324,8 @@ mod tests {
         assert_eq!(json["oauth_account_label"], "work-oauth");
         assert_eq!(json["proxy_profile_label"], "DIRECT");
         assert_eq!(json["error_message"], "The upstream model was not found");
+        assert_eq!(json["requested_speed_tier"], "fast");
+        assert_eq!(json["effective_speed_tier"], "standard");
         assert_eq!(json["outcome"], "failed");
         assert!(json.get("error_class").is_none());
     }

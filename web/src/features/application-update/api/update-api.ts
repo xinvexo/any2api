@@ -1,6 +1,7 @@
 import { requestJson } from "@/shared/api/http-client";
 
 import {
+  parseApplicationHealth,
   parseApplicationHealthVersion,
   parseApplicationAbout,
   parseUpdateCheckResult,
@@ -34,4 +35,10 @@ export function getApplicationHealthVersion() {
   return requestJson<unknown>("/api/health", {
     timeoutMs: 2_500,
   }).then(parseApplicationHealthVersion);
+}
+
+export function getApplicationHealth() {
+  return requestJson<unknown>("/api/health", {
+    timeoutMs: 2_500,
+  }).then(parseApplicationHealth);
 }

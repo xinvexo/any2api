@@ -7,7 +7,6 @@ import {
 } from "react";
 
 import { ApiError } from "@/shared/api/http-client";
-import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
 
 import {
   getApplicationHealthVersion,
@@ -16,15 +15,18 @@ import {
 } from "../api/update-api";
 import type { UpdateStatus } from "../api/update-contracts";
 import { ApplicationUpdateOverlay } from "../ui/ApplicationUpdateOverlay";
+import { ApplicationRestartProvider } from "./ApplicationRestartProvider";
 import { getUpdateErrorMessage, getUpdateFailureMessage } from "./update-error";
 import type { ApplicationUpdateFlow } from "./update-flow";
-import { reloadApplication } from "./reload-application";
 import { ApplicationUpdateContext } from "./application-update-context";
+import {
+  useMaintenanceCompletionReload,
+  useMaintenancePageLock,
+} from "./maintenance-page-lifecycle";
 
 export const APPLICATION_UPDATE_PENDING_TARGET_KEY = "any2api.application-update-target.v1";
 export const APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 450;
-const COMPLETE_DELAY_MS = 800;
 
 export function ApplicationUpdateProvider({ children }: PropsWithChildren) {
   const [flow, setFlow] = useState<ApplicationUpdateFlow>(initialFlow);
@@ -83,8 +85,8 @@ export function ApplicationUpdateProvider({ children }: PropsWithChildren) {
   }, [beginInstall, flow]);
 
   useUpdatePolling(pollingTarget, setFlow);
-  useLockedPage(flow.kind !== "idle", flow.kind === "running");
-  useCompletionReload(flow);
+  useMaintenancePageLock(flow.kind !== "idle", flow.kind === "running");
+  useMaintenanceCompletionReload(flow.kind === "complete");
 
   const value = useMemo(() => ({
     beginInstall,
@@ -93,7 +95,9 @@ export function ApplicationUpdateProvider({ children }: PropsWithChildren) {
 
   return (
     <ApplicationUpdateContext.Provider value={value}>
-      {children}
+      <ApplicationRestartProvider updateActive={value.active}>
+        {children}
+      </ApplicationRestartProvider>
       {flow.kind !== "idle" ? (
         <ApplicationUpdateOverlay flow={flow} onRetry={retry} onDismiss={dismissOutcome} />
       ) : null}
@@ -208,46 +212,6 @@ function applyStatus(
   }
   setFlow({ kind: "running", targetVersion, accepted: true, status });
   return false;
-}
-
-function useLockedPage(overlayVisible: boolean, warnBeforeUnload: boolean) {
-  useBodyScrollLock(overlayVisible);
-
-  useEffect(() => {
-    if (!overlayVisible) {
-      return;
-    }
-    const applicationRoot = document.getElementById("root");
-    const rootWasInert = applicationRoot?.hasAttribute("inert") ?? false;
-    applicationRoot?.setAttribute("inert", "");
-    return () => {
-      if (!rootWasInert) {
-        applicationRoot?.removeAttribute("inert");
-      }
-    };
-  }, [overlayVisible]);
-
-  useEffect(() => {
-    if (!warnBeforeUnload) {
-      return;
-    }
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [warnBeforeUnload]);
-}
-
-function useCompletionReload(flow: ApplicationUpdateFlow) {
-  useEffect(() => {
-    if (flow.kind !== "complete") {
-      return;
-    }
-    const timer = window.setTimeout(reloadApplication, COMPLETE_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [flow.kind]);
 }
 
 function initialFlow(): ApplicationUpdateFlow {

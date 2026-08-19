@@ -11,7 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use any2api_domain::{ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError};
+use any2api_domain::{
+    ErrorClass, ProtocolOperation, PublicError, RequestSpeedTier, TokenUsage, UpstreamError,
+};
 use any2api_protocol::api::{
     BridgeContinuationState, ProtocolContinuationState, ProtocolExchange, ProtocolRetryDelayBasis,
     SseDecoder, StreamTermination,
@@ -115,6 +117,7 @@ pub(super) struct PendingFrame {
     pub(super) has_content_delta: bool,
     pub(super) termination: StreamTermination,
     pub(super) token_usage: TokenUsage,
+    pub(super) effective_speed_tier: Option<RequestSpeedTier>,
     pub(super) continuation_id: Option<String>,
     pub(super) continuation_state: BridgeContinuationState,
     pub(super) upstream_error: Option<UpstreamError>,

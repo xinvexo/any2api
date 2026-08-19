@@ -71,7 +71,7 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
             <h2 id="overview-resources-title" className="text-sm font-semibold tracking-tight">
               资源状态
             </h2>
-    <p className="mt-0.5 truncate text-xs text-tertiary">ANY2API 与整机资源占用</p>
+            <p className="mt-0.5 truncate text-xs text-tertiary">ANY2API 与整机资源占用</p>
           </div>
         </div>
       </div>
@@ -81,7 +81,78 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
           <OverviewMetricTile key={metric.label} {...metric} />
         ))}
       </div>
+      <MemoryOwnershipDetails ownership={resources?.ownership} />
     </section>
+  );
+}
+
+function MemoryOwnershipDetails({
+  ownership,
+}: {
+  ownership: OverviewResources["ownership"] | undefined;
+}) {
+  const details = [
+    {
+      label: "正文堆内存",
+      value: ownership ? formatResourceBytes(ownership.payloadBuffers.heapCurrentBytes) : "—",
+      note: ownership
+        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.heapPeakBytes)}`
+        : "等待采样",
+    },
+    {
+      label: "正文映射内存",
+      value: ownership ? formatResourceBytes(ownership.payloadBuffers.mappedCurrentBytes) : "—",
+      note: ownership
+        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.mappedPeakBytes)}`
+        : "等待采样",
+    },
+    {
+      label: "HTTP 捕获",
+      value: ownership
+        ? formatResourceBytes(ownership.payloadBuffers.httpBodyCaptureCurrentBytes)
+        : "—",
+      note: ownership
+        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.httpBodyCapturePeakBytes)}`
+        : "等待采样",
+    },
+    {
+      label: "遥测待写",
+      value: ownership ? formatResourceBytes(ownership.telemetry.queuedOwnedBytes) : "—",
+      note: ownership
+        ? `总保留 ${formatResourceBytes(ownership.telemetry.reservedOwnedBytes)}`
+        : "等待采样",
+    },
+    {
+      label: "遥测写入中",
+      value: ownership ? formatResourceBytes(ownership.telemetry.inFlightOwnedBytes) : "—",
+      note: "当前 Writer 批次",
+    },
+    {
+      label: "内存回收阻塞",
+      value: ownership ? ownership.reclamation.blockers.toLocaleString("zh-CN") : "—",
+      note: ownership
+        ? `已完成 ${ownership.reclamation.completedRuns.toLocaleString("zh-CN")} 次 · 最近 ${formatMicros(ownership.reclamation.lastDurationMicros)}`
+        : "等待采样",
+    },
+  ];
+
+  return (
+    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 border-t border-border/70 pt-3 sm:grid-cols-3">
+      {details.map((detail) => (
+        <div key={detail.label} className="min-w-0">
+          <dt className="truncate text-[11px] leading-4 text-tertiary">{detail.label}</dt>
+          <dd className="mt-0.5 truncate text-sm font-semibold tabular-nums text-primary">
+            {detail.value}
+          </dd>
+          <dd
+            className="mt-0.5 truncate text-[10px] leading-4 text-tertiary"
+            title={detail.note}
+          >
+            {detail.note}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -96,4 +167,10 @@ interface ResourceMetric {
 
 function ratioPercent(used: number, total: number) {
   return total > 0 ? (used / total) * 100 : null;
+}
+
+function formatMicros(value: number) {
+  if (value === 0) return "尚无";
+  if (value < 1_000) return `${value.toLocaleString("zh-CN")} µs`;
+  return `${(value / 1_000).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} ms`;
 }

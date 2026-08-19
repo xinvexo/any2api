@@ -6,7 +6,7 @@ use any2api_domain::{
     ProtocolOperation, ProxyKind, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
     RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestQuotaCost,
-    RequestRoutingMode, RequestTelemetryPosition, RequestTransportResolverMode,
+    RequestRoutingMode, RequestSpeedTier, RequestTelemetryPosition, RequestTransportResolverMode,
     RequestTransportTrafficClass, RetrySafety,
 };
 use sqlx::FromRow;
@@ -42,6 +42,8 @@ pub(super) struct RequestLogRow {
     quota_cost_nanos: Option<i64>,
     quota_cost_rate_card: Option<String>,
     quota_service_tier: Option<String>,
+    requested_speed_tier: Option<String>,
+    effective_speed_tier: Option<String>,
     telemetry_process_id: Option<String>,
     telemetry_sequence: Option<i64>,
     is_stream: i64,
@@ -149,6 +151,14 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
             row.quota_cost_nanos,
             row.quota_cost_rate_card,
             row.quota_service_tier,
+        )?,
+        requested_speed_tier: parse_optional_value(
+            row.requested_speed_tier.as_deref(),
+            RequestSpeedTier::parse,
+        )?,
+        effective_speed_tier: parse_optional_value(
+            row.effective_speed_tier.as_deref(),
+            RequestSpeedTier::parse,
         )?,
         is_stream: parse_bool(row.is_stream)?,
     })

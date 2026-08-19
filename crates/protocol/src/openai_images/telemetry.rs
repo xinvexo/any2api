@@ -15,6 +15,7 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
             &["output_tokens"],
             &["cache_read_tokens"],
         ),
+        effective_speed_tier: None,
     }
 }
 
@@ -27,6 +28,7 @@ pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
             &["output_tokens"],
             &["cache_read_tokens"],
         ),
+        effective_speed_tier: None,
     }
 }
 
@@ -49,6 +51,7 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     };
     ProtocolEventTelemetry {
         token_usage,
+        effective_speed_tier: None,
         has_content_delta: false,
         retry_transparent: false,
     }

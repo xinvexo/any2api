@@ -76,6 +76,20 @@ pub enum UpdateErrorKind {
     InstallFailed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+pub enum RestartKind {
+    Manual = 1,
+    Update = 2,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RestartRequestStatus {
+    Accepted,
+    AlreadyRequested,
+    Unsupported,
+}
+
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct UpdateError {
@@ -99,7 +113,7 @@ impl UpdateError {
 }
 
 pub trait RestartRequester: Send + Sync {
-    fn request_restart(&self);
+    fn request_restart(&self, kind: RestartKind) -> RestartRequestStatus;
 }
 
 pub trait UpdateTaskExecutor: Send + Sync {

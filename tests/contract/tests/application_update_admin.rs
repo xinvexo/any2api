@@ -1,9 +1,15 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use any2api_contract_tests::TestApplication;
 use any2api_updater::api::{
-    ApplicationAbout, ApplicationUpdateService, UpdateCheck, UpdateError, UpdateErrorKind,
-    UpdateStatus,
+    ApplicationAbout, ApplicationUpdateService, RestartKind, RestartRequestStatus,
+    RestartRequester, UpdateCheck, UpdateError, UpdateErrorKind, UpdateStatus,
 };
 use async_trait::async_trait;
 use axum::{
@@ -51,6 +57,28 @@ impl ApplicationUpdateService for SuccessfulUpdates {
 }
 
 struct FailingUpdates(UpdateErrorKind);
+
+struct TestRestartRequester {
+    status: RestartRequestStatus,
+    calls: AtomicUsize,
+}
+
+impl TestRestartRequester {
+    fn new(status: RestartRequestStatus) -> Self {
+        Self {
+            status,
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl RestartRequester for TestRestartRequester {
+    fn request_restart(&self, kind: RestartKind) -> RestartRequestStatus {
+        assert_eq!(kind, RestartKind::Manual);
+        self.calls.fetch_add(1, Ordering::AcqRel);
+        self.status
+    }
+}
 
 #[async_trait]
 impl ApplicationUpdateService for FailingUpdates {
@@ -209,13 +237,60 @@ async fn update_errors_map_to_stable_admin_codes() {
     }
 }
 
+#[tokio::test]
+async fn manual_restart_is_protected_accepted_once_and_reports_stable_rejections() {
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let remote = SocketAddr::from(([203, 0, 113, 5], 41000));
+
+    let accepted = Arc::new(TestRestartRequester::new(RestartRequestStatus::Accepted));
+    let (_directory, app) = test_app_with_restart(None, Some(accepted.clone())).await;
+    let (status, _, body) = request(app.clone(), Method::POST, "/api/admin/restart", remote).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "admin_session_required");
+    assert_eq!(accepted.calls.load(Ordering::Acquire), 0);
+
+    let (status, _, body) = request(app, Method::POST, "/api/admin/restart", loopback).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(body, serde_json::json!({ "status": "restarting" }));
+    assert_eq!(accepted.calls.load(Ordering::Acquire), 1);
+
+    let unsupported = Arc::new(TestRestartRequester::new(RestartRequestStatus::Unsupported));
+    let (_directory, app) = test_app_with_restart(None, Some(unsupported)).await;
+    let (status, _, body) = request(app, Method::POST, "/api/admin/restart", loopback).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"]["code"], "restart_unsupported");
+
+    let (_directory, app) = test_app_with_restart(None, None).await;
+    let (status, _, body) = request(app, Method::POST, "/api/admin/restart", loopback).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"]["code"], "restart_unavailable");
+
+    let blocked = Arc::new(TestRestartRequester::new(RestartRequestStatus::Accepted));
+    let (_directory, app) =
+        test_app_with_restart(Some(Arc::new(SuccessfulUpdates)), Some(blocked.clone())).await;
+    let (status, _, body) = request(app, Method::POST, "/api/admin/restart", loopback).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"]["code"], "restart_update_in_progress");
+    assert_eq!(blocked.calls.load(Ordering::Acquire), 0);
+}
+
 async fn test_app(
     updates: Option<Arc<dyn ApplicationUpdateService>>,
+) -> (tempfile::TempDir, Router) {
+    test_app_with_restart(updates, None).await
+}
+
+async fn test_app_with_restart(
+    updates: Option<Arc<dyn ApplicationUpdateService>>,
+    restart: Option<Arc<dyn RestartRequester>>,
 ) -> (tempfile::TempDir, Router) {
     let fixture = TestApplication::new().await;
     let mut state = fixture.state();
     if let Some(updates) = updates {
         state = state.with_application_updates(updates);
+    }
+    if let Some(restart) = restart {
+        state = state.with_restart_requester(restart);
     }
     let (directory, app, _storage) = fixture.into_router_with_state(state);
     (directory, app)

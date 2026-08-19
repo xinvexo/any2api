@@ -12,6 +12,7 @@ use crate::state::AppState;
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/about", get(handlers::about))
+        .route("/restart", post(handlers::restart))
         .route("/update/check", post(handlers::check))
         .route("/update/install", post(handlers::install))
         .route("/update/status", get(handlers::status))

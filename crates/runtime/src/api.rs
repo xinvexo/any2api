@@ -18,7 +18,9 @@ pub use crate::credential::{
     ProviderCredentialTestFailureStage, ProviderCredentialTestOutcome,
     ProviderCredentialTestResult, ProviderCredentialTestService,
 };
-pub use crate::lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
+pub use crate::lifecycle::{
+    ActiveRequestGuard, MemoryReclamationMetrics, ProcessLifecycle, ShutdownPhase,
+};
 pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS, OAuthActivationResult, OAuthDevicePollResult, OAuthError,
     OAuthImportError, OAuthImportFailureKind, OAuthImportResult, OAuthModelCatalogSnapshot,

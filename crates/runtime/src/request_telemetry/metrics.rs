@@ -15,6 +15,9 @@ pub(super) enum TelemetryQueueClass {
 pub struct RequestTelemetryMetrics {
     pub queued_records: usize,
     pub in_flight_records: usize,
+    pub queued_owned_bytes: usize,
+    pub in_flight_owned_bytes: usize,
+    pub reserved_owned_bytes: usize,
     pub dropped_records: u64,
     pub persisted_records: u64,
 }
@@ -175,6 +178,9 @@ impl TelemetryCounters {
         RequestTelemetryMetrics {
             queued_records: self.inner.queued_records.load(Ordering::Acquire),
             in_flight_records: self.inner.in_flight_records.load(Ordering::Acquire),
+            queued_owned_bytes: self.inner.queued_owned_bytes.load(Ordering::Acquire),
+            in_flight_owned_bytes: self.inner.in_flight_owned_bytes.load(Ordering::Acquire),
+            reserved_owned_bytes: self.inner.owned_bytes.load(Ordering::Acquire),
             dropped_records: self.inner.dropped_records.load(Ordering::Relaxed),
             persisted_records: self.inner.persisted_records.load(Ordering::Relaxed),
         }
@@ -249,8 +255,16 @@ mod tests {
         let class = TelemetryQueueClass::Regular;
         assert!(counters.try_reserve(8, 150, 100, class));
         counters.enqueued(1, 100);
+        let queued = counters.snapshot();
+        assert_eq!(queued.queued_owned_bytes, 100);
+        assert_eq!(queued.in_flight_owned_bytes, 0);
+        assert_eq!(queued.reserved_owned_bytes, 100);
         counters.received(1, 100, class);
         assert_eq!(counters.owned_bytes(), (0, 100, 100));
+        let in_flight = counters.snapshot();
+        assert_eq!(in_flight.queued_owned_bytes, 0);
+        assert_eq!(in_flight.in_flight_owned_bytes, 100);
+        assert_eq!(in_flight.reserved_owned_bytes, 100);
         assert!(!counters.try_reserve(8, 150, 51, class));
 
         counters.persisted(1, 100, 0);

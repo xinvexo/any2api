@@ -8,7 +8,7 @@ use any2api_domain::{
     ActiveRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, RequestQuotaCostRate,
-    TokenUsage, bound_error_message,
+    RequestSpeedTier, TokenUsage, bound_error_message,
 };
 
 use super::super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
@@ -45,6 +45,8 @@ pub(super) struct RequestRecorderState {
     pub(super) attempts: Vec<RequestAttempt>,
     pub(super) observation: RequestObservation,
     pub(super) quota_cost_rate: Option<RequestQuotaCostRate>,
+    pub(super) requested_speed_tier: Option<RequestSpeedTier>,
+    pub(super) effective_speed_tier: Option<RequestSpeedTier>,
     pub(super) finished: bool,
 }
 
@@ -90,6 +92,8 @@ impl RequestRecorder {
             proxy_profile_id: None,
             attempt_count: 0,
             is_stream: None,
+            requested_speed_tier: None,
+            effective_speed_tier: None,
         });
         Self {
             inner: Some(Arc::new(RequestRecorderInner {
@@ -150,6 +154,8 @@ impl RequestRecorder {
         let mut state = inner.state.lock().expect("request recorder state");
         state.final_target = Some(target);
         state.quota_cost_rate = None;
+        state.requested_speed_tier = None;
+        state.effective_speed_tier = None;
         drop(state);
         inner.telemetry.update_active_request_attempt(
             inner.request_id,
@@ -159,6 +165,9 @@ impl RequestRecorder {
             target.oauth_account_id,
             target.proxy_id,
         );
+        inner
+            .telemetry
+            .update_active_request_speed_tiers(inner.request_id, None, None);
         AttemptRecorder::new(
             self.clone(),
             inner.request_id,
@@ -197,6 +206,38 @@ impl RequestRecorder {
         if !state.finished {
             state.observation.observe_token_usage(usage);
         }
+    }
+
+    pub(crate) fn observe_requested_speed_tier(&self, tier: Option<RequestSpeedTier>) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if state.finished {
+            return;
+        }
+        state.requested_speed_tier = tier;
+        let effective = state.effective_speed_tier;
+        drop(state);
+        inner
+            .telemetry
+            .update_active_request_speed_tiers(inner.request_id, tier, effective);
+    }
+
+    pub(crate) fn observe_effective_speed_tier(&self, tier: Option<RequestSpeedTier>) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if state.finished || tier.is_none() {
+            return;
+        }
+        state.effective_speed_tier = tier;
+        let requested = state.requested_speed_tier;
+        drop(state);
+        inner
+            .telemetry
+            .update_active_request_speed_tiers(inner.request_id, requested, tier);
     }
 
     pub(crate) fn observe_first_token(&self) {

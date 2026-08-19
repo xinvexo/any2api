@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use any2api_memory_reclaimer::reclaim_process_memory;
 use any2api_runtime::api::ProcessLifecycle;
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{Instant, sleep_until};
 
-const RECLAIM_INTERVAL: Duration = Duration::from_secs(30);
+const RECLAIM_COOLDOWN: Duration = Duration::from_secs(30);
 
 pub(super) fn start(lifecycle: &ProcessLifecycle) {
     let worker_lifecycle = lifecycle.clone();
@@ -12,24 +12,33 @@ pub(super) fn start(lifecycle: &ProcessLifecycle) {
 }
 
 async fn run(lifecycle: ProcessLifecycle) {
-    let mut ticker = interval(RECLAIM_INTERVAL);
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    ticker.tick().await;
     let mut state = ReclaimState::default();
+    let mut next_reclaim_at = Instant::now();
 
     loop {
         tokio::select! {
             () = lifecycle.draining() => break,
-            _ = ticker.tick() => {
-                if !state.should_reclaim(
-                    lifecycle.activity_epoch(),
-                    lifecycle.memory_reclamation_blockers(),
-                ) {
-                    continue;
-                }
-                if let Err(error) = lifecycle.spawn_blocking(reclaim_process_memory).await {
-                    tracing::debug!(%error, "process memory reclamation task did not complete");
-                }
+            () = lifecycle.memory_reclamation_requested() => {}
+        }
+        tokio::select! {
+            () = lifecycle.draining() => break,
+            () = sleep_until(next_reclaim_at) => {}
+        }
+        let Some(activity_epoch) = state.pending_activity(
+            lifecycle.activity_epoch(),
+            lifecycle.memory_reclamation_blockers(),
+        ) else {
+            continue;
+        };
+        let started = Instant::now();
+        match lifecycle.spawn_blocking(reclaim_process_memory).await {
+            Ok(()) => {
+                lifecycle.record_memory_reclamation(started.elapsed());
+                state.record_reclaimed(activity_epoch);
+                next_reclaim_at = Instant::now() + RECLAIM_COOLDOWN;
+            }
+            Err(error) => {
+                tracing::debug!(%error, "process memory reclamation task did not complete");
             }
         }
     }
@@ -41,12 +50,15 @@ struct ReclaimState {
 }
 
 impl ReclaimState {
-    fn should_reclaim(&mut self, activity_epoch: u64, reclamation_blockers: usize) -> bool {
+    fn pending_activity(&self, activity_epoch: u64, reclamation_blockers: usize) -> Option<u64> {
         if reclamation_blockers != 0 || activity_epoch == self.last_reclaimed_activity {
-            return false;
+            return None;
         }
+        Some(activity_epoch)
+    }
+
+    fn record_reclaimed(&mut self, activity_epoch: u64) {
         self.last_reclaimed_activity = activity_epoch;
-        true
     }
 }
 
@@ -55,12 +67,13 @@ mod tests {
     use super::ReclaimState;
 
     #[test]
-    fn reclaims_each_activity_epoch_once_without_reclamation_blockers() {
+    fn exposes_each_activity_epoch_once_without_reclamation_blockers() {
         let mut state = ReclaimState::default();
-        assert!(!state.should_reclaim(0, 0));
-        assert!(!state.should_reclaim(1, 1));
-        assert!(state.should_reclaim(1, 0));
-        assert!(!state.should_reclaim(1, 0));
-        assert!(state.should_reclaim(2, 0));
+        assert_eq!(state.pending_activity(0, 0), None);
+        assert_eq!(state.pending_activity(1, 1), None);
+        assert_eq!(state.pending_activity(1, 0), Some(1));
+        state.record_reclaimed(1);
+        assert_eq!(state.pending_activity(1, 0), None);
+        assert_eq!(state.pending_activity(2, 0), Some(2));
     }
 }

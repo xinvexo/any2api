@@ -46,6 +46,8 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(screen.getByText("ANY2API 内存")).toBeInTheDocument();
   expect(screen.getByText("ANY2API CPU")).toBeInTheDocument();
   expect(screen.getByText("整机内存")).toBeInTheDocument();
+  expect(screen.getByText("正文映射内存")).toBeInTheDocument();
+  expect(screen.getByText("内存回收阻塞")).toBeInTheDocument();
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
   expect(screen.getByText("账号与密钥")).toBeInTheDocument();
@@ -155,6 +157,22 @@ interface ResourcesQuery {
     sampledAtMs: number;
     process: { residentMemoryBytes: number; cpuUsagePercent: number };
     system: { usedMemoryBytes: number; totalMemoryBytes: number; cpuUsagePercent: number };
+    ownership: {
+      payloadBuffers: {
+        heapCurrentBytes: number;
+        heapPeakBytes: number;
+        mappedCurrentBytes: number;
+        mappedPeakBytes: number;
+        httpBodyCaptureCurrentBytes: number;
+        httpBodyCapturePeakBytes: number;
+      };
+      telemetry: {
+        queuedOwnedBytes: number;
+        inFlightOwnedBytes: number;
+        reservedOwnedBytes: number;
+      };
+      reclamation: { blockers: number; completedRuns: number; lastDurationMicros: number };
+    };
   };
   isError: boolean;
   isFetching: boolean;
@@ -204,6 +222,22 @@ function resourcesQuery(refetch: () => Promise<{ isSuccess: boolean }>): Resourc
         usedMemoryBytes: 8 * 1024 ** 3,
         totalMemoryBytes: 16 * 1024 ** 3,
         cpuUsagePercent: 31.7,
+      },
+      ownership: {
+        payloadBuffers: {
+          heapCurrentBytes: 1 * 1024 ** 2,
+          heapPeakBytes: 2 * 1024 ** 2,
+          mappedCurrentBytes: 8 * 1024 ** 2,
+          mappedPeakBytes: 16 * 1024 ** 2,
+          httpBodyCaptureCurrentBytes: 512 * 1024,
+          httpBodyCapturePeakBytes: 1 * 1024 ** 2,
+        },
+        telemetry: {
+          queuedOwnedBytes: 256 * 1024,
+          inFlightOwnedBytes: 128 * 1024,
+          reservedOwnedBytes: 384 * 1024,
+        },
+        reclamation: { blockers: 0, completedRuns: 12, lastDurationMicros: 725 },
       },
     },
     isError: false,

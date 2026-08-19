@@ -1,7 +1,8 @@
 use std::{borrow::Cow, fmt};
 
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding, TokenUsage,
+    ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding, RequestSpeedTier,
+    TokenUsage,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -100,6 +101,7 @@ pub struct EncodedUpstreamRequest {
     pub uri: Uri,
     pub headers: HeaderMap,
     pub body: Bytes,
+    pub requested_speed_tier: Option<RequestSpeedTier>,
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -132,6 +134,7 @@ pub enum SseEventPayload {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProtocolEventTelemetry {
     pub token_usage: TokenUsage,
+    pub effective_speed_tier: Option<RequestSpeedTier>,
     pub has_content_delta: bool,
     /// Lifecycle-only events may remain buffered while Runtime waits for the
     /// first semantic event or an explicit pre-content rejection.
@@ -432,6 +435,7 @@ impl fmt::Debug for EncodedUpstreamRequest {
             .field("uri", &self.uri)
             .field("header_count", &self.headers.len())
             .field("body_bytes", &self.body.len())
+            .field("requested_speed_tier", &self.requested_speed_tier)
             .finish()
     }
 }

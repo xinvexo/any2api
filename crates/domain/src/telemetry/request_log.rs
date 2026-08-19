@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolDialect,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RequestQuotaCost,
-    RetrySafety, RouteTargetId,
+    RequestSpeedTier, RetrySafety, RouteTargetId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,6 +166,8 @@ pub struct ActiveRequestLog {
     pub attempt_count: u32,
     /// Unknown until protocol decoding succeeds.
     pub is_stream: Option<bool>,
+    pub requested_speed_tier: Option<RequestSpeedTier>,
+    pub effective_speed_tier: Option<RequestSpeedTier>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,6 +200,8 @@ pub struct RequestLog {
     pub cache_creation_tokens: Option<u64>,
     pub quota_cost: Option<RequestQuotaCost>,
     pub is_stream: bool,
+    pub requested_speed_tier: Option<RequestSpeedTier>,
+    pub effective_speed_tier: Option<RequestSpeedTier>,
 }
 
 /// Bounded thinking/reasoning level text for request logs.

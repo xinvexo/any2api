@@ -1,11 +1,11 @@
 use std::sync::LazyLock;
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation, QuotaServiceTier};
+use any2api_domain::{ProtocolDialect, ProtocolOperation};
 use bytes::Bytes;
 use http::HeaderMap;
 use serde_json::{Value, json};
 
-use super::{prepare, quota_service_tier};
+use super::prepare;
 use crate::api::ProviderRequestContext;
 
 static CLIENT_HEADERS: LazyLock<HeaderMap> = LazyLock::new(HeaderMap::new);
@@ -115,25 +115,6 @@ fn preserves_priority_and_non_system_content_without_copying() {
 
     assert_eq!(output.as_ptr(), body.as_ptr());
     assert_eq!(output, body);
-    assert_eq!(quota_service_tier(&output), Some(QuotaServiceTier::Fast));
-}
-
-#[test]
-fn quota_tier_uses_the_final_normalized_oauth_wire() {
-    let output = prepare(
-        context(true, ProtocolOperation::Responses),
-        Bytes::from_static(br#"{"model":"gpt-5.6-sol","service_tier":"standard","input":"hello"}"#),
-    )
-    .expect("normalized standard request");
-
-    assert_eq!(
-        quota_service_tier(&output),
-        Some(QuotaServiceTier::Standard)
-    );
-    assert_eq!(
-        quota_service_tier(br#"{"service_tier":"future-tier"}"#),
-        None
-    );
 }
 
 #[test]

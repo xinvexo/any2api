@@ -2,7 +2,7 @@ use std::{io::Write, time::Duration};
 
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode, QuotaCostUnit,
-    RequestQuotaCostRate,
+    RequestQuotaCostRate, RequestSpeedTier,
 };
 use any2api_payload_buffer::PayloadBuffer;
 use any2api_protocol::api::{
@@ -37,6 +37,7 @@ struct BuiltRequest<'a> {
     exchange: ProtocolExchange,
     request: TransportRequest,
     quota_cost_rate: Option<RequestQuotaCostRate>,
+    requested_speed_tier: Option<RequestSpeedTier>,
 }
 
 pub(super) struct AttemptHeaderPolicy {
@@ -95,6 +96,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         exchange,
         request,
         quota_cost_rate,
+        requested_speed_tier,
     } = match result {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -110,6 +112,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         }
     };
     attempt_recorder.observe_quota_cost_rate(quota_cost_rate);
+    attempt_recorder.observe_requested_speed_tier(requested_speed_tier);
     let SelectedCandidate { permit, health, .. } = selected;
     Ok(PreparedAttempt {
         driver,
@@ -196,8 +199,10 @@ fn build_request<'a>(
     encoded.body = driver
         .prepare_request_body(request_context, encoded.body)
         .map_err(provider_request_error)?;
+    let requested_speed_tier =
+        driver.request_speed_tier(request_context, encoded.requested_speed_tier);
     let quota_cost_rate = driver
-        .oauth_quota_service_tier(request_context, &encoded.body)
+        .oauth_quota_service_tier(request_context, requested_speed_tier)
         .filter(|_| driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
         .and_then(|tier| {
             policy
@@ -234,6 +239,7 @@ fn build_request<'a>(
         upstream_operation,
         exchange,
         quota_cost_rate,
+        requested_speed_tier,
         request: TransportRequest {
             method: encoded.method,
             uri: encoded.uri,

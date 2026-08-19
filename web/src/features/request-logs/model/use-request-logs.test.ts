@@ -152,6 +152,8 @@ function completed(requestId: string, startedAtMs: number): RequestLog {
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
     isStream: true,
+    requestedSpeedTier: null,
+    effectiveSpeedTier: null,
   };
 }
 
@@ -177,5 +179,7 @@ function active(requestId: string, startedAtMs: number): ActiveRequestLog {
     proxyProfileLabel: null,
     attemptCount: 0,
     isStream: true,
+    requestedSpeedTier: null,
+    effectiveSpeedTier: null,
   };
 }

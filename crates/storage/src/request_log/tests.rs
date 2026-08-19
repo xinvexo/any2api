@@ -3,7 +3,7 @@ use any2api_domain::{
     GatewayApiKeyId, MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation,
     ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptFailureScope,
     RequestAttemptOutcome, RequestAttemptRetryDecision, RequestAttemptStreamTiming,
-    RequestAttemptTransport, RequestId, RequestLog, RequestRoutingMode,
+    RequestAttemptTransport, RequestId, RequestLog, RequestRoutingMode, RequestSpeedTier,
     RequestTransportResolverMode, RequestTransportTrafficClass, RetrySafety, RouteTargetId,
 };
 use tempfile::tempdir;
@@ -127,6 +127,14 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(loaded.request.input_tokens, Some(120));
     assert_eq!(loaded.request.output_tokens, Some(45));
     assert_eq!(loaded.request.cache_read_tokens, Some(30));
+    assert_eq!(
+        loaded.request.requested_speed_tier,
+        Some(RequestSpeedTier::Fast)
+    );
+    assert_eq!(
+        loaded.request.effective_speed_tier,
+        Some(RequestSpeedTier::Fast)
+    );
 }
 
 #[tokio::test]
@@ -411,6 +419,8 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             cache_read_tokens: Some(30),
             cache_creation_tokens: None,
             quota_cost: None,
+            requested_speed_tier: Some(RequestSpeedTier::Fast),
+            effective_speed_tier: Some(RequestSpeedTier::Fast),
             is_stream: true,
         },
         attempts,

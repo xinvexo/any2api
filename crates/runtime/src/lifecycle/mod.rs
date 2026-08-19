@@ -1,3 +1,3 @@
 mod process;
 
-pub use process::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
+pub use process::{ActiveRequestGuard, MemoryReclamationMetrics, ProcessLifecycle, ShutdownPhase};

@@ -55,6 +55,8 @@ impl RequestRecorderInner {
                     cache_read_tokens: token_usage.cache_read_tokens(),
                     cache_creation_tokens: token_usage.cache_creation_tokens(),
                     quota_cost,
+                    requested_speed_tier: state.requested_speed_tier,
+                    effective_speed_tier: state.effective_speed_tier,
                     is_stream: state.is_stream,
                 },
                 attempts,

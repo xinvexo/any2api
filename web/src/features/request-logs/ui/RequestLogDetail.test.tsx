@@ -236,6 +236,8 @@ function request(overrides: Record<string, unknown> = {}) {
     cache_read_tokens: 30,
     cache_creation_tokens: null,
     is_stream: true,
+    requested_speed_tier: null,
+    effective_speed_tier: null,
     ...overrides,
   };
 }

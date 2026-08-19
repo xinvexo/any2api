@@ -1,7 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, io::Write};
 
 use any2api_domain::ProtocolOperation;
-use any2api_domain::QuotaServiceTier;
 use any2api_payload_buffer::PayloadBuffer;
 use bytes::Bytes;
 use serde::Deserialize;
@@ -101,22 +100,6 @@ fn normalize_responses(body: Bytes) -> Result<Bytes, ProviderError> {
 
 fn raw_object(body: &[u8]) -> Result<BTreeMap<String, &RawValue>, ProviderError> {
     serde_json::from_slice(body).map_err(|_| invalid_request())
-}
-
-pub(crate) fn quota_service_tier(body: &[u8]) -> Option<QuotaServiceTier> {
-    let fields = raw_object(body).ok()?;
-    match fields.get("service_tier") {
-        None => Some(QuotaServiceTier::Standard),
-        Some(value)
-            if serde_json::from_str::<Cow<'_, str>>(value.get())
-                .ok()?
-                .as_ref()
-                == "priority" =>
-        {
-            Some(QuotaServiceTier::Fast)
-        }
-        Some(_) => None,
-    }
 }
 
 fn should_remove(name: &str, value: &RawValue) -> bool {

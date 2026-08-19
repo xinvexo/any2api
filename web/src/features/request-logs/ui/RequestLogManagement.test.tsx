@@ -41,6 +41,9 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
   expect(screen.getByRole("cell", { name: "203.0.113.8" })).toBeInTheDocument();
   expect(within(screen.getByRole("list", { name: "请求日志列表" })).getByText("claude-test")).toBeInTheDocument();
+  const mobileList = screen.getByRole("list", { name: "请求日志列表" });
+  expect(within(mobileList).getByLabelText("请求模式：流式")).toHaveTextContent("流");
+  expect(within(mobileList).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
@@ -222,7 +225,9 @@ function requestLogs(): RequestLogList {
         proxyProfileId: null,
         proxyProfileLabel: null,
         attemptCount: 0,
-        isStream: true,
+        isStream: null,
+        requestedSpeedTier: "fast",
+        effectiveSpeedTier: null,
       },
     ],
     activeTotal: 1,
@@ -256,6 +261,8 @@ function requestLogs(): RequestLogList {
         cacheReadTokens: 100,
         cacheCreationTokens: null,
         isStream: true,
+        requestedSpeedTier: "fast",
+        effectiveSpeedTier: "fast",
       },
     ],
     nextCursor: null,

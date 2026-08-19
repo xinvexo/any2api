@@ -87,6 +87,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {
     ProtocolEventTelemetry {
         token_usage: TokenUsage::default(),
+        effective_speed_tier: None,
         has_content_delta: true,
         retry_transparent: false,
     }

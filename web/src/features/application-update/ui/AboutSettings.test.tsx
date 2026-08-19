@@ -7,6 +7,10 @@ import {
   APPLICATION_UPDATE_PENDING_TARGET_KEY,
   ApplicationUpdateProvider,
 } from "../model/ApplicationUpdateProvider";
+import {
+  APPLICATION_RESTART_CONFIRMATION_TIMEOUT_MS,
+  APPLICATION_RESTART_PENDING_INSTANCE_KEY,
+} from "../model/application-restart-flow";
 import { AboutSettings } from "./AboutSettings";
 
 const { reloadApplicationMock } = vi.hoisted(() => ({
@@ -47,7 +51,7 @@ test("locks the page, shows progress, and reloads after the target build is heal
         : updateStatus({ phase, target_version: "1.1.0" }));
     }
     if (path.endsWith("/api/health")) {
-      return jsonResponse({ application_version: healthVersion });
+      return jsonResponse(health(healthVersion));
     }
     return jsonResponse(about());
   });
@@ -113,7 +117,7 @@ test.each([
       }));
     }
     if (path.endsWith("/api/health")) {
-      return jsonResponse({ application_version: "1.0.0" });
+      return jsonResponse(health("1.0.0"));
     }
     return jsonResponse(about());
   });
@@ -263,7 +267,7 @@ test("treats three idle observations as a definitive stopped update", async () =
       return jsonResponse(updateStatus({ phase: "idle" }));
     }
     if (path.endsWith("/api/health")) {
-      return jsonResponse({ application_version: "1.0.0" });
+      return jsonResponse(health("1.0.0"));
     }
     return jsonResponse(about());
   });
@@ -276,6 +280,117 @@ test("treats three idle observations as a definitive stopped update", async () =
   expect(screen.getByText("更新任务已中止，当前版本未发生变化。")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重新尝试" })).toBeInTheDocument();
   expect(window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY)).toBeNull();
+});
+
+test("requires confirmation before requesting a manual restart", async () => {
+  let healthRequests = 0;
+  let restartRequests = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/api/health")) {
+      healthRequests += 1;
+      return jsonResponse(health("1.0.0"));
+    }
+    if (path.endsWith("/api/admin/restart") && init?.method === "POST") {
+      restartRequests += 1;
+      return jsonResponse({ status: "restarting" }, 202);
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  fireEvent.click(await screen.findByRole("button", { name: "重启服务" }));
+  expect(await screen.findByRole("alertdialog", { name: "重启 ANY2API？" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole("alertdialog", { name: "重启 ANY2API？" })).not.toBeInTheDocument();
+  });
+  expect(healthRequests).toBe(0);
+  expect(restartRequests).toBe(0);
+});
+
+test.each([
+  { name: "returns its acknowledgement", loseAcknowledgement: false },
+  { name: "restarts before its acknowledgement reaches the browser", loseAcknowledgement: true },
+])("waits for a new process instance when the restart request $name", async ({
+  loseAcknowledgement,
+}) => {
+  let instanceId = INSTANCE_ONE;
+  let restartRequests = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/api/health")) {
+      return jsonResponse(health("1.0.0", instanceId));
+    }
+    if (path.endsWith("/api/admin/restart") && init?.method === "POST") {
+      restartRequests += 1;
+      if (loseAcknowledgement) {
+        throw new TypeError("connection closed during restart");
+      }
+      return jsonResponse({ status: "restarting" }, 202);
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  fireEvent.click(await screen.findByRole("button", { name: "重启服务" }));
+  fireEvent.click(await screen.findByRole("button", { name: "重启" }));
+
+  expect(await screen.findByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+  expect(restartRequests).toBe(1);
+  expect(window.sessionStorage.getItem(APPLICATION_RESTART_PENDING_INSTANCE_KEY)).toBe(
+    INSTANCE_ONE,
+  );
+  expect(document.getElementById("root")).toHaveAttribute("inert");
+  expect(screen.queryByRole("dialog", { name: "重启完成" })).not.toBeInTheDocument();
+
+  instanceId = INSTANCE_TWO;
+  expect(
+    await screen.findByRole("dialog", { name: "重启完成" }, { timeout: 2_000 }),
+  ).toBeInTheDocument();
+  expect(window.sessionStorage.getItem(APPLICATION_RESTART_PENDING_INSTANCE_KEY)).toBeNull();
+  expect(restartRequests).toBe(1);
+  await waitFor(() => expect(reloadApplicationMock).toHaveBeenCalledOnce(), { timeout: 2_000 });
+});
+
+test("restores an accepted restart and offers bounded recovery without submitting it again", async () => {
+  vi.useFakeTimers();
+  const startedAt = new Date("2026-08-19T00:00:00Z");
+  vi.setSystemTime(startedAt);
+  window.sessionStorage.setItem(APPLICATION_RESTART_PENDING_INSTANCE_KEY, INSTANCE_ONE);
+  let restartRequests = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/api/health")) {
+      return jsonResponse(health("1.0.0", INSTANCE_ONE));
+    }
+    if (path.endsWith("/api/admin/restart") && init?.method === "POST") {
+      restartRequests += 1;
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  expect(screen.getByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  vi.setSystemTime(startedAt.getTime() + APPLICATION_RESTART_CONFIRMATION_TIMEOUT_MS);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+
+  expect(screen.getByRole("dialog", { name: "无法确认重启结果" })).toBeInTheDocument();
+  expect(screen.getByText(/12 分钟未能确认新的服务实例/)).toBeInTheDocument();
+  expect(restartRequests).toBe(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "继续等待" }));
+  expect(screen.getByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+  expect(restartRequests).toBe(0);
+  expect(window.sessionStorage.getItem(APPLICATION_RESTART_PENDING_INSTANCE_KEY)).toBe(
+    INSTANCE_ONE,
+  );
 });
 
 function renderAbout() {
@@ -299,6 +414,17 @@ function about() {
   return {
     current_version: "1.0.0",
     repository_url: "https://github.com/xinvexo/any2api",
+  };
+}
+
+const INSTANCE_ONE = "550e8400-e29b-41d4-a716-446655440000";
+const INSTANCE_TWO = "550e8400-e29b-41d4-a716-446655440001";
+
+function health(version: string, instanceId = INSTANCE_ONE) {
+  return {
+    status: "ok",
+    application_version: version,
+    instance_id: instanceId,
   };
 }
 

@@ -10,9 +10,9 @@ use tempfile::tempdir;
 
 use crate::{
     api::{
-        ApplicationUpdateService, RestartRequester, UpdateBlockingFuture, UpdateBlockingTask,
-        UpdateCommitTask, UpdateError, UpdateErrorKind, UpdateStatus, UpdateTask,
-        UpdateTaskExecutor,
+        ApplicationUpdateService, RestartKind, RestartRequestStatus, RestartRequester,
+        UpdateBlockingFuture, UpdateBlockingTask, UpdateCommitTask, UpdateError, UpdateErrorKind,
+        UpdateStatus, UpdateTask, UpdateTaskExecutor,
     },
     service::GitHubReleaseUpdater,
 };
@@ -92,8 +92,10 @@ impl UpdateTaskExecutor for CapturingTaskExecutor {
 struct CountingRestartRequester(AtomicUsize);
 
 impl RestartRequester for CountingRestartRequester {
-    fn request_restart(&self) {
+    fn request_restart(&self, kind: RestartKind) -> RestartRequestStatus {
+        assert_eq!(kind, RestartKind::Update);
         self.0.fetch_add(1, Ordering::AcqRel);
+        RestartRequestStatus::Accepted
     }
 }
 

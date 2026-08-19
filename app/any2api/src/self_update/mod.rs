@@ -1,9 +1,16 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, Ordering},
+};
+
 use any2api_runtime::api::{ProcessLifecycle, ShutdownPhase};
 use any2api_updater::api::{
-    RestartRequester, UpdateBlockingFuture, UpdateBlockingTask, UpdateCommitTask, UpdateError,
-    UpdateErrorKind, UpdateTask, UpdateTaskExecutor,
+    RestartKind, RestartRequestStatus, RestartRequester, UpdateBlockingFuture, UpdateBlockingTask,
+    UpdateCommitTask, UpdateError, UpdateErrorKind, UpdateTask, UpdateTaskExecutor,
 };
 use tokio_util::sync::CancellationToken;
+
+const NO_RESTART: u8 = 0;
 
 #[derive(Clone)]
 pub(crate) struct LifecycleUpdateTaskExecutor {
@@ -56,28 +63,56 @@ impl UpdateTaskExecutor for LifecycleUpdateTaskExecutor {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct RestartSignal {
+    inner: Arc<RestartSignalInner>,
+}
+
+struct RestartSignalInner {
     token: CancellationToken,
+    kind: AtomicU8,
+    manual_supported: bool,
 }
 
 impl RestartSignal {
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub(crate) fn new(manual_supported: bool) -> Self {
+        Self {
+            inner: Arc::new(RestartSignalInner {
+                token: CancellationToken::new(),
+                kind: AtomicU8::new(NO_RESTART),
+                manual_supported,
+            }),
+        }
     }
 
     pub(crate) async fn wait(&self) {
-        self.token.cancelled().await;
+        self.inner.token.cancelled().await;
     }
 
-    pub(crate) fn requested(&self) -> bool {
-        self.token.is_cancelled()
+    pub(crate) fn kind(&self) -> Option<RestartKind> {
+        match self.inner.kind.load(Ordering::Acquire) {
+            NO_RESTART => None,
+            value if value == RestartKind::Manual as u8 => Some(RestartKind::Manual),
+            value if value == RestartKind::Update as u8 => Some(RestartKind::Update),
+            _ => unreachable!("restart kind is internally bounded"),
+        }
     }
 }
 
 impl RestartRequester for RestartSignal {
-    fn request_restart(&self) {
-        self.token.cancel();
+    fn request_restart(&self, kind: RestartKind) -> RestartRequestStatus {
+        if kind == RestartKind::Manual && !self.inner.manual_supported {
+            return RestartRequestStatus::Unsupported;
+        }
+
+        let requested = kind as u8;
+        let previous = self.inner.kind.fetch_max(requested, Ordering::AcqRel);
+        self.inner.token.cancel();
+        if previous < requested {
+            RestartRequestStatus::Accepted
+        } else {
+            RestartRequestStatus::AlreadyRequested
+        }
     }
 }
 

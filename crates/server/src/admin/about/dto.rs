@@ -4,6 +4,19 @@ use serde::Serialize;
 use super::error::stable_error_code;
 
 #[derive(Debug, Serialize)]
+pub(crate) struct RestartResponse {
+    status: &'static str,
+}
+
+impl RestartResponse {
+    pub(crate) const fn restarting() -> Self {
+        Self {
+            status: "restarting",
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct AboutResponse {
     current_version: String,
     repository_url: String,

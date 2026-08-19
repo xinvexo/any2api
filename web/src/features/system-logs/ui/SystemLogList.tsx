@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import type { SystemLog } from "../api/system-log-contracts";
 import {
@@ -40,8 +40,6 @@ export function SystemLogList({
   onLoadMore,
   entryAnimations,
 }: SystemLogListProps) {
-  const mobileTopRef = useRef<HTMLDivElement>(null);
-  const previousFollowingRef = useRef(followingLatest);
   const handleMobileLatest = useCallback(
     (visible: boolean) => {
       if (isMobileViewport()) {
@@ -54,21 +52,9 @@ export function SystemLogList({
     (visible: boolean) => { if (visible) onLoadMore(); },
     [onLoadMore],
   );
-  useEffect(() => {
-    if (
-      followingLatest &&
-      !previousFollowingRef.current &&
-      isMobileViewport()
-    ) {
-      mobileTopRef.current?.scrollIntoView?.({ block: "start" });
-    }
-    previousFollowingRef.current = followingLatest;
-  }, [followingLatest]);
-
   return (
     <>
       <div
-        ref={mobileTopRef}
         className="management-scroll-viewport space-y-2 md:hidden"
       >
         <IntersectionSentinel onVisibilityChange={handleMobileLatest} />

@@ -4,7 +4,7 @@ use any2api_domain::ProtocolOperation;
 use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use bytes::Bytes;
 use serde::{
-    Deserialize, Deserializer,
+    Deserializer,
     de::{DeserializeOwned, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
 };
 use serde_json::{Value, value::RawValue};
@@ -15,9 +15,11 @@ use crate::ProtocolError;
 #[derive(Clone)]
 pub struct RawJsonPayload {
     body: Bytes,
-    fields: BTreeMap<String, Range<usize>>,
+    fields: RawFields,
     has_duplicate_fields: bool,
 }
+
+type RawFields = Vec<(String, Range<usize>)>;
 
 impl RawJsonPayload {
     pub(crate) fn parse(body: Bytes) -> Result<Self, ProtocolError> {
@@ -31,30 +33,25 @@ impl RawJsonPayload {
                 "request body must be a JSON object".into(),
             ));
         }
-        let borrowed = borrowed_object_entries(&body).map_err(|_| invalid_json())?;
-        let base = body.as_ptr() as usize;
-        let end = base.saturating_add(body.len());
-        let mut fields = BTreeMap::new();
-        let mut has_duplicate_fields = false;
-        for (name, value) in borrowed {
-            let start = value.get().as_ptr() as usize;
-            let value_end = start.saturating_add(value.get().len());
-            if start < base || value_end > end {
-                return Err(invalid_json());
+        let mut fields = raw_object_fields(&body).map_err(|_| invalid_json())?;
+        fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let field_count = fields.len();
+        fields.dedup_by(|later, earlier| {
+            if later.0 != earlier.0 {
+                return false;
             }
-            has_duplicate_fields |= fields
-                .insert(name, (start - base)..(value_end - base))
-                .is_some();
-        }
+            earlier.1 = later.1.clone();
+            true
+        });
         Ok(Self {
             body,
+            has_duplicate_fields: fields.len() != field_count,
             fields,
-            has_duplicate_fields,
         })
     }
 
     pub(crate) fn field(&self, name: &str) -> Option<&[u8]> {
-        self.fields.get(name).map(|range| &self.body[range.clone()])
+        field_range(&self.fields, name).map(|range| &self.body[range.clone()])
     }
 
     pub(crate) fn parse_field<T: DeserializeOwned>(
@@ -74,7 +71,7 @@ impl RawJsonPayload {
             .transpose()
             .map_err(|_| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?
             .is_some_and(|model| model == upstream_model);
-        let removes_stream = !operation.allows_stream() && self.fields.contains_key("stream");
+        let removes_stream = !operation.allows_stream() && contains_field(&self.fields, "stream");
         if model_matches && !removes_stream && !self.has_duplicate_fields {
             return Ok(self.body.clone());
         }
@@ -107,7 +104,7 @@ impl RawJsonPayload {
     where
         F: FnOnce(&[u8], &mut PayloadBuffer) -> Result<(), ProtocolError>,
     {
-        if !self.fields.contains_key(field) {
+        if !contains_field(&self.fields, field) {
             return Ok(());
         }
 
@@ -136,17 +133,17 @@ impl fmt::Debug for RawJsonPayload {
 
 fn rebuild_raw_field<F>(
     body: &Bytes,
-    fields: &BTreeMap<String, Range<usize>>,
+    fields: &RawFields,
     field: &str,
     rewrite: F,
-) -> Result<(Bytes, BTreeMap<String, Range<usize>>), ProtocolError>
+) -> Result<(Bytes, RawFields), ProtocolError>
 where
     F: FnOnce(&[u8], &mut PayloadBuffer) -> Result<(), ProtocolError>,
 {
     let mut encoded = output_buffer(body.len())?;
     encoded.extend_from_slice(b"{").map_err(buffer_error)?;
     let mut first = true;
-    let mut rewritten_fields = BTreeMap::new();
+    let mut rewritten_fields = Vec::with_capacity(fields.len());
     let mut rewrite = Some(rewrite);
     for (name, range) in fields {
         write_field_prefix(&mut encoded, &mut first, name)?;
@@ -159,35 +156,62 @@ where
                 .extend_from_slice(&body[range.clone()])
                 .map_err(buffer_error)?;
         }
-        rewritten_fields.insert(name.clone(), start..encoded.len());
+        rewritten_fields.push((name.clone(), start..encoded.len()));
     }
     encoded.extend_from_slice(b"}").map_err(buffer_error)?;
     Ok((encoded.freeze().into_bytes(), rewritten_fields))
+}
+
+fn field_range<'a>(fields: &'a RawFields, name: &str) -> Option<&'a Range<usize>> {
+    fields
+        .binary_search_by(|(field, _)| field.as_str().cmp(name))
+        .ok()
+        .map(|index| &fields[index].1)
+}
+
+fn contains_field(fields: &RawFields, name: &str) -> bool {
+    field_range(fields, name).is_some()
 }
 
 pub(crate) fn borrowed_object(bytes: &[u8]) -> serde_json::Result<BTreeMap<String, &RawValue>> {
     serde_json::from_slice(bytes)
 }
 
-fn borrowed_object_entries(bytes: &[u8]) -> serde_json::Result<Vec<(String, &RawValue)>> {
-    serde_json::from_slice(bytes).map(|entries: RawObjectEntries<'_>| entries.0)
+fn raw_object_fields(bytes: &[u8]) -> serde_json::Result<RawFields> {
+    let base = bytes.as_ptr() as usize;
+    let end = base.saturating_add(bytes.len());
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    let fields = RawObjectFieldsSeed { base, end }.deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(fields)
 }
 
-struct RawObjectEntries<'a>(Vec<(String, &'a RawValue)>);
+struct RawObjectFieldsSeed {
+    base: usize,
+    end: usize,
+}
 
-impl<'de> Deserialize<'de> for RawObjectEntries<'de> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+impl<'de> DeserializeSeed<'de> for RawObjectFieldsSeed {
+    type Value = RawFields;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_map(RawObjectEntriesVisitor)
+        deserializer.deserialize_map(RawObjectFieldsVisitor {
+            base: self.base,
+            end: self.end,
+        })
     }
 }
 
-struct RawObjectEntriesVisitor;
+struct RawObjectFieldsVisitor {
+    base: usize,
+    end: usize,
+}
 
-impl<'de> Visitor<'de> for RawObjectEntriesVisitor {
-    type Value = RawObjectEntries<'de>;
+impl<'de> Visitor<'de> for RawObjectFieldsVisitor {
+    type Value = RawFields;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a JSON object")
@@ -197,11 +221,18 @@ impl<'de> Visitor<'de> for RawObjectEntriesVisitor {
     where
         A: MapAccess<'de>,
     {
-        let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+        let mut fields = Vec::with_capacity(map.size_hint().unwrap_or(0));
         while let Some((name, value)) = map.next_entry::<String, &'de RawValue>()? {
-            entries.push((name, value));
+            let start = value.get().as_ptr() as usize;
+            let value_end = start.saturating_add(value.get().len());
+            if start < self.base || value_end > self.end {
+                return Err(serde::de::Error::custom(
+                    "raw JSON value is outside its body",
+                ));
+            }
+            fields.push((name, (start - self.base)..(value_end - self.base)));
         }
-        Ok(RawObjectEntries(entries))
+        Ok(fields)
     }
 }
 

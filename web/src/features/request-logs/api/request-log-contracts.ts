@@ -33,6 +33,7 @@ export type RequestLogProtocol =
   | "openai_chat_completions"
   | "openai_images"
   | "anthropic_messages";
+export type RequestSpeedTier = "standard" | "fast";
 export interface RequestLog {
   requestId: string;
   startedAtMs: number;
@@ -62,6 +63,8 @@ export interface RequestLog {
   cacheReadTokens: number | null;
   cacheCreationTokens: number | null;
   isStream: boolean;
+  requestedSpeedTier: RequestSpeedTier | null;
+  effectiveSpeedTier: RequestSpeedTier | null;
 }
 
 export interface ActiveRequestLog {
@@ -85,6 +88,8 @@ export interface ActiveRequestLog {
   proxyProfileLabel: string | null;
   attemptCount: number;
   isStream: boolean | null;
+  requestedSpeedTier: RequestSpeedTier | null;
+  effectiveSpeedTier: RequestSpeedTier | null;
 }
 
 interface RequestTelemetryMetrics {
@@ -162,6 +167,8 @@ function parseActiveRequestLog(value: unknown): ActiveRequestLog {
     proxyProfileLabel: readNullableDisplayString(record.proxy_profile_label),
     attemptCount: readNonNegativeInteger(record.attempt_count),
     isStream: readNullableBoolean(record.is_stream),
+    requestedSpeedTier: readNullableSpeedTier(record.requested_speed_tier),
+    effectiveSpeedTier: readNullableSpeedTier(record.effective_speed_tier),
   };
 }
 
@@ -210,6 +217,8 @@ function parseRequestLog(value: unknown): RequestLog {
     cacheReadTokens: readNullableInteger(record.cache_read_tokens),
     cacheCreationTokens: readNullableInteger(record.cache_creation_tokens),
     isStream: readBoolean(record.is_stream),
+    requestedSpeedTier: readNullableSpeedTier(record.requested_speed_tier),
+    effectiveSpeedTier: readNullableSpeedTier(record.effective_speed_tier),
   };
 }
 
@@ -304,6 +313,13 @@ function readBoolean(value: unknown): boolean {
 
 function readNullableBoolean(value: unknown): boolean | null {
   return value === null ? null : readBoolean(value);
+}
+
+function readNullableSpeedTier(value: unknown): RequestSpeedTier | null {
+  if (value === null || value === "standard" || value === "fast") {
+    return value;
+  }
+  throw invalidResponse();
 }
 
 function readNonNegativeInteger(value: unknown): number {

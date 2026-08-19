@@ -128,6 +128,7 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
             uri: Uri::from_static("/"),
             headers,
             body,
+            requested_speed_tier: None,
         })
     }
 

@@ -3,7 +3,9 @@ use std::{ffi::OsString, path::Path};
 #[cfg(unix)]
 use std::process::Command;
 
-use any2api_updater::api::{APPLICATION_VERSION, StartupUpdateRecovery, recover_pending_update};
+use any2api_updater::api::{
+    APPLICATION_VERSION, RestartKind, StartupUpdateRecovery, recover_pending_update,
+};
 use anyhow::Context;
 
 use super::{
@@ -102,7 +104,7 @@ pub fn run() -> anyhow::Result<()> {
     };
     let timeout = outcome.runtime_shutdown_timeout();
     let fatal = outcome.is_fatal();
-    let restart = outcome.restart_requested();
+    let restart = outcome.restart_kind();
     let result = outcome.into_result();
     let fatal_message = fatal.then(|| {
         result.as_ref().err().map_or_else(
@@ -116,9 +118,9 @@ pub fn run() -> anyhow::Result<()> {
         eprintln!("any2api terminated after incomplete shutdown: {message}");
         std::process::exit(1);
     }
-    if restart && result.is_ok() {
+    if let (Some(kind), Ok(())) = (restart, &result) {
         drop(instance_lock);
-        return restart_updated_process(&executable_path, &arguments);
+        return restart_process(&executable_path, &arguments, kind);
     }
     result
 }
@@ -258,9 +260,36 @@ fn update_restart_requested() -> bool {
     std::env::var_os(UPDATE_RESTART_ENV).is_some_and(|value| value == "1")
 }
 
+fn restart_process(
+    executable_path: &Path,
+    arguments: &[OsString],
+    kind: RestartKind,
+) -> anyhow::Result<()> {
+    match kind {
+        RestartKind::Manual => exec_process(
+            executable_path,
+            arguments,
+            restart_uses_update_recovery(kind),
+        ),
+        RestartKind::Update => restart_updated_process(executable_path, arguments, kind),
+    }
+}
+
+const fn restart_uses_update_recovery(kind: RestartKind) -> bool {
+    matches!(kind, RestartKind::Update)
+}
+
 #[cfg(unix)]
-fn restart_updated_process(executable_path: &Path, arguments: &[OsString]) -> anyhow::Result<()> {
-    let error = exec_error(executable_path, arguments, true);
+fn restart_updated_process(
+    executable_path: &Path,
+    arguments: &[OsString],
+    kind: RestartKind,
+) -> anyhow::Result<()> {
+    let error = exec_error(
+        executable_path,
+        arguments,
+        restart_uses_update_recovery(kind),
+    );
     let restart_error = anyhow::Error::new(error).context(format!(
         "failed to restart updated executable {}",
         executable_path.display()
@@ -278,7 +307,11 @@ fn restart_updated_process(executable_path: &Path, arguments: &[OsString]) -> an
 }
 
 #[cfg(not(unix))]
-fn restart_updated_process(_executable_path: &Path, _arguments: &[OsString]) -> anyhow::Result<()> {
+fn restart_updated_process(
+    _executable_path: &Path,
+    _arguments: &[OsString],
+    _kind: RestartKind,
+) -> anyhow::Result<()> {
     anyhow::bail!("in-place restart is unavailable on this platform")
 }
 
@@ -321,7 +354,9 @@ fn exec_process(
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandLine, command_line};
+    use any2api_updater::api::RestartKind;
+
+    use super::{CommandLine, command_line, restart_uses_update_recovery};
 
     #[test]
     fn command_line_accepts_only_service_or_exact_version_mode() {
@@ -332,5 +367,11 @@ mod tests {
         ));
         assert!(command_line(&["--help".into()]).is_err());
         assert!(command_line(&["--version".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn only_update_restart_uses_update_recovery_environment() {
+        assert!(!restart_uses_update_recovery(RestartKind::Manual));
+        assert!(restart_uses_update_recovery(RestartKind::Update));
     }
 }

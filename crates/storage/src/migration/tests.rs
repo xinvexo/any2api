@@ -115,6 +115,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
                 "reject removed reliability setting overrides".to_owned()
             ),
             (36, "whole cycle codex quota estimator".to_owned()),
+            (37, "add request log speed tiers".to_owned()),
         ]
     );
 
@@ -174,6 +175,8 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(request_log_schema.contains("quota_cost_nanos INTEGER"));
     assert!(request_log_schema.contains("quota_cost_rate_card TEXT"));
     assert!(request_log_schema.contains("quota_service_tier TEXT"));
+    assert!(request_log_schema.contains("requested_speed_tier TEXT"));
+    assert!(request_log_schema.contains("effective_speed_tier TEXT"));
     assert!(request_log_schema.contains("telemetry_process_id TEXT"));
     assert!(request_log_schema.contains("telemetry_sequence INTEGER"));
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;

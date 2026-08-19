@@ -5,6 +5,11 @@ export interface ApplicationAbout {
   repositoryUrl: string;
 }
 
+export interface ApplicationHealth {
+  applicationVersion: string;
+  instanceId: string;
+}
+
 export interface UpdateCheckResult {
   currentVersion: string;
   latestVersion: string;
@@ -102,8 +107,19 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
   throw invalidResponse();
 }
 
+export function parseApplicationHealth(value: unknown): ApplicationHealth {
+  const record = readRecord(value);
+  if (record.status !== "ok") {
+    throw invalidResponse();
+  }
+  return {
+    applicationVersion: readVersion(record.application_version),
+    instanceId: readUuid(record.instance_id),
+  };
+}
+
 export function parseApplicationHealthVersion(value: unknown) {
-  return readVersion(readRecord(value).application_version);
+  return parseApplicationHealth(value).applicationVersion;
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -158,6 +174,14 @@ function readNullableVersion(value: unknown) {
   return value === null ? null : readVersion(value);
 }
 
+function readUuid(value: unknown) {
+  const uuid = readString(value);
+  if (!UUID.test(uuid)) {
+    throw invalidResponse();
+  }
+  return uuid;
+}
+
 function readFailureCode(value: unknown): UpdateFailureCode {
   const code = readString(value);
   if (!FAILURE_CODES.has(code as UpdateFailureCode)) {
@@ -182,6 +206,7 @@ const FAILURE_CODES = new Set<UpdateFailureCode>([
   "update_install_failed",
 ]);
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function invalidResponse() {
   return new Error("invalid application update response");

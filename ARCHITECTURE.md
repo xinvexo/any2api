@@ -78,6 +78,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新、额度操作和手动额度刷新附带的模型目录读取必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在 OAuth 出口集中同步起跑。批量刷新先完成每个账号的额度操作，再按 Provider Driver 导出的目录身份合并模型目录读取；同一批内每个身份只允许一个代表账号发起目录请求。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider Driver 投影的稳定主体身份，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。Codex `chatgpt_account_id` 只是所选个人账户或工作区的路由标识；Codex 稳定主体优先使用工作区标识与 `chatgpt_user_id`（兼容 `user_id`）组成的身份，缺少成员主体 claim 时才回落规范化邮箱，禁止单独用工作区标识合并同一 Team 工作区的不同成员。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。
 39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop。所有上游请求都发送 identity JSON 并删除入口压缩元数据，保证发往不同凭据的正文保持一致；入口压缩只在 Server 边界解压，不作为上游能力声明。
 40. Codex 本机额度统计只使用官方窗口使用率和本地 SQLite 中仍保留的 RequestLog。每次成功观测都以官方 `reset_at - limit_window_seconds` 为周期起点、当前 observation fence 为终点，直接重算该 OAuthAccount 在整个官方周期内的冻结 Credits 总和；不得再把相邻刷新拆成小区间累计，也不得把不同官方重置周期混合。界面“已用”始终直接显示该周期本地总和；只有官方周期使用率达到 `2%` 后，才按 `local Credits × 100 / used_percent` 推算总量，低于门槛时只隐藏总量而不隐藏本地已用。当前进程内单调位置只负责排除 fence 之后完成的记录，墙钟完成时间负责官方周期下界和跨进程记录归属；观测必须在同一日志 Writer 排入 flush barrier 并等待完成。凭据身份或已知订阅层级在周期中改变时，本地已用仍直接求和，但该周期不做跨身份容量推算，等下一官方周期重新开始。每条 RequestLog 在 Attempt 准备时从当前 PublishedSnapshot 的 `oauth.codex.rate_card` 冻结模型 Token→Credits 费率与卡片 ID，后续改价不得重算历史日志。
+41. “关于”设置提供需要管理员二次确认的手动重启。受保护的管理 API 只幂等地登记一次重启请求，完整走现有有界的优雅停机与资源收尾，然后使用启动时捕获的可执行路径和原参数原位 `exec`。手动重启不创建、消费或修改更新器的 pending/previous 标记，不设置更新重启环境；安装任务活动时拒绝手动重启，已进入不可取消替换阶段的更新重启意图始终优先于并发的手动重启。不支持原位 `exec` 或无法解析启动可执行路径的环境必须在进入停机前明确拒绝。Web 确认受理后锁定管理面，通过公共健康响应中每进程启动随机生成、不持久化且不含任何运行数据的不透明 `instance_id` 确认已切换到新进程，随后刷新并回到因内存会话失效而显示的登录页。
 
 ### 2.1 两类凭据的术语边界
 
@@ -297,17 +298,21 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - 同协议 buffered JSON 响应必须保留原始 wire bytes，使用无完整对象树分配的 JSON 校验和借用字段扫描
   提取 token usage、Continuation ID 与待改写的顶层 model；只有跨协议 Bridge 确实需要结构转换时才允许
   materialize 完整 `serde_json::Value`。Raw JSON 必须把必要的字段拼接直接写入 `payload-buffer`；Bridge 已经
-  持有结构化树时，最终 JSON 也直接序列化到该缓冲，不能再经过一个完整 `Vec`。不得为直通转发复制大
-  字符串、图片 base64 或未来未知字段。
+  持有结构化树时，最终 JSON 也直接序列化到该缓冲，不能再经过一个完整 `Vec`。顶层字段索引使用按字段名
+  排序的连续条目并以二分查找读取，重复字段保留最后一个值；不得为每个字段建立树节点，也不得为直通转发复制
+  大字符串、图片 base64 或未来未知字段。
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
   Runtime；当前帧增量写入 `payload-buffer`，超过阈值后由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
-- Composition Root 在发生过请求或受管后台活动且当前没有会产生大块瞬态分配的请求时，低频调用平台原生的
+- Composition Root 在发生过请求或受管后台活动且当前没有会产生大块瞬态分配的请求时，调用平台原生的
   进程堆压力释放；OAuth Token/额度等后台 Worker 的活动必须推进同一活动 epoch，不能因没有公共请求而
-  跳过回收。停机活跃请求与内存回收阻塞请求必须是两个独立计数：普通 HTTP 请求在完整 Body 生命周期内同时
-  持有两者；统一管理员 `/api/admin/events` SSE 仍持有停机 Guard，但在 Handler 建立响应后立即释放
-  回收阻塞 Guard，不能因任意已登录管理页面的永久连接让空闲回收永久失效。该豁免只能由服务端可信响应
-  类型显式标记，客户端 Header 或路由参数无权声明。Linux
+  跳过回收。触发使用进程内事件通知而不是固定周期轮询：无阻塞后台活动和最后一个回收阻塞 Guard 释放时唤醒
+  后台任务，后台任务以 30 秒冷却合并突发，并在实际调用前重新核对活动 epoch 与阻塞计数；不得在请求执行线程
+  内同步释放进程堆。停机活跃请求与内存回收阻塞请求必须是两个独立计数：普通 HTTP 请求默认在完整 Body
+  生命周期内同时持有两者；公开流式请求在上游语义提交、重试状态和入口大块瞬态数据释放并把响应流交给 Server
+  后，立即释放回收阻塞 Guard，但继续在完整 Body 生命周期内持有停机 Guard。统一管理员
+  `/api/admin/events` SSE 同样只在 Handler 建立响应后释放回收阻塞 Guard，不能因长连接让空闲回收永久失效。
+  该豁免只能由服务端可信响应类型显式标记，客户端 Header 或路由参数无权声明。Linux
   GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用
   `HeapSetInformation(NULL, HeapOptimizeResources, ...)` 并传入当前版本的初始化参数结构；不提供该能力的
   平台保持安全 no-op。进程堆压力释放 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate；zstd
@@ -316,6 +321,11 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
   payload 的 `256 KiB` 阈值。其他 Workspace 继续禁止
   unsafe。两个 crate 都不向业务层暴露指针或 unsafe API；macOS/Windows 原生 CI 必须实际运行映射、zstd
   workspace 与回收基础测试后再链接 release 二进制。
+- `payload-buffer` 在实际分配、扩容、冻结和最后一个 `Bytes` 所有者 Drop 时，以进程级原子计数维护普通堆、
+  匿名映射和其中 HTTP Body 捕获用途的当前/峰值 owned bytes；只在分配生命周期边界更新，不按写入字节逐次
+  计数。RequestTelemetry 同时公开队列中、Writer in-flight 和总 reserved owned bytes，进程回收状态公开当前
+  blocker、完成次数与最近一次耗时。AdminRealtimeHub 把这些固定规模只读值并入既有 2 秒资源快照；指标不写
+  SQLite、不建立新采样任务、不包含正文或 Secret，也不参与并发、路由、限流、回收决策或资源准入。
 - SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
   回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
 
@@ -1119,6 +1129,8 @@ request_logs
 ├─ quota_cost_nanos      # optional integer nano-units calculated when the request finishes
 ├─ quota_cost_rate_card  # optional versioned Provider rate card
 ├─ quota_service_tier    # optional standard | fast pricing key
+├─ requested_speed_tier  # optional standard | fast final-attempt request mode
+├─ effective_speed_tier  # optional standard | fast Provider-confirmed mode
 └─ is_stream
 ```
 
@@ -1128,12 +1140,14 @@ request_logs
 
 `input_tokens` 是 Provider 无关的归一化输入总量。对 Anthropic Messages，ProtocolAdapter 在上游明确提供这些字段时把 `input_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens` 相加后写入该字段；`cache_read_tokens` 仍只保存缓存读取明细，不能再次加入总量。缓存创建没有单独的 RequestLog/SQLite 字段，但其已知数量不能从归一化输入中丢失。
 
+`requested_speed_tier` 与 `effective_speed_tier` 是独立于额度计价的请求执行事实，只接受 `standard | fast`：前者冻结最终 Attempt 发给上游的明确档位，后者只在 Provider 响应明确确认实际档位时写入。Codex 仅把 Responses 请求/Response 的 `service_tier = priority` 归一化为 `fast`；Claude 仅把 Messages 请求的 `speed = fast` 和响应 `usage.speed = fast` 归一化为 `fast`。其他已知非快速值归一化为 `standard`，缺失或未知值保持 `NULL`。Grok 与 Kimi 的高速模型已由模型名表达，不得用模型名子串猜测通用速度档位。识别必须复用已有顶层 JSON 解码/原始字段扫描结果，不得为日志再次完整反序列化请求或响应 Body。管理列表同时展示流/非流徽章；Fast 徽章优先依据 `effective_speed_tier`，响应尚未确认时才使用 `requested_speed_tier`。
+
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
 请求进入 Runtime 并创建 `RequestRecorder` 时，同时在 `RequestTelemetry` 的进程内注册表中创建
 `ActiveRequestLog`。该活动投影只保存当时已经知道的 Request ID、开始时间、规范客户端 IP、配置
 revision、Gateway Key、协议与操作；请求解码和每次开始 Attempt 时再原位补充公开模型、思考级别、
-流式标记和当前上游来源。它不写入 SQLite，不进入 RequestLog/Attempt 保留、容量、统计、额度估算或
+流式标记、当前上游来源和最终 Attempt 已知的请求/实际速度档位。它不写入 SQLite，不进入 RequestLog/Attempt 保留、容量、统计、额度估算或
 启动恢复，进程结束后直接消失。最终成功、失败或取消仍只生成一条完整 `CompletedRequestLog`，不得把
 活动投影当成第二种持久化日志或用占位 HTTP 状态伪装完成结果。
 
@@ -3053,7 +3067,7 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.10 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态以及 any2api RSS/CPU、系统内存/CPU 投影到首屏。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态、any2api RSS/CPU、系统内存/CPU，以及固定规模的正文堆/映射、HTTP 捕获、遥测 owned bytes 和进程堆回收状态投影到首屏。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
 
 总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。AdminRealtimeHub 每 2 秒读取并广播一次聚合结果；调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。`overview_snapshot` 只包含安全聚合字段、`sampled_at_ms` 和 freshness/error 状态，不包含日志正文或任何 Secret。
 
@@ -3222,7 +3236,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 实时运行态统一订阅已认证的 `/api/admin/events`：管理壳只创建一个共享 `EventSource`，由 `AdminRealtimeProvider` 将 `overview_snapshot` 分发给总览、日志、系统日志和 Provider 视图。服务端共享 sampler 每 2 秒广播一次最新资源/运行态快照；连接建立和重连立即发送当前快照，连接存在但连续 7 秒没有 fresh snapshot 时 Web 也把最近值标记为陈旧。快照不需要回放，日志仍以 epoch 失效通知和游标 HTTP 查询作为事实来源；旧 `/api/admin/log-events` 不再作为独立连接入口；
 - SSE 断线时保留最近快照并显示 stale/disconnected 状态，不把暂时不可达渲染成零值；重连成功后以最新快照替换。session 失效或收到 401/403 后关闭 EventSource、停止自动重连并回到管理员登录态，避免重连风暴。总览仍保留手动 HTTP 刷新作为回退；历史 usage 统计继续按当前范围每 60 秒 HTTP 刷新，实时快照不得触发聚合查询风暴；
 - 页面在应用主 Surface 内使用标题、资源网格、请求负载面板、调用分析和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行使用紧凑列表，不使用卡片套卡片；
-- 首屏把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
+- 首屏把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠；资源区在主指标下以紧凑定义列表显示正文堆内存、正文映射内存、HTTP 捕获、遥测待写/写入中和进程堆回收状态的当前值与必要峰值。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
 - 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、成功率、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；无请求时成功率显示为无数据而不是 0%；
 - 平均 RPM 固定等于所选时间段最终请求数除以该时间段完整分钟数，不按活跃分钟、成功请求或时间桶平均值另造口径；日志关闭、遥测丢弃或上游未返回 usage 时不得猜测缺失 Token；
 - 图表在宽屏固定左侧平滑时间曲线、右侧紧凑模型占比饼图，窄屏按相同顺序上下排列；时间曲线保留固定空桶并标出失败调用。饼图本体不得挤占主要趋势空间，最多展示八个扇区：按调用量取前七项，剩余项只在 Web 展示层守恒合并为“其余 N 个模型”，不改写管理 API 原始统计。两图直接并列展示，不增加时间/模型切换；图形必须使用语义 Token、清晰坐标和非颜色唯一的摘要，不能以大面积高饱和柱块压过数据内容；
@@ -3288,6 +3302,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.9 关于与版本更新
 
 - “关于”页签只显示运行中二进制的编译版本和固定 GitHub 仓库地址；官方 Release 以 `workflow_dispatch.inputs.version` 作为唯一产品版本真相来源，工作流在打包前精确校验二进制 `--version` 输出，本地开发构建固定为 `0.0.0-dev`。两者都不读取仅作为 Rust 包元数据的 Cargo package version，也不要求该元数据与 Release 输入相等；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
+- “关于”页签在版本更新之外提供独立的“重启服务”操作。管理员必须在确认框中了解服务将短暂中断、当前请求会先尝试自然结束、管理会话将失效后才能提交。`POST /api/admin/restart` 不接受客户端路径、参数、延迟或重启模式，只返回已受理状态；重复提交不会排队第二次重启。安装任务活动时返回稳定冲突，不支持原位 `exec` 的平台或无法解析启动可执行路径时在进入 `Draining` 前返回稳定不支持错误；
 - “检查更新”只在管理员显式点击后调用 GitHub 最新正式 Release API，不在页面加载、定时器或后台 Worker 中自动轮询；
 - 检查结果显示最新版本、是否有更新和对应 Release 页面。草稿、预发布、非法 SemVer、Tag 与资产版本不一致或缺少固定资产时均视为不可用 Release；
 - “更新到 v{最新版本}”操作不接受客户端指定版本或下载 URL；服务端重新读取最新 Release，下载固定 Linux AMD64 GNU 归档与同名 `.sha256`，完成大小限制、SHA-256 和归档结构校验后才替换二进制。GitHub Client 固定使用 10 秒连接超时与每次成功读取后重置的 30 秒无进展超时；元数据/checksum 仍有 15/30 秒总时限，大归档没有固定总时限，持续前进的慢速下载不得在 300 秒被截断；
@@ -3301,7 +3316,8 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 从任务被接受开始，管理请求取消、页面刷新或连接断开都不能取消任务。异步任务完成归档下载与 checksum 校验后，必须在没有可取消等待点的同一次调用中，把临时目录、候选路径、目标版本和终态回调交给进程级 TaskTracker 跟踪的 blocking closure；该 closure 连续完成最终解包、权限与文件同步、候选冒烟、previous 提交、替换，以及成功后的 `restarting` 状态和重启请求，失败状态也在 closure 内结算。Forced 可以取消外层下载 future，但已经登记的提交 closure 不可取消且仍占用后台任务计数，不能阻塞 Tokio worker，也不能在磁盘提交完成与重启请求之间脱钩；活动请求、受管任务、遥测或 SQLite 的关键收尾失败时保持既有致命退出语义，不绕过停机边界强制重启；文件日志 best-effort 收尾不属于该阻断集合；
 - Web 在管理员确认安装后立即进入覆盖整个管理面的模态更新状态，不提供关闭、取消、导航或其他操作；下载阶段显示确定进度，安装和重启阶段显示明确状态。服务端明确 `failed` 或连续三次返回 `idle` 才显示“更新未完成”并允许重新提交安装；连续 90 秒既拿不到活动更新状态、也没有目标版本健康响应时进入“无法确认更新结果”，清除 tab 内 pending 标记、停止 `beforeunload` 并提供“继续等待”或“返回”，但不得把不确定状态描述为安装失败。“继续等待”只恢复轮询，不再次提交安装；短暂网络抖动或仍能读取活动状态会重置不可达窗口；
 - 更新进行中使用 `beforeunload` 防止误刷新，并仅在 `sessionStorage` 保存预期目标版本以便误刷新后恢复锁定界面，不保存下载状态、服务端任务状态或任何凭据；进入明确失败或无法确认状态时清除该标记，使刷新也能解除遮罩。即使浏览器被关闭、返回管理页或停止等待也不影响服务端任务；
-- 公共 `GET /api/health` 的 JSON 只返回常量 `status=ok` 和当前运行中二进制的 `application_version`，并明确使用 `Cache-Control: no-store`；配置 revision、调度 epoch、活动请求与后台任务由受认证的 `/api/admin/balancing` 固定规模响应提供，资源指标由 `/api/admin/overview/resources` 提供。两者保留各自的 Query cache 和 HTTP 回退，并由同一个 `overview_snapshot` SSE 实时快照分别更新；停机阶段只保留为进程内生命周期与停机日志信息。Web 更新流程只把精确目标版本的新进程健康响应视为更新成功，短暂展示完成状态后自动刷新；旧版本或其他版本健康响应、管理会话因重启失效、缓存响应或单次网络错误都不能伪装成成功。回滚后的旧进程若返回连续 `idle`，按明确未完成处理；只有旧版健康而管理状态因会话失效不可读时，最终只能进入“无法确认”而不能猜测；
+- 手动重启被受理后使用同样的全屏页面锁定、`beforeunload` 和有界恢复交互，但只显示“正在重新启动”而不伪造下载/安装进度。它仅在当前 tab 的版本化 `sessionStorage` 记录旧 `instance_id`，新健康响应的标识不同时短暂显示完成并刷新。在可配置最大优雅停机时限与收尾时限内始终继续等待；超过该上限加安全余量仍未观测到新实例时只进入“无法确认重启结果”，可继续等待或返回，不得重复提交重启或宣称失败；
+- 公共 `GET /api/health` 的 JSON 只返回常量 `status=ok`、当前运行中二进制的 `application_version` 和每次进程启动时随机生成的不透明 `instance_id`，并明确使用 `Cache-Control: no-store`。`instance_id` 只用于区分旧进程与新进程，不持久化、不编码时间、PID、配置或运行指标；配置 revision、调度 epoch、活动请求与后台任务由受认证的 `/api/admin/balancing` 固定规模响应提供，资源指标由 `/api/admin/overview/resources` 提供。两者保留各自的 Query cache 和 HTTP 回退，并由同一个 `overview_snapshot` SSE 实时快照分别更新；停机阶段只保留为进程内生命周期与停机日志信息。Web 更新流程只把精确目标版本的新进程健康响应视为更新成功，手动重启流程只把与提交前不同的 `instance_id` 视为重启成功；两者短暂展示完成状态后都自动刷新。旧版本或其他版本健康响应、未变化的实例标识、管理会话因重启失效、缓存响应或单次网络错误都不能伪装成成功。回滚后的旧进程若返回连续 `idle`，按明确未完成处理；只有旧版健康而管理状态因会话失效不可读时，最终只能进入“无法确认”而不能猜测；
 - Docker 部署应优先更新镜像；容器内原地安装只会改变当前可写层，容器重建仍以镜像版本为准。系统不访问 Docker socket，也不替用户拉取或重建容器。
 
 
@@ -3391,6 +3407,7 @@ pnpm lifecycle，保证当前 Web 与 Rust 源码进入同一二进制。
 - HTTP 不再产生新记录后才关闭 RequestTelemetry sender。Writer 先排空有界队列；超过 `shutdown.finalize_timeout` 必须 abort 并 join，禁止丢弃 JoinHandle 让 SQLite Writer 脱管；join 后仍未获得存储终态的 channel 内与正在写入记录必须计入遥测 dropped 指标。
 - 文件日志把可克隆的热更新控制句柄与唯一 `WorkerGuard` 分离：ConfigPublisher 只持有级别/保留策略控制句柄，Composition Root 独占 Guard。后台 Tokio 任务和 SQLite 结束、最终停机事件写入后，无论关键收尾成功或失败都 Drop Guard，执行其有界 best-effort flush；控制句柄存活不代表日志线程或关键任务泄漏。文件日志线程不是 Tokio TaskTracker 的替代品。
 - 同步二进制入口在 Tokio Runtime 外持有实例锁。正常收尾完成后调用 `Runtime::shutdown_timeout`，随后才释放实例锁；活动请求、受管后台任务、RequestTelemetry 或 SQLite 收尾失败时，在仍持有实例锁的情况下直接终止进程，由操作系统释放锁。文件日志队列丢弃、写入/flush 失败或控制句柄仍存活只影响本地诊断完整性，不取消正常退出或已请求的重启。
+- 重启信号显式区分 `Manual` 与 `Update`，不再使用一个无来源的布尔值。信号是黏性且幂等的，优先级固定为 `None < Manual < Update`：手动请求已触发 `Draining` 后，若一个已进入不可取消提交的更新最终替换成功，必须把意图提升为 `Update`。完整收尾、Tokio runtime 关闭且实例锁释放后，`Manual` 使用原路径/参数直接 `exec` 且不设置更新环境；`Update` 继续走 pending/previous 确认与回滚语义。任一关键收尾失败都不执行两种重启。
 - 所有停机等待都有上限；只有完整收尾后才记录 `shutdown complete`。首版不保存请求、队列、会话、健康或重试进度，也不在下次启动恢复。
 
 
@@ -3536,6 +3553,8 @@ Registered Bridge = Responses -> Chat Completions + Images -> Chat Completions (
 
 Validate + Compile Candidate ──> Database Commit ──> RuntimeRegistry Binding Reconcile ──> Atomic Swap ──> PublishedSnapshot Derived-State Reconcile
 
+Manual Restart = Authenticated Confirmation + Graceful Drain + Plain Same-Process Exec
+Update Restart = Committed Replacement + Graceful Drain + Pending/Previous Recovery Exec
 Process Restart ──> Read Config + Fresh Runtime State
 No Runtime Recovery / Queue Recovery / Session Recovery
 

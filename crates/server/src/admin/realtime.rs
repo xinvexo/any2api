@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use any2api_payload_buffer::payload_buffer_metrics;
 use any2api_runtime::api::{
     PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore, SystemMetricsError,
 };
@@ -168,16 +169,24 @@ async fn sample_once(
     let metrics = runtime.system_metrics_snapshot().await?;
     let published = snapshots.load();
     let runtime_snapshot = runtime.balancing_snapshot(&published);
+    let lifecycle = runtime.lifecycle();
+    let telemetry_metrics = telemetry.metrics();
     let balancing = BalancingRuntimeResponse::new(
         &published,
         &runtime_snapshot,
-        &runtime.lifecycle(),
+        &lifecycle,
         public_requests.transport_runtime_snapshot(),
-        telemetry.metrics(),
+        telemetry_metrics,
+    );
+    let resources = OverviewResourcesResponse::new(
+        metrics,
+        payload_buffer_metrics(),
+        telemetry_metrics,
+        lifecycle.memory_reclamation_metrics(),
     );
     Ok(OverviewSnapshot::fresh(
         metrics.sampled_at_ms,
-        metrics.into(),
+        resources,
         balancing,
     ))
 }

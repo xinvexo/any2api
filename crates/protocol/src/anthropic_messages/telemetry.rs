@@ -1,4 +1,4 @@
-use any2api_domain::{MAX_TOKEN_COUNT, TokenUsage};
+use any2api_domain::{MAX_TOKEN_COUNT, RequestSpeedTier, TokenUsage};
 use serde_json::{Value, value::RawValue};
 
 use crate::{
@@ -8,15 +8,19 @@ use crate::{
 };
 
 pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
+    let usage = structured_usage(value.get("usage"));
     ProtocolResponseTelemetry {
-        token_usage: structured_usage(value.get("usage")),
+        token_usage: usage.token_usage,
+        effective_speed_tier: usage.speed_tier,
     }
 }
 
 pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
     let [usage_field] = top_fields(body, ["usage"]);
+    let usage = usage(usage_field);
     ProtocolResponseTelemetry {
-        token_usage: usage(usage_field),
+        token_usage: usage.token_usage,
+        effective_speed_tier: usage.speed_tier,
     }
 }
 
@@ -30,60 +34,85 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let [kind, message, usage_field, delta] =
         top_fields(data.data(), ["type", "message", "usage", "delta"]);
     let kind = raw_event_type(data.event_name(), kind);
-    let token_usage = match kind.as_deref() {
+    let usage = match kind.as_deref() {
         Some("message_start") => {
             usage(message.and_then(|message| object_field_raw(message.get().as_bytes(), "usage")))
         }
         Some("message_delta") => usage(usage_field),
-        _ => TokenUsage::default(),
+        _ => UsageTelemetry::default(),
     };
     ProtocolEventTelemetry {
-        token_usage,
+        token_usage: usage.token_usage,
+        effective_speed_tier: usage.speed_tier,
         has_content_delta: kind.as_deref() == Some("content_block_delta") && content_delta(delta),
         retry_transparent: matches!(kind.as_deref(), Some("message_start" | "ping")),
     }
 }
 
-fn usage(value: Option<&RawValue>) -> TokenUsage {
+#[derive(Default)]
+struct UsageTelemetry {
+    token_usage: TokenUsage,
+    speed_tier: Option<RequestSpeedTier>,
+}
+
+fn usage(value: Option<&RawValue>) -> UsageTelemetry {
     let Some(value) = value else {
-        return TokenUsage::default();
+        return UsageTelemetry::default();
     };
-    let [input, output, cache_creation, cache_read] = top_fields(
+    let [input, output, cache_creation, cache_read, speed] = top_fields(
         value.get().as_bytes(),
         [
             "input_tokens",
             "output_tokens",
             "cache_creation_input_tokens",
             "cache_read_input_tokens",
+            "speed",
         ],
     );
-    TokenUsage::new(
-        total_input(
-            raw_token(input),
-            raw_optional_token(cache_creation),
-            raw_optional_token(cache_read),
-        ),
-        raw_token(output),
-        raw_token(cache_read),
-    )
-    .with_cache_creation_tokens(raw_token(cache_creation))
+    UsageTelemetry {
+        token_usage: TokenUsage::new(
+            total_input(
+                raw_token(input),
+                raw_optional_token(cache_creation),
+                raw_optional_token(cache_read),
+            ),
+            raw_token(output),
+            raw_token(cache_read),
+        )
+        .with_cache_creation_tokens(raw_token(cache_creation)),
+        speed_tier: speed.and_then(json_string).as_deref().and_then(speed_tier),
+    }
 }
 
-fn structured_usage(value: Option<&Value>) -> TokenUsage {
+fn structured_usage(value: Option<&Value>) -> UsageTelemetry {
     let Some(value) = value else {
-        return TokenUsage::default();
+        return UsageTelemetry::default();
     };
     let cache_read = value.get("cache_read_input_tokens");
-    TokenUsage::new(
-        total_input(
-            structured_token(value.get("input_tokens")),
-            structured_optional_token(value.get("cache_creation_input_tokens")),
-            structured_optional_token(cache_read),
-        ),
-        structured_token(value.get("output_tokens")),
-        structured_token(cache_read),
-    )
-    .with_cache_creation_tokens(structured_token(value.get("cache_creation_input_tokens")))
+    UsageTelemetry {
+        token_usage: TokenUsage::new(
+            total_input(
+                structured_token(value.get("input_tokens")),
+                structured_optional_token(value.get("cache_creation_input_tokens")),
+                structured_optional_token(cache_read),
+            ),
+            structured_token(value.get("output_tokens")),
+            structured_token(cache_read),
+        )
+        .with_cache_creation_tokens(structured_token(value.get("cache_creation_input_tokens"))),
+        speed_tier: value
+            .get("speed")
+            .and_then(Value::as_str)
+            .and_then(speed_tier),
+    }
+}
+
+fn speed_tier(value: &str) -> Option<RequestSpeedTier> {
+    match value {
+        "fast" => Some(RequestSpeedTier::Fast),
+        "standard" => Some(RequestSpeedTier::Standard),
+        _ => None,
+    }
 }
 
 fn total_input(
@@ -143,7 +172,7 @@ fn content_delta(delta: Option<&RawValue>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::TokenUsage;
+    use any2api_domain::{RequestSpeedTier, TokenUsage};
     use bytes::Bytes;
 
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
@@ -161,17 +190,21 @@ mod tests {
     #[test]
     fn extracts_json_usage_and_cumulative_stream_updates() {
         let json =
-            br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#;
+            br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3,"speed":"fast"}}"#;
         assert_eq!(
             response(json).token_usage,
             TokenUsage::new(Some(27), Some(9), Some(4)).with_cache_creation_tokens(Some(3))
         );
+        assert_eq!(
+            response(json).effective_speed_tier,
+            Some(RequestSpeedTier::Fast)
+        );
 
         let start = Bytes::from_static(
-            b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20,\"output_tokens\":1,\"cache_read_input_tokens\":4,\"cache_creation_input_tokens\":3}}}\n\n",
+            b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20,\"output_tokens\":1,\"cache_read_input_tokens\":4,\"cache_creation_input_tokens\":3,\"speed\":\"fast\"}}}\n\n",
         );
         let delta = Bytes::from_static(
-            b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":9}}\n\n",
+            b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":9,\"speed\":\"standard\"}}\n\n",
         );
         let cached_delta = Bytes::from_static(
             b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":20,\"output_tokens\":9,\"cache_read_input_tokens\":4,\"cache_creation_input_tokens\":3}}\n\n",
@@ -181,8 +214,16 @@ mod tests {
             TokenUsage::new(Some(27), Some(1), Some(4)).with_cache_creation_tokens(Some(3))
         );
         assert_eq!(
+            event(&start).effective_speed_tier,
+            Some(RequestSpeedTier::Fast)
+        );
+        assert_eq!(
             event(&delta).token_usage,
             TokenUsage::new(None, Some(9), None)
+        );
+        assert_eq!(
+            event(&delta).effective_speed_tier,
+            Some(RequestSpeedTier::Standard)
         );
         assert_eq!(
             event(&cached_delta).token_usage,

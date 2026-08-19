@@ -44,13 +44,16 @@ pub(crate) fn allow_memory_reclamation(response: &mut Response) {
 }
 
 fn release_memory_reclamation_blocker(response: &Response, guard: &mut ActiveRequestGuard) {
-    if response
+    if allows_memory_reclamation(response) {
+        guard.release_memory_reclamation_blocker();
+    }
+}
+
+pub(crate) fn allows_memory_reclamation(response: &Response) -> bool {
+    response
         .extensions()
         .get::<DoesNotBlockMemoryReclamation>()
         .is_some()
-    {
-        guard.release_memory_reclamation_blocker();
-    }
 }
 
 struct TrackedBody {

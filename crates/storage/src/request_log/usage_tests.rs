@@ -253,6 +253,8 @@ fn usage_record(
             cache_read_tokens: None,
             cache_creation_tokens: None,
             quota_cost: None,
+            requested_speed_tier: None,
+            effective_speed_tier: None,
             is_stream: false,
         },
         attempts: Vec::new(),

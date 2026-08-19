@@ -13,12 +13,13 @@ import {
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
+import { RequestModeBadges } from "./RequestModeBadges";
 import { cn } from "@/shared/lib/cn";
 
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-2 " +
-  "[grid-template-columns:minmax(7.5rem,1.25fr)_minmax(6rem,0.85fr)_minmax(8rem,1.5fr)_minmax(7rem,1fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
+  "[grid-template-columns:minmax(7.5rem,1.25fr)_minmax(6rem,0.85fr)_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
 
 interface RequestLogRowProps {
   log: RequestLog;
@@ -61,8 +62,15 @@ export const RequestLogCard = memo(function RequestLogCard({
         >
           {formatLogTime(log.startedAtMs)}
         </time>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
-          {model}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
+            {model}
+          </span>
+          <RequestModeBadges
+            isStream={log.isStream}
+            requestedSpeedTier={log.requestedSpeedTier}
+            effectiveSpeedTier={log.effectiveSpeedTier}
+          />
         </span>
         <ResultBadge log={log} />
       </div>
@@ -106,7 +114,14 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
           </span>
         )}
       </RequestLogTableCell>
-      <RequestLogTableCell className="font-medium text-primary" title={model}>{model}</RequestLogTableCell>
+      <RequestLogTableCell className="flex items-center gap-1.5 font-medium text-primary" title={model}>
+        <span className="min-w-0 flex-1 truncate">{model}</span>
+        <RequestModeBadges
+          isStream={log.isStream}
+          requestedSpeedTier={log.requestedSpeedTier}
+          effectiveSpeedTier={log.effectiveSpeedTier}
+        />
+      </RequestLogTableCell>
       <RequestLogTableCell>{log.thinkingLevel ?? "-"}</RequestLogTableCell>
       <RequestLogTableCell><ResultBadge log={log} /></RequestLogTableCell>
       <Metric value={formatDurationMs(log.latencyMs)} />

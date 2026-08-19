@@ -1,9 +1,9 @@
-use any2api_domain::TokenUsage;
+use any2api_domain::{RequestSpeedTier, TokenUsage};
 use serde_json::{Value, value::RawValue};
 
 use crate::{
     api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
-    raw_json::{object_field_raw, top_fields},
+    raw_json::top_fields,
     telemetry::{raw_event_type, raw_non_empty_string, raw_token_usage, token_usage},
 };
 
@@ -27,13 +27,18 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
             &["output_tokens"],
             &["input_tokens_details", "cached_tokens"],
         ),
+        effective_speed_tier: value
+            .get("service_tier")
+            .and_then(Value::as_str)
+            .and_then(speed_tier),
     }
 }
 
 pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
-    let [usage_field] = top_fields(body, ["usage"]);
+    let [usage_field, service_tier] = top_fields(body, ["usage", "service_tier"]);
     ProtocolResponseTelemetry {
         token_usage: usage(usage_field),
+        effective_speed_tier: raw_speed_tier(service_tier),
     }
 }
 
@@ -46,16 +51,21 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     };
     let [kind, response, delta] = top_fields(data.data(), ["type", "response", "delta"]);
     let kind = raw_event_type(data.event_name(), kind);
-    let token_usage = if matches!(
+    let terminal = matches!(
         kind.as_deref(),
         Some("response.completed" | "response.incomplete")
-    ) {
-        usage(response.and_then(|response| object_field_raw(response.get().as_bytes(), "usage")))
+    );
+    let (token_usage, effective_speed_tier) = if terminal {
+        let [usage_field, service_tier] = response.map_or([None, None], |response| {
+            top_fields(response.get().as_bytes(), ["usage", "service_tier"])
+        });
+        (usage(usage_field), raw_speed_tier(service_tier))
     } else {
-        TokenUsage::default()
+        (TokenUsage::default(), None)
     };
     ProtocolEventTelemetry {
         token_usage,
+        effective_speed_tier,
         has_content_delta: kind
             .as_deref()
             .is_some_and(|kind| CONTENT_DELTA_EVENTS.contains(&kind))
@@ -64,6 +74,21 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
             kind.as_deref(),
             Some("response.created" | "response.in_progress" | "response.queued" | "ping")
         ),
+    }
+}
+
+fn raw_speed_tier(value: Option<&RawValue>) -> Option<RequestSpeedTier> {
+    value
+        .and_then(crate::raw_json::json_string)
+        .as_deref()
+        .and_then(speed_tier)
+}
+
+fn speed_tier(value: &str) -> Option<RequestSpeedTier> {
+    match value {
+        "priority" => Some(RequestSpeedTier::Fast),
+        "default" | "auto" | "flex" | "standard" => Some(RequestSpeedTier::Standard),
+        _ => None,
     }
 }
 
@@ -78,7 +103,7 @@ fn usage(value: Option<&RawValue>) -> TokenUsage {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::TokenUsage;
+    use any2api_domain::{RequestSpeedTier, TokenUsage};
     use bytes::Bytes;
 
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
@@ -96,13 +121,17 @@ mod tests {
     #[test]
     fn extracts_json_and_terminal_event_usage() {
         let expected = TokenUsage::new(Some(12), Some(7), Some(3));
-        let json = br#"{"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#;
-        assert_eq!(response(json).token_usage, expected);
+        let json = br#"{"service_tier":"priority","usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#;
+        let telemetry = response(json);
+        assert_eq!(telemetry.token_usage, expected);
+        assert_eq!(telemetry.effective_speed_tier, Some(RequestSpeedTier::Fast));
 
         let sse = Bytes::from_static(
-            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":3,\"cache_write_tokens\":2}}}}\n\n",
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"service_tier\":\"priority\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":3,\"cache_write_tokens\":2}}}}\n\n",
         );
-        assert_eq!(event(&sse).token_usage, expected);
+        let telemetry = event(&sse);
+        assert_eq!(telemetry.token_usage, expected);
+        assert_eq!(telemetry.effective_speed_tier, Some(RequestSpeedTier::Fast));
     }
 
     #[test]

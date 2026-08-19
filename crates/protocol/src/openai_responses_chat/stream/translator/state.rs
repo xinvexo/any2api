@@ -188,6 +188,7 @@ impl ChatToResponsesStream {
             json!({"type":terminal_kind,"response":response}),
             ProtocolEventTelemetry {
                 token_usage: self.usage,
+                effective_speed_tier: None,
                 has_content_delta: false,
                 retry_transparent: false,
             },

@@ -4,7 +4,7 @@ use any2api_runtime::api::{
     ConfigPublisher, OAuthService, ProviderCredentialTestService, ProxyTestService,
     PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
-use any2api_updater::api::ApplicationUpdateService;
+use any2api_updater::api::{ApplicationUpdateService, RestartRequester};
 
 use crate::{
     admin::realtime::AdminRealtimeHub, admin_auth::AdminAuthService, zstd_decode::ZstdDecoder,
@@ -23,6 +23,7 @@ pub struct AppState {
     request_telemetry: Arc<RequestTelemetry>,
     admin_realtime: Arc<OnceLock<Arc<AdminRealtimeHub>>>,
     application_updates: Option<Arc<dyn ApplicationUpdateService>>,
+    restart_requester: Option<Arc<dyn RestartRequester>>,
     zstd_decoder: ZstdDecoder,
 }
 
@@ -48,6 +49,7 @@ impl AppState {
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
             admin_realtime: Arc::new(OnceLock::new()),
             application_updates: None,
+            restart_requester: None,
             zstd_decoder,
         }
     }
@@ -82,6 +84,12 @@ impl AppState {
     #[must_use]
     pub fn with_application_updates(mut self, updates: Arc<dyn ApplicationUpdateService>) -> Self {
         self.application_updates = Some(updates);
+        self
+    }
+
+    #[must_use]
+    pub fn with_restart_requester(mut self, restart: Arc<dyn RestartRequester>) -> Self {
+        self.restart_requester = Some(restart);
         self
     }
 
@@ -160,6 +168,11 @@ impl AppState {
     #[must_use]
     pub fn application_updates(&self) -> Option<&dyn ApplicationUpdateService> {
         self.application_updates.as_deref()
+    }
+
+    #[must_use]
+    pub fn restart_requester(&self) -> Option<&dyn RestartRequester> {
+        self.restart_requester.as_deref()
     }
 
     #[must_use]

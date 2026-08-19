@@ -139,6 +139,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     if prepared.ingress_operation != ProtocolOperation::MessagesCountTokens {
         prepared.observe_token_usage(decoded.telemetry.token_usage);
     }
+    prepared.observe_effective_speed_tier(decoded.telemetry.effective_speed_tier);
     let continuation_id = prepared
         .continuation_id_from_response(&decoded)
         .map_err(|_| {

@@ -57,6 +57,22 @@ function resources(sampledAt: number) {
       total_memory_bytes: 100,
       cpu_usage_percent: 31.7,
     },
+    ownership: {
+      payload_buffers: {
+        heap_current_bytes: 1,
+        heap_peak_bytes: 2,
+        mapped_current_bytes: 3,
+        mapped_peak_bytes: 4,
+        http_body_capture_current_bytes: 1,
+        http_body_capture_peak_bytes: 2,
+      },
+      telemetry: {
+        queued_owned_bytes: 1,
+        in_flight_owned_bytes: 2,
+        reserved_owned_bytes: 3,
+      },
+      reclamation: { blockers: 0, completed_runs: 1, last_duration_micros: 50 },
+    },
   };
 }
 

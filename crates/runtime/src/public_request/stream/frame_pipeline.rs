@@ -146,6 +146,9 @@ impl GuardedBody {
             return Err(PendingStreamError::timeout());
         }
         let telemetry = event.telemetry();
+        let effective_speed_tier = self
+            .driver
+            .response_speed_tier(self.upstream_operation, telemetry.effective_speed_tier);
         let termination = event.termination();
         let allow_retry_safety_override = check_deadline && !self.precommit_commit_ready;
         let upstream_failure = event.upstream_failure().map(|evidence| {
@@ -188,6 +191,8 @@ impl GuardedBody {
             )?;
             self.request_recorder
                 .observe_token_usage(telemetry.token_usage);
+            self.request_recorder
+                .observe_effective_speed_tier(effective_speed_tier);
         }
         let frame = frame.0;
         if check_deadline
@@ -206,6 +211,7 @@ impl GuardedBody {
             has_content_delta: telemetry.has_content_delta,
             termination,
             token_usage: telemetry.token_usage,
+            effective_speed_tier,
             continuation_id,
             continuation_state,
             upstream_error: upstream_failure.map(|(error, _)| error),
@@ -240,6 +246,8 @@ impl GuardedBody {
                 deadline,
             )?;
             self.request_recorder.observe_token_usage(frame.token_usage);
+            self.request_recorder
+                .observe_effective_speed_tier(frame.effective_speed_tier);
             self.pending.push_back(frame);
         }
         self.precommit_budget.commit();

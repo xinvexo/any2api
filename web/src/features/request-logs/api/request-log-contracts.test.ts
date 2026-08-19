@@ -8,6 +8,8 @@ describe("request log contracts", () => {
     expect(list.items[0]?.publicModel).toBe("codex-local");
     expect(list.items[0]?.clientIp).toBe("203.0.113.8");
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
+    expect(list.items[0]?.requestedSpeedTier).toBe("fast");
+    expect(list.items[0]?.effectiveSpeedTier).toBe("fast");
     expect(list.telemetry.inFlightRecords).toBe(4);
     expect(list.telemetry.droppedRecords).toBe(2);
     expect(list.filterOptions.gatewayApiKeys[0]?.label).toBe("Desktop");
@@ -90,6 +92,8 @@ describe("request log contracts", () => {
       state: "processing",
       publicModel: "codex-live",
       isStream: true,
+      requestedSpeedTier: "fast",
+      effectiveSpeedTier: null,
     });
     expect(list.activeItems[0]).not.toHaveProperty("statusCode");
   });
@@ -130,6 +134,21 @@ describe("request log contracts", () => {
           },
         ],
         telemetry: telemetry(),
+      }),
+    ).toThrow("invalid request log response");
+  });
+
+  it("rejects invalid speed tiers", () => {
+    expect(() =>
+      parseRequestLogList(
+        requestLogBatch([{ ...request(), requested_speed_tier: "turbo" }]),
+      ),
+    ).toThrow("invalid request log response");
+    expect(() =>
+      parseRequestLogList({
+        ...requestLogBatch([]),
+        active_items: [{ ...activeRequest(), effective_speed_tier: false }],
+        active_total: 1,
       }),
     ).toThrow("invalid request log response");
   });
@@ -328,6 +347,8 @@ function activeRequest() {
     proxy_profile_label: null,
     attempt_count: 0,
     is_stream: true,
+    requested_speed_tier: "fast",
+    effective_speed_tier: null,
   };
 }
 
@@ -374,6 +395,8 @@ function request() {
     cache_read_tokens: 30,
     cache_creation_tokens: 11,
     is_stream: true,
+    requested_speed_tier: "fast",
+    effective_speed_tier: "fast",
   };
 }
 

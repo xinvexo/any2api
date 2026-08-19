@@ -2,7 +2,8 @@ use std::{collections::BTreeSet, fmt};
 
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    QuotaCostUnit, QuotaServiceTier, RequestBodyEncoding, TransportMode, UpstreamError,
+    QuotaCostUnit, QuotaServiceTier, RequestBodyEncoding, RequestSpeedTier, TransportMode,
+    UpstreamError,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -97,6 +98,22 @@ pub trait ProviderDriver: Send + Sync {
         base_url: &ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
+
+    fn request_speed_tier(
+        &self,
+        _context: ProviderRequestContext<'_>,
+        _requested_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        None
+    }
+
+    fn response_speed_tier(
+        &self,
+        _operation: ProtocolOperation,
+        _observed_speed_tier: Option<RequestSpeedTier>,
+    ) -> Option<RequestSpeedTier> {
+        None
+    }
 
     fn prepare_request_body(
         &self,
@@ -295,7 +312,7 @@ pub trait ProviderDriver: Send + Sync {
     fn oauth_quota_service_tier(
         &self,
         _context: ProviderRequestContext<'_>,
-        _prepared_body: &[u8],
+        _requested_speed_tier: Option<RequestSpeedTier>,
     ) -> Option<QuotaServiceTier> {
         None
     }

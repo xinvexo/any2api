@@ -81,7 +81,6 @@ export function RequestLogManagement() {
   const scrollToTop = useCallback(() => {
     setFollowingLatest(true);
     applyPending();
-    mobileTopRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }, [applyPending]);
 
   if (query.isPending && !query.data) {

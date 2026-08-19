@@ -212,6 +212,8 @@ fn record(
                 )
                 .expect("quota cost")
             }),
+            requested_speed_tier: None,
+            effective_speed_tier: None,
             is_stream: false,
         },
         attempts: Vec::new(),

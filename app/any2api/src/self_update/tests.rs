@@ -8,7 +8,9 @@ use std::{
 };
 
 use any2api_runtime::api::ProcessLifecycle;
-use any2api_updater::api::{RestartRequester, UpdateTaskExecutor};
+use any2api_updater::api::{
+    RestartKind, RestartRequestStatus, RestartRequester, UpdateTaskExecutor,
+};
 use tokio::sync::oneshot;
 
 use super::{LifecycleUpdateTaskExecutor, RestartSignal};
@@ -23,13 +25,58 @@ impl Drop for DropFlag {
 
 #[tokio::test]
 async fn restart_request_is_sticky_for_the_shutdown_waiter() {
-    let signal = RestartSignal::new();
-    signal.request_restart();
+    let signal = RestartSignal::new(true);
+    assert_eq!(
+        signal.request_restart(RestartKind::Manual),
+        RestartRequestStatus::Accepted
+    );
 
     tokio::time::timeout(Duration::from_millis(20), signal.wait())
         .await
         .expect("restart signal");
-    assert!(signal.requested());
+    assert_eq!(signal.kind(), Some(RestartKind::Manual));
+}
+
+#[test]
+fn duplicate_manual_restart_is_idempotent() {
+    let signal = RestartSignal::new(true);
+
+    assert_eq!(
+        signal.request_restart(RestartKind::Manual),
+        RestartRequestStatus::Accepted
+    );
+    assert_eq!(
+        signal.request_restart(RestartKind::Manual),
+        RestartRequestStatus::AlreadyRequested
+    );
+    assert_eq!(signal.kind(), Some(RestartKind::Manual));
+}
+
+#[test]
+fn update_restart_promotes_a_manual_restart() {
+    let signal = RestartSignal::new(true);
+    signal.request_restart(RestartKind::Manual);
+
+    assert_eq!(
+        signal.request_restart(RestartKind::Update),
+        RestartRequestStatus::Accepted
+    );
+    assert_eq!(
+        signal.request_restart(RestartKind::Manual),
+        RestartRequestStatus::AlreadyRequested
+    );
+    assert_eq!(signal.kind(), Some(RestartKind::Update));
+}
+
+#[test]
+fn unsupported_manual_restart_does_not_signal_shutdown() {
+    let signal = RestartSignal::new(false);
+
+    assert_eq!(
+        signal.request_restart(RestartKind::Manual),
+        RestartRequestStatus::Unsupported
+    );
+    assert_eq!(signal.kind(), None);
 }
 
 #[tokio::test]

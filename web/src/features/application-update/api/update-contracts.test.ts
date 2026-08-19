@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   OFFICIAL_REPOSITORY_URL,
   parseApplicationAbout,
+  parseApplicationHealth,
   parseApplicationHealthVersion,
   parseUpdateCheckResult,
   parseUpdateStatus,
@@ -69,8 +70,20 @@ test("requires internally consistent update progress", () => {
 });
 
 test("reads the running build version from health", () => {
-  expect(parseApplicationHealthVersion({ application_version: "1.3.0" })).toBe("1.3.0");
-  expect(() => parseApplicationHealthVersion({ application_version: "latest" })).toThrow(
+  const health = {
+    status: "ok",
+    application_version: "1.3.0",
+    instance_id: "550e8400-e29b-41d4-a716-446655440000",
+  };
+  expect(parseApplicationHealth(health)).toEqual({
+    applicationVersion: "1.3.0",
+    instanceId: "550e8400-e29b-41d4-a716-446655440000",
+  });
+  expect(parseApplicationHealthVersion(health)).toBe("1.3.0");
+  expect(() => parseApplicationHealth({ ...health, application_version: "latest" })).toThrow(
+    "invalid application update response",
+  );
+  expect(() => parseApplicationHealth({ ...health, instance_id: "not-a-uuid" })).toThrow(
     "invalid application update response",
   );
 });

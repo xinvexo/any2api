@@ -5,7 +5,7 @@ use std::{
 
 use any2api_domain::{
     ActiveRequestLog, CredentialId, OAuthAccountId, ProviderEndpointId, ProxyProfileId, RequestId,
-    RequestLogFilter,
+    RequestLogFilter, RequestSpeedTier,
 };
 
 use super::{changes::LogChangeNotifier, telemetry::RequestTelemetry};
@@ -97,6 +97,28 @@ impl ActiveRequestRegistry {
             log.credential_id = credential_id;
             log.oauth_account_id = oauth_account_id;
             log.proxy_profile_id = Some(proxy_profile_id);
+            changed
+        };
+        if changed {
+            self.changes.active_requests_changed();
+        }
+    }
+
+    pub(super) fn update_speed_tiers(
+        &self,
+        request_id: RequestId,
+        requested: Option<RequestSpeedTier>,
+        effective: Option<RequestSpeedTier>,
+    ) {
+        let changed = {
+            let mut entries = self.entries.lock().expect("active request registry");
+            let Some(log) = entries.get_mut(&request_id) else {
+                return;
+            };
+            let changed =
+                log.requested_speed_tier != requested || log.effective_speed_tier != effective;
+            log.requested_speed_tier = requested;
+            log.effective_speed_tier = effective;
             changed
         };
         if changed {
@@ -208,6 +230,16 @@ impl RequestTelemetry {
         );
     }
 
+    pub(crate) fn update_active_request_speed_tiers(
+        &self,
+        request_id: RequestId,
+        requested: Option<RequestSpeedTier>,
+        effective: Option<RequestSpeedTier>,
+    ) {
+        self.active_requests
+            .update_speed_tiers(request_id, requested, effective);
+    }
+
     #[must_use]
     pub fn list_active_requests(
         &self,
@@ -299,6 +331,8 @@ mod tests {
             proxy_profile_id: None,
             attempt_count: 0,
             is_stream: None,
+            requested_speed_tier: None,
+            effective_speed_tier: None,
         }
     }
 }
