@@ -10,12 +10,12 @@ pub(super) fn fingerprint(
 ) -> String {
     let mut hasher = Sha256::new();
     update(&mut hasher, account.provider_kind().as_str());
-    update(&mut hasher, &account.account_generation().to_string());
     if let Some(identity) = driver.oauth_principal_identity(token) {
         update(&mut hasher, "principal");
         hasher.update(identity.digest());
     } else {
-        update(&mut hasher, "token_version");
+        update(&mut hasher, "generation_and_token_version");
+        update(&mut hasher, &account.account_generation().to_string());
         update(&mut hasher, &account.token_version().to_string());
     }
     format!("sha256:{}", URL_SAFE_NO_PAD.encode(hasher.finalize()))
@@ -34,36 +34,37 @@ mod tests {
     };
 
     #[test]
-    fn stable_identity_ignores_token_rotation_but_generation_isolated() {
+    fn stable_identity_ignores_token_and_routing_generation_changes() {
         let original = account(1, 1);
         let capabilities = crate::test_support::configuration_capabilities();
         let driver = capabilities
             .provider_registry()
             .get(ProviderKind::Codex)
             .expect("Codex driver");
-        let token = token("access-a", Some("member-1"));
-        let rotated = account(2, 1);
+        let original_token = token("access-a", Some("member-1"));
+        let changed = account(2, 2);
+        let changed_token = token("access-b", Some("member-1"));
         assert_eq!(
-            fingerprint(&original, &token, driver.as_ref()),
-            fingerprint(&rotated, &token, driver.as_ref())
-        );
-        let next_generation = account(2, 2);
-        assert_ne!(
-            fingerprint(&original, &token, driver.as_ref()),
-            fingerprint(&next_generation, &token, driver.as_ref())
+            fingerprint(&original, &original_token, driver.as_ref()),
+            fingerprint(&changed, &changed_token, driver.as_ref())
         );
     }
 
     #[test]
-    fn missing_stable_identity_uses_token_version() {
+    fn missing_stable_identity_uses_routing_and_token_generations() {
         let capabilities = crate::test_support::configuration_capabilities();
         let driver = capabilities
             .provider_registry()
             .get(ProviderKind::Codex)
             .expect("Codex driver");
+        let original = fingerprint(&account(1, 1), &token("access-a", None), driver.as_ref());
         assert_ne!(
-            fingerprint(&account(1, 1), &token("access-a", None), driver.as_ref()),
+            original,
             fingerprint(&account(2, 1), &token("access-b", None), driver.as_ref())
+        );
+        assert_ne!(
+            original,
+            fingerprint(&account(1, 2), &token("access-a", None), driver.as_ref())
         );
     }
 

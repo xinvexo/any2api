@@ -38,6 +38,7 @@ mod request_log_alpha_search;
 mod request_log_cache_write_tokens;
 mod request_usage_aggregate_indexes;
 mod response_body_bytes;
+mod stabilize_oauth_quota_identity;
 mod telemetry_capacity_stats;
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
@@ -118,6 +119,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (36, "whole cycle codex quota estimator".to_owned()),
             (37, "add request log speed tiers".to_owned()),
             (38, "correct request log quota tiers".to_owned()),
+            (39, "stabilize oauth quota identity".to_owned()),
         ]
     );
 
