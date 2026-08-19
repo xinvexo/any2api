@@ -73,7 +73,7 @@ export function OAuthAccountCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <h3
-              className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-primary"
+              className="min-w-0 truncate text-[13px] font-semibold leading-4 tracking-tight text-primary"
               title={presentation.title}
             >
               {presentation.title}
@@ -91,7 +91,7 @@ export function OAuthAccountCard({
                 key={badge.key}
                 aria-label={`账号状态：${badge.label}`}
                 className={cn(
-                  "shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium leading-4",
+                  "inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-[10px] font-medium leading-4",
                   badge.tone === "success" && "bg-success/10 text-success",
                   badge.tone === "warning" && "bg-warning/12 text-warning",
                   badge.tone === "danger" && "bg-danger/10 text-danger",
@@ -116,7 +116,7 @@ export function OAuthAccountCard({
               aria-label={`账号套餐：${planBadge.label}`}
               title={planBadge.label}
               className={cn(
-                "max-w-28 truncate rounded-full border px-1.5 py-px text-[10px] font-semibold leading-4",
+                "inline-flex max-w-28 items-center truncate rounded-full border px-1.5 py-px text-[10px] font-semibold leading-4",
                 planBadgeClassName(planBadge.label),
               )}
             >

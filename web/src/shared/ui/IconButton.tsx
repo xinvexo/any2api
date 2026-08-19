@@ -8,6 +8,8 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
   label: string;
   tone?: IconButtonTone;
   size?: "sm" | "md";
+  /** Transparent at rest for controls embedded inside a surface. */
+  quiet?: boolean;
   children: ReactNode;
 }
 
@@ -16,6 +18,7 @@ export function IconButton({
   label,
   tone = "neutral",
   size = "md",
+  quiet = false,
   className,
   type = "button",
   children,
@@ -30,9 +33,13 @@ export function IconButton({
         "disabled:pointer-events-none disabled:opacity-40",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         size === "sm" ? "size-6 rounded-[6px]" : "size-8 rounded-[8px]",
-        tone === "danger"
-          ? "bg-danger/10 text-danger hover:bg-danger/14 active:bg-danger/18"
-          : "bg-control text-secondary hover:bg-control-hover hover:text-primary active:bg-control-active",
+        quiet
+          ? tone === "danger"
+            ? "bg-transparent text-danger hover:bg-danger/10 active:bg-danger/14"
+            : "bg-transparent text-secondary hover:bg-control-hover hover:text-primary active:bg-control-active"
+          : tone === "danger"
+            ? "bg-danger/10 text-danger hover:bg-danger/14 active:bg-danger/18"
+            : "bg-control text-secondary hover:bg-control-hover hover:text-primary active:bg-control-active",
         className,
       )}
       {...props}

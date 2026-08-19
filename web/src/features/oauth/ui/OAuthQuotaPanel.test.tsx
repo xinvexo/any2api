@@ -55,8 +55,10 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   const panel = screen.getByRole("region", { name: "Codex 额度" });
   const resetButton = within(panel).getByRole("button", { name: "重置额度" });
   expect(resetButton).toBeDisabled();
+  expect(resetButton).toHaveClass("bg-transparent", "text-danger");
 
   const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  expect(refreshButton).toHaveClass("bg-transparent", "text-secondary");
   await waitFor(() => expect(refreshButton).toBeEnabled());
   fireEvent.click(refreshButton);
   // used 37.5% → remaining 62.5% rendered as 63%
@@ -68,7 +70,7 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
     "title",
     "刷新额度",
   );
-  expect(resetButton).toHaveAttribute("data-variant", "danger");
+  expect(resetButton).toHaveClass("text-danger");
   expect(resetButton).toBeEnabled();
 
   fireEvent.click(resetButton);

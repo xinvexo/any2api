@@ -17,8 +17,8 @@ import {
   refreshOAuthAccountQuota,
 } from "../model/oauth-quota-query";
 import { OAuthQuotaDetails } from "./OAuthQuotaDetails";
-import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { IconButton } from "@/shared/ui/IconButton";
 import { notify } from "@/shared/notifications";
 
 export function OAuthQuotaPanel({
@@ -167,11 +167,10 @@ export function OAuthQuotaPanel({
               可重置 <span className="font-medium text-secondary">{availableCount}</span>
             </span>
           ) : null}
-          <Button
-            variant="ghost"
+          <IconButton
+            quiet
             size="sm"
-            className="size-6 min-h-6 p-0"
-            aria-label="刷新额度"
+            label="刷新额度"
             title="刷新额度"
             disabled={disabled || pending !== null}
             onClick={() => void refreshQuota()}
@@ -181,13 +180,13 @@ export function OAuthQuotaPanel({
               className={pending === "query" ? "animate-spin" : undefined}
               aria-hidden="true"
             />
-          </Button>
+          </IconButton>
           {canReset ? (
-            <Button
-              variant="danger"
+            <IconButton
+              quiet
+              tone="danger"
               size="sm"
-              className="size-6 min-h-6 p-0"
-              aria-label="重置额度"
+              label="重置额度"
               disabled={disabled || pending !== null || availableCount === 0}
               title={
                 disabled
@@ -205,7 +204,7 @@ export function OAuthQuotaPanel({
                 className={pending === "reset" ? "animate-spin" : undefined}
                 aria-hidden="true"
               />
-            </Button>
+            </IconButton>
           ) : null}
         </div>
       </div>
