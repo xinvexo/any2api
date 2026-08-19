@@ -42,7 +42,7 @@ pub struct ProcessLifecycle {
 
 struct LifecycleInner {
     phase: AtomicU8,
-    request_activity: AtomicU64,
+    activity_epoch: AtomicU64,
     memory_reclamation_blockers: Arc<AtomicUsize>,
     requests: TaskTracker,
     background: TaskTracker,
@@ -56,7 +56,7 @@ impl ProcessLifecycle {
         Self {
             inner: Arc::new(LifecycleInner {
                 phase: AtomicU8::new(RUNNING),
-                request_activity: AtomicU64::new(0),
+                activity_epoch: AtomicU64::new(0),
                 memory_reclamation_blockers: Arc::new(AtomicUsize::new(0)),
                 requests: TaskTracker::new(),
                 background: TaskTracker::new(),
@@ -112,7 +112,7 @@ impl ProcessLifecycle {
         if self.phase() != ShutdownPhase::Running {
             return None;
         }
-        self.inner.request_activity.fetch_add(1, Ordering::Relaxed);
+        self.record_activity();
         Some(ActiveRequestGuard {
             _token: token,
             memory_reclamation,
@@ -125,8 +125,12 @@ impl ProcessLifecycle {
     }
 
     #[must_use]
-    pub fn request_activity_epoch(&self) -> u64 {
-        self.inner.request_activity.load(Ordering::Relaxed)
+    pub fn activity_epoch(&self) -> u64 {
+        self.inner.activity_epoch.load(Ordering::Relaxed)
+    }
+
+    pub fn record_activity(&self) {
+        self.inner.activity_epoch.fetch_add(1, Ordering::Relaxed);
     }
 
     #[must_use]
@@ -311,7 +315,7 @@ mod tests {
         lifecycle.begin_draining();
 
         assert!(lifecycle.track_request().is_none());
-        assert_eq!(lifecycle.request_activity_epoch(), 0);
+        assert_eq!(lifecycle.activity_epoch(), 0);
         assert_eq!(lifecycle.memory_reclamation_blockers(), 0);
     }
 
@@ -319,20 +323,29 @@ mod tests {
     fn accepted_requests_advance_the_shared_activity_epoch() {
         let lifecycle = ProcessLifecycle::new();
         let observer = lifecycle.clone();
-        assert_eq!(observer.request_activity_epoch(), 0);
+        assert_eq!(observer.activity_epoch(), 0);
 
         let first = lifecycle.track_request().expect("first request");
         let mut second = lifecycle.track_request().expect("second request");
-        assert_eq!(observer.request_activity_epoch(), 2);
+        assert_eq!(observer.activity_epoch(), 2);
         assert_eq!(observer.memory_reclamation_blockers(), 2);
 
         second.release_memory_reclamation_blocker();
         assert_eq!(observer.active_requests(), 2);
         assert_eq!(observer.memory_reclamation_blockers(), 1);
         drop((first, second));
-        assert_eq!(observer.request_activity_epoch(), 2);
+        assert_eq!(observer.activity_epoch(), 2);
         assert_eq!(observer.active_requests(), 0);
         assert_eq!(observer.memory_reclamation_blockers(), 0);
+    }
+
+    #[test]
+    fn background_activity_advances_the_shared_activity_epoch() {
+        let lifecycle = ProcessLifecycle::new();
+
+        lifecycle.record_activity();
+
+        assert_eq!(lifecycle.activity_epoch(), 1);
     }
 
     #[tokio::test]

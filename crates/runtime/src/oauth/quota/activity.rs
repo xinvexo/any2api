@@ -68,7 +68,7 @@ impl OAuthQuotaActivity {
         {
             return false;
         }
-        lifecycle.spawn_until_draining(run(self.clone(), service));
+        lifecycle.spawn_until_draining(run(self.clone(), service, lifecycle.clone()));
         true
     }
 
@@ -186,7 +186,11 @@ impl Drop for OAuthQuotaActivityGuard {
 type RefreshTask =
     Pin<Box<dyn Future<Output = (OAuthAccountId, Result<(), OAuthQuotaError>)> + Send + 'static>>;
 
-async fn run(activity: OAuthQuotaActivity, service: Arc<OAuthQuotaService>) {
+async fn run(
+    activity: OAuthQuotaActivity,
+    service: Arc<OAuthQuotaService>,
+    lifecycle: ProcessLifecycle,
+) {
     let mut running = FuturesUnordered::<RefreshTask>::new();
     loop {
         let available = MAX_CONCURRENT_REFRESHES.saturating_sub(running.len());
@@ -230,6 +234,7 @@ async fn run(activity: OAuthQuotaActivity, service: Arc<OAuthQuotaService>) {
             if let Err(error) = result {
                 tracing::warn!(oauth_account_id = %id, error = %error, "automatic OAuth quota refresh failed");
             }
+            lifecycle.record_activity();
             activity.complete(id, Instant::now());
         }
     }

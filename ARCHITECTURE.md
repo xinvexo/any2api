@@ -302,9 +302,10 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
   Runtime；当前帧增量写入 `payload-buffer`，超过阈值后由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
-- Composition Root 在发生过请求活动且当前没有会产生大块瞬态分配的请求时，低频调用平台原生的进程堆
-  压力释放。停机活跃请求与内存回收阻塞请求必须是两个独立计数：普通 HTTP 请求在完整 Body 生命周期内
-  同时持有两者；统一管理员 `/api/admin/events` SSE 仍持有停机 Guard，但在 Handler 建立响应后立即释放
+- Composition Root 在发生过请求或受管后台活动且当前没有会产生大块瞬态分配的请求时，低频调用平台原生的
+  进程堆压力释放；OAuth Token/额度等后台 Worker 的活动必须推进同一活动 epoch，不能因没有公共请求而
+  跳过回收。停机活跃请求与内存回收阻塞请求必须是两个独立计数：普通 HTTP 请求在完整 Body 生命周期内同时
+  持有两者；统一管理员 `/api/admin/events` SSE 仍持有停机 Guard，但在 Handler 建立响应后立即释放
   回收阻塞 Guard，不能因任意已登录管理页面的永久连接让空闲回收永久失效。该豁免只能由服务端可信响应
   类型显式标记，客户端 Header 或路由参数无权声明。Linux
   GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用

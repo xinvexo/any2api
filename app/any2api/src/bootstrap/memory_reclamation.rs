@@ -22,7 +22,7 @@ async fn run(lifecycle: ProcessLifecycle) {
             () = lifecycle.draining() => break,
             _ = ticker.tick() => {
                 if !state.should_reclaim(
-                    lifecycle.request_activity_epoch(),
+                    lifecycle.activity_epoch(),
                     lifecycle.memory_reclamation_blockers(),
                 ) {
                     continue;
@@ -41,11 +41,11 @@ struct ReclaimState {
 }
 
 impl ReclaimState {
-    fn should_reclaim(&mut self, request_activity: u64, reclamation_blockers: usize) -> bool {
-        if reclamation_blockers != 0 || request_activity == self.last_reclaimed_activity {
+    fn should_reclaim(&mut self, activity_epoch: u64, reclamation_blockers: usize) -> bool {
+        if reclamation_blockers != 0 || activity_epoch == self.last_reclaimed_activity {
             return false;
         }
-        self.last_reclaimed_activity = request_activity;
+        self.last_reclaimed_activity = activity_epoch;
         true
     }
 }

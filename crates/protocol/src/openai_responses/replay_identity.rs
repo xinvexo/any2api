@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use serde::Deserialize;
 use serde_json::{Value, value::RawValue};
 
@@ -43,20 +44,26 @@ fn normalize_raw(payload: &mut RawJsonPayload) -> Result<(), ProtocolError> {
         return Ok(());
     }
 
-    let mut normalized = Vec::with_capacity(input.len());
-    normalized.push(b'[');
-    for (index, item) in items.iter().enumerate() {
-        if index != 0 {
-            normalized.push(b',');
+    payload.rewrite_raw_field("input", |input, encoded| {
+        let items = raw_array(input).ok_or_else(|| {
+            ProtocolError::InvalidPayload("Responses input must be a JSON array".into())
+        })?;
+        encoded.extend_from_slice(b"[").map_err(buffer_error)?;
+        for (index, item) in items.iter().enumerate() {
+            if index != 0 {
+                encoded.extend_from_slice(b",").map_err(buffer_error)?;
+            }
+            if raw_item_has_invalid_id(item) {
+                write_item_without_id(encoded, item)?;
+            } else {
+                encoded
+                    .extend_from_slice(item.get().as_bytes())
+                    .map_err(buffer_error)?;
+            }
         }
-        if raw_item_has_invalid_id(item) {
-            write_item_without_id(&mut normalized, item)?;
-        } else {
-            normalized.extend_from_slice(item.get().as_bytes());
-        }
-    }
-    normalized.push(b']');
-    payload.replace_raw_field("input", &normalized)
+        encoded.extend_from_slice(b"]").map_err(buffer_error)?;
+        Ok(())
+    })
 }
 
 #[derive(Deserialize)]
@@ -80,28 +87,43 @@ fn raw_item_has_invalid_id(item: &RawValue) -> bool {
         .is_some_and(|id| !has_allowed_id_prefix(&id, prefixes))
 }
 
-fn write_item_without_id(encoded: &mut Vec<u8>, item: &RawValue) -> Result<(), ProtocolError> {
+fn write_item_without_id(
+    encoded: &mut PayloadBuffer,
+    item: &RawValue,
+) -> Result<(), ProtocolError> {
     let fields = borrowed_object(item.get().as_bytes()).map_err(|_| {
         ProtocolError::InvalidPayload("Responses input item must be valid JSON".into())
     })?;
-    encoded.push(b'{');
+    encoded.extend_from_slice(b"{").map_err(buffer_error)?;
     let mut first = true;
     for (name, value) in fields {
         if name == "id" {
             continue;
         }
         if !first {
-            encoded.push(b',');
+            encoded.extend_from_slice(b",").map_err(buffer_error)?;
         }
         first = false;
-        serde_json::to_writer(&mut *encoded, &name).map_err(|_| {
-            ProtocolError::InvalidPayload("Responses input item could not be encoded".into())
-        })?;
-        encoded.push(b':');
-        encoded.extend_from_slice(value.get().as_bytes());
+        serde_json::to_writer(&mut *encoded, &name).map_err(json_encode_error)?;
+        encoded.extend_from_slice(b":").map_err(buffer_error)?;
+        encoded
+            .extend_from_slice(value.get().as_bytes())
+            .map_err(buffer_error)?;
     }
-    encoded.push(b'}');
+    encoded.extend_from_slice(b"}").map_err(buffer_error)?;
     Ok(())
+}
+
+fn buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("protocol payload allocation failed".into())
+}
+
+fn json_encode_error(error: serde_json::Error) -> ProtocolError {
+    if error.is_io() {
+        buffer_error(PayloadBufferError::AllocationFailed)
+    } else {
+        ProtocolError::InvalidPayload("Responses input item could not be encoded".into())
+    }
 }
 
 fn normalize_item(item: &mut Value) {
@@ -279,6 +301,31 @@ mod tests {
         assert_eq!(value["input"][1]["id"], "rs_valid");
         assert_eq!(value["input"][2]["id"], "item_future");
         assert_eq!(value["future_top_level"]["preserve"], true);
+    }
+
+    #[test]
+    fn large_raw_input_normalization_writes_into_the_final_payload_buffer() {
+        let content = "x".repeat(300 * 1024);
+        let body = Bytes::from(format!(
+            r#"{{"model":"gpt","input":[{{"type":"message","id":"item_wrong","content":"{content}"}}]}}"#
+        ));
+        let mut payload =
+            AdapterPayload::RawJson(RawJsonPayload::parse(body).expect("raw Responses request"));
+
+        normalize(&mut payload).expect("normalize large raw request");
+
+        let AdapterPayload::RawJson(payload) = payload else {
+            panic!("raw JSON payload");
+        };
+        let encoded = payload
+            .encode(ProtocolOperation::Responses, "gpt")
+            .expect("encode normalized request");
+        let value: serde_json::Value = serde_json::from_slice(&encoded).expect("request JSON");
+        assert!(value["input"][0].get("id").is_none());
+        assert_eq!(
+            value["input"][0]["content"].as_str(),
+            Some(content.as_str())
+        );
     }
 
     #[test]

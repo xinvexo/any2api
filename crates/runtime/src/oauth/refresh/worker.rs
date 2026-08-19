@@ -62,16 +62,20 @@ impl OAuthRefresher {
             return false;
         }
         let refresher = Arc::clone(self);
+        let worker_lifecycle = lifecycle.clone();
         drop(lifecycle.spawn_until_draining(async move {
-            refresher.run().await;
+            refresher.run(worker_lifecycle).await;
         }));
         true
     }
 
-    async fn run(self: Arc<Self>) {
+    async fn run(self: Arc<Self>, lifecycle: ProcessLifecycle) {
         let mut revisions = self.publisher.subscribe_revision();
         loop {
             let outcome = self.scan_due_accounts().await;
+            if outcome.activity {
+                lifecycle.record_activity();
+            }
             let latest_revision = *revisions.borrow_and_update();
             if outcome.requires_immediate_rescan(latest_revision) {
                 continue;
@@ -114,6 +118,7 @@ impl OAuthRefresher {
         self.retain_active_refresh_state(&active_versions);
         drop(snapshot);
 
+        let activity = !due.is_empty();
         let mut prepared_segments = stream::iter(due)
             .map(|(id, token_version)| async move {
                 (
@@ -134,6 +139,7 @@ impl OAuthRefresher {
             started_at,
             published: publications.latest,
             external_revision_interleaved: publications.external_revision_interleaved,
+            activity,
         }
     }
 
@@ -226,6 +232,7 @@ pub(super) struct ScanOutcome {
     started_at: ConfigRevision,
     published: Option<ConfigRevision>,
     external_revision_interleaved: bool,
+    activity: bool,
 }
 
 impl ScanOutcome {
@@ -274,6 +281,7 @@ mod scan_outcome_tests {
             started_at,
             published: publications.latest,
             external_revision_interleaved: publications.external_revision_interleaved,
+            activity: false,
         };
 
         assert!(!outcome.requires_immediate_rescan(revision(12)));
@@ -290,6 +298,7 @@ mod scan_outcome_tests {
             started_at,
             published: publications.latest,
             external_revision_interleaved: publications.external_revision_interleaved,
+            activity: false,
         };
 
         assert!(outcome.requires_immediate_rescan(revision(23)));

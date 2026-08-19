@@ -99,34 +99,20 @@ impl RawJsonPayload {
         Ok(encoded.freeze().into_bytes())
     }
 
-    pub(crate) fn replace_raw_field(
+    pub(crate) fn rewrite_raw_field<F>(
         &mut self,
         field: &str,
-        replacement: &[u8],
-    ) -> Result<(), ProtocolError> {
+        rewrite: F,
+    ) -> Result<(), ProtocolError>
+    where
+        F: FnOnce(&[u8], &mut PayloadBuffer) -> Result<(), ProtocolError>,
+    {
         if !self.fields.contains_key(field) {
             return Ok(());
         }
-        let mut encoded = output_buffer(self.body.len().max(replacement.len()))?;
-        encoded.extend_from_slice(b"{").map_err(buffer_error)?;
-        let mut first = true;
-        let mut fields = BTreeMap::new();
-        for (name, range) in &self.fields {
-            write_field_prefix(&mut encoded, &mut first, name)?;
-            let start = encoded.len();
-            if name == field {
-                encoded
-                    .extend_from_slice(replacement)
-                    .map_err(buffer_error)?;
-            } else {
-                encoded
-                    .extend_from_slice(&self.body[range.clone()])
-                    .map_err(buffer_error)?;
-            }
-            fields.insert(name.clone(), start..encoded.len());
-        }
-        encoded.extend_from_slice(b"}").map_err(buffer_error)?;
-        self.body = encoded.freeze().into_bytes();
+
+        let (body, fields) = rebuild_raw_field(&self.body, &self.fields, field, rewrite)?;
+        self.body = body;
         self.fields = fields;
         self.has_duplicate_fields = false;
         Ok(())
@@ -146,6 +132,37 @@ impl fmt::Debug for RawJsonPayload {
             .field("has_duplicate_fields", &self.has_duplicate_fields)
             .finish()
     }
+}
+
+fn rebuild_raw_field<F>(
+    body: &Bytes,
+    fields: &BTreeMap<String, Range<usize>>,
+    field: &str,
+    rewrite: F,
+) -> Result<(Bytes, BTreeMap<String, Range<usize>>), ProtocolError>
+where
+    F: FnOnce(&[u8], &mut PayloadBuffer) -> Result<(), ProtocolError>,
+{
+    let mut encoded = output_buffer(body.len())?;
+    encoded.extend_from_slice(b"{").map_err(buffer_error)?;
+    let mut first = true;
+    let mut rewritten_fields = BTreeMap::new();
+    let mut rewrite = Some(rewrite);
+    for (name, range) in fields {
+        write_field_prefix(&mut encoded, &mut first, name)?;
+        let start = encoded.len();
+        if name == field {
+            let rewrite = rewrite.take().expect("target raw field exists");
+            rewrite(&body[range.clone()], &mut encoded)?;
+        } else {
+            encoded
+                .extend_from_slice(&body[range.clone()])
+                .map_err(buffer_error)?;
+        }
+        rewritten_fields.insert(name.clone(), start..encoded.len());
+    }
+    encoded.extend_from_slice(b"}").map_err(buffer_error)?;
+    Ok((encoded.freeze().into_bytes(), rewritten_fields))
 }
 
 pub(crate) fn borrowed_object(bytes: &[u8]) -> serde_json::Result<BTreeMap<String, &RawValue>> {
