@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 
 import type { OAuthQuotaEstimate } from "../api/oauth-quota-contracts";
@@ -30,6 +30,7 @@ test("shows direct local usage while capacity is waiting for enough official usa
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("本地已用 $0.40 · 总量暂无");
+  expect(tooltip).not.toHaveTextContent("USD 等值");
   expect(tooltip).not.toHaveTextContent("RequestLog");
   expect(tooltip).not.toHaveTextContent("官方使用率");
 });
@@ -51,6 +52,8 @@ test("statistics expose the stable capacity calculation on hover", () => {
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("剩余 $0.60");
   expect(tooltip).toHaveTextContent("25 Credits = $1");
+  expect(within(tooltip).queryByText("$0.40/$1.00")).not.toBeInTheDocument();
+  expect(tooltip).not.toHaveTextContent("USD 等值");
   expect(tooltip).not.toHaveTextContent("RequestLog");
   expect(tooltip).not.toHaveTextContent("比例推算");
 });

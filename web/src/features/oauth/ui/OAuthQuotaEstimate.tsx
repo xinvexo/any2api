@@ -117,20 +117,12 @@ function QuotaTooltip({
         <p className="mt-1 text-secondary">暂无</p>
       ) : (
         <>
-          <p className="mt-1 flex items-baseline justify-between gap-3 tabular-nums">
-            <span className="text-[13px] font-semibold tracking-tight text-primary">
-              {formatEstimateValue(used, rateCard)}/{capacity === null ? "暂无" : formatEstimateValue(capacity, rateCard)}
-            </span>
-            <span className="shrink-0 text-[10px] text-tertiary">
-              {rateCard ? "USD 等值" : "Credits"}
-            </span>
-          </p>
           {capacity === null ? (
-            <p className="mt-0.5 tabular-nums text-secondary">
+            <p className="mt-1 tabular-nums text-secondary">
               本地已用 {formatEstimateValue(used, rateCard)} · 总量暂无
             </p>
           ) : (
-            <p className="mt-0.5 tabular-nums text-secondary">
+            <p className="mt-1 tabular-nums text-secondary">
               已用 {formatEstimateValue(used, rateCard)} · 剩余 {remaining === null ? "暂无" : formatEstimateValue(remaining, rateCard)} · 总量 {formatEstimateValue(capacity, rateCard)}
             </p>
           )}
