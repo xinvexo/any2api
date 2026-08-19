@@ -20,7 +20,7 @@ import {
 
 const ROW_HEIGHT = 44;
 const gridClass =
-  "grid grid-cols-[8.5rem_7rem_3.5rem_minmax(13rem,1fr)_3rem_4.5rem_4rem_4.5rem_4rem] items-center gap-2 px-2";
+  "grid grid-cols-[7rem_9rem_3.5rem_minmax(13rem,1fr)_3rem_4.5rem_4rem_4.5rem_4rem] items-center gap-2 px-2";
 
 interface SystemLogVirtualTableProps {
   items: readonly SystemLog[];
@@ -167,7 +167,7 @@ function SystemLogRow({
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
     >
       <Cell className="tabular-nums text-secondary">{formatSystemLogTime(log.startedAtMs)}</Cell>
-      <Cell className="font-mono text-secondary">{log.clientIp ?? "未知"}</Cell>
+      <Cell className="font-mono text-secondary" title={log.clientIp ?? "未知"}>{log.clientIp ?? "未知"}</Cell>
       <Cell className="font-mono font-semibold">{log.method}</Cell>
       <Cell className="font-mono" title={log.uri}>{log.uri}</Cell>
       <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</Cell>

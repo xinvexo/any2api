@@ -25,6 +25,8 @@ test("renders only the visible system log rows", async () => {
   const viewport = screen.getByRole("rowgroup", { name: "系统日志表格数据" });
   expect(within(viewport).getByText("/system/1")).toBeInTheDocument();
   expect(within(viewport).queryByText("/system/200")).not.toBeInTheDocument();
+  expect(within(viewport).getAllByTitle("255.255.255.255")[0])
+    .toHaveTextContent("255.255.255.255");
   expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
 
   const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
@@ -46,7 +48,7 @@ function systemLog(index: number): SystemLog {
     requestId: `request-${index}`,
     startedAtMs: 1_700_000_000_000 + index,
     configRevision: 1,
-    clientIp: "127.0.0.1",
+    clientIp: "255.255.255.255",
     method: "GET",
     path: `/system/${index}`,
     uri: `/system/${index}`,
