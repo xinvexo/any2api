@@ -278,8 +278,8 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 ### 4.12 跨平台临时内存生命周期
 
 长期运行进程的 RSS 高水位不等于仍有同等数量的业务对象存活。公开请求、buffered 上游响应和 HTTP
-系统日志前缀会产生大块短命字节；这些对象即使已经 Drop，Linux glibc、macOS malloc zone 与 Windows
-进程堆仍可能因为 arena、size class 和碎片保留已释放页。数据面因此必须同时控制对象所有权和底层页的
+系统日志前缀会产生大块短命字节；这些对象即使已经 Drop，Rust 通用堆和 SQLite 等原生依赖使用的平台
+系统堆仍可能因为 arena、size class 和碎片保留已释放页。数据面因此必须同时控制对象所有权和底层页的
 归还路径，不能只以 Rust 值已经 Drop 推断 RSS 会回到冷启动值。
 
 - 公共请求多块聚合、入口 zstd 解压、Provider Endpoint Profile 正文规范化、Raw/结构化 JSON 最终编码、
@@ -304,18 +304,24 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
   Runtime；当前帧增量写入 `payload-buffer`，超过阈值后由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
+- 应用二进制使用 mimalloc 作为 Rust 全局分配器，不启用 `override`、`secure`、`no_thp` 等行为 feature，
+  也不依赖操作系统环境变量或服务器级 allocator 配置。该选择覆盖通过 Rust `GlobalAlloc` 产生的通用堆
+  分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；大块 payload 和 zstd workspace 仍按各自阈值
+  使用匿名映射。mimalloc 自行按 allocator 生命周期清理各线程 heap；`mi_collect` 只能收集调用线程的 heap，
+  不得从独立后台线程把它误用为全进程回收。
 - Composition Root 在发生过请求或受管后台活动且当前没有会产生大块瞬态分配的请求时，调用平台原生的
-  进程堆压力释放；OAuth Token/额度等后台 Worker 的活动必须推进同一活动 epoch，不能因没有公共请求而
-  跳过回收。触发使用进程内事件通知而不是固定周期轮询：无阻塞后台活动和最后一个回收阻塞 Guard 释放时唤醒
-  后台任务，后台任务以 30 秒冷却合并突发，并在实际调用前重新核对活动 epoch 与阻塞计数；不得在请求执行线程
-  内同步释放进程堆。停机活跃请求与内存回收阻塞请求必须是两个独立计数：普通 HTTP 请求默认在完整 Body
+  进程堆压力释放以覆盖仍使用系统分配器的原生依赖；OAuth Token/额度等后台 Worker 的活动必须推进同一
+  活动 epoch，不能因没有公共请求而跳过回收。触发使用进程内事件通知而不是固定周期轮询：无阻塞后台活动和
+  最后一个回收阻塞 Guard 释放时唤醒后台任务，后台任务以 30 秒冷却合并突发，并在实际调用前重新核对活动
+  epoch 与阻塞计数；不得在请求执行线程内同步释放进程堆。停机活跃请求与内存回收阻塞请求必须是两个独立
+  计数：普通 HTTP 请求默认在完整 Body
   生命周期内同时持有两者；公开流式请求在上游语义提交、重试状态和入口大块瞬态数据释放并把响应流交给 Server
   后，立即释放回收阻塞 Guard，但继续在完整 Body 生命周期内持有停机 Guard。统一管理员
   `/api/admin/events` SSE 同样只在 Handler 建立响应后释放回收阻塞 Guard，不能因长连接让空闲回收永久失效。
   该豁免只能由服务端可信响应类型显式标记，客户端 Header 或路由参数无权声明。Linux
   GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用
   `HeapSetInformation(NULL, HeapOptimizeResources, ...)` 并传入当前版本的初始化参数结构；不提供该能力的
-  平台保持安全 no-op。进程堆压力释放 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate；zstd
+  平台保持安全 no-op。平台进程堆压力释放 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate；zstd
   native workspace FFI 只允许存在于独立、可审计的 `zstd-workspace` crate；zstd 已观测的约 96 KiB 与
   2.4 MiB 解码 workspace 都使用匿名映射，因此该专用 allocator 的映射阈值为 `64 KiB`，不复用通用
   payload 的 `256 KiB` 阈值。其他 Workspace 继续禁止
@@ -329,9 +335,9 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
   回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
 
-该策略不替换系统分配器，也不承诺空闲 RSS 精确等于冷启动 RSS；连接池、运行时栈、代码页和仍被复用的
-小对象会形成稳定基线。目标是在 Linux、macOS、Windows 上让大块短命工作集具有确定的页归还路径，并在
-请求突发结束后回收通用堆能够安全释放的空页。
+该策略替换 Rust 全局分配器但不覆盖原生依赖的系统分配器，也不承诺空闲 RSS 精确等于冷启动 RSS；连接池、
+运行时栈、代码页和仍被复用的小对象会形成稳定基线。目标是在 Linux、macOS、Windows 上让大块短命工作集
+具有确定的页归还路径，并在请求突发结束后让 mimalloc 自身回收与平台系统堆压力释放各自处理其拥有的空页。
 
 ## 5. 总体架构
 

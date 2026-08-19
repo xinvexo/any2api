@@ -22,6 +22,7 @@ axum.workspace = true
 fs2.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+mimalloc.workspace = true
 secrecy.workspace = true
 time.workspace = true
 tokio.workspace = true
