@@ -52,6 +52,8 @@ test("shows resource and request load bands, then refreshes all overview queries
     "rounded-[14px]",
     "bg-surface-muted/35",
     "shadow-hairline",
+    "lg:col-span-2",
+    "lg:grid-cols-6",
   );
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();

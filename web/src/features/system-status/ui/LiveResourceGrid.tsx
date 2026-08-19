@@ -81,12 +81,11 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
           <OverviewMetricTile key={metric.label} {...metric} />
         ))}
       </div>
-      <MemoryOwnershipDetails ownership={resources?.ownership} />
     </section>
   );
 }
 
-function MemoryOwnershipDetails({
+export function MemoryOwnershipDetails({
   ownership,
 }: {
   ownership: OverviewResources["ownership"] | undefined;
@@ -137,7 +136,7 @@ function MemoryOwnershipDetails({
   ];
 
   return (
-    <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline sm:grid-cols-3">
+    <dl className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
       {details.map((detail) => (
         <div key={detail.label} className="min-w-0">
           <dt className="truncate text-[11px] leading-4 text-tertiary">{detail.label}</dt>
