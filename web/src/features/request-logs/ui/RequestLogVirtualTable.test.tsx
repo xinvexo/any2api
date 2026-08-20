@@ -72,6 +72,10 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(headers[11]).toHaveTextContent("输出");
   const activeCells = within(activeRow as HTMLElement).getAllByRole("cell");
   expect(activeCells).toHaveLength(13);
+  expect(activeCells[0]).not.toHaveTextContent(/^\d{4}\//);
+  expect(activeCells[1]).toHaveAttribute("title", active.clientIp);
+  expect(activeCells[1]).toHaveClass("break-all");
+  expect(activeCells[1]).not.toHaveClass("truncate");
   expect(within(activeCells[3] as HTMLElement).queryByText("流")).not.toBeInTheDocument();
   expect(
     within(activeCells[3] as HTMLElement).getByLabelText("Fast 模式"),
@@ -81,6 +85,10 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(activeCells[8]).toHaveTextContent("-");
   const completedCells = within(completedRow).getAllByRole("cell");
   expect(completedCells).toHaveLength(13);
+  expect(completedCells[0]).not.toHaveTextContent(/^\d{4}\//);
+  expect(completedCells[1]).toHaveAttribute("title", completed.clientIp);
+  expect(completedCells[1]).toHaveClass("break-all");
+  expect(completedCells[1]).not.toHaveClass("truncate");
   expect(within(completedCells[3] as HTMLElement).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
   expect(within(completedCells[4] as HTMLElement).getByLabelText("请求模式：流式")).toHaveTextContent("流");
   expect(completedCells[7]).toHaveTextContent("10 ms");

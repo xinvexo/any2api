@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   attemptResultLabel,
+  formatLogListTime,
   operationLabel,
   protocolLabel,
   resultBadgeLabel,
@@ -10,6 +11,12 @@ import {
   upstreamCredentialDisplay,
   upstreamSource,
 } from "./request-log-presentation";
+
+test("formats request-list time like the compact system log table", () => {
+  const localTime = new Date(2026, 7, 20, 15, 54, 34).getTime();
+
+  expect(formatLogListTime(localTime)).toBe("08/20 15:54:34");
+});
 
 test("labels OpenAI Images request logs", () => {
   expect(protocolLabel("openai_images")).toBe("Images");

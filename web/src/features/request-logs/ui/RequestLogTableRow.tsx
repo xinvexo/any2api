@@ -3,7 +3,7 @@ import { memo } from "react";
 import type { RequestLog } from "../api/request-log-contracts";
 import {
   formatDurationMs,
-  formatLogTime,
+  formatLogListTime,
   formatTokenCount,
   formatTps,
   isSuccessOutcome,
@@ -23,7 +23,7 @@ import { cn } from "@/shared/lib/cn";
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-2 " +
-  "[grid-template-columns:minmax(7.5rem,1.25fr)_minmax(6rem,0.85fr)_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
+  "[grid-template-columns:7rem_11rem_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
 
 interface RequestLogRowProps {
   log: RequestLog;
@@ -64,7 +64,7 @@ export const RequestLogCard = memo(function RequestLogCard({
           className="shrink-0 text-[11px] tabular-nums text-tertiary"
           dateTime={new Date(log.startedAtMs).toISOString()}
         >
-          {formatLogTime(log.startedAtMs)}
+          {formatLogListTime(log.startedAtMs)}
         </time>
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="min-w-0 truncate text-[13px] font-semibold text-primary">
@@ -104,10 +104,16 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
     <>
       <RequestLogTableCell className="tabular-nums text-secondary">
         <time className="block truncate" dateTime={new Date(log.startedAtMs).toISOString()}>
-          {formatLogTime(log.startedAtMs)}
+          {formatLogListTime(log.startedAtMs)}
         </time>
       </RequestLogTableCell>
-      <RequestLogTableCell className="tabular-nums text-secondary" title={log.clientIp}>{log.clientIp}</RequestLogTableCell>
+      <RequestLogTableCell
+        truncate={false}
+        className="break-all font-mono leading-4 tabular-nums text-secondary"
+        title={log.clientIp}
+      >
+        {log.clientIp}
+      </RequestLogTableCell>
       <RequestLogTableCell>
         {source.kind === "none" ? (
           <span className="text-tertiary">未选上游</span>
@@ -156,10 +162,12 @@ export function RequestLogTableCell({
   children,
   className,
   title,
+  truncate = true,
 }: {
   children: React.ReactNode;
   className?: string;
   title?: string;
+  truncate?: boolean;
 }) {
-  return <div role="cell" title={title} className={cn("min-w-0 truncate px-1 text-left", className)}>{children}</div>;
+  return <div role="cell" title={title} className={cn("min-w-0 px-1 text-left", truncate && "truncate", className)}>{children}</div>;
 }

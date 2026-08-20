@@ -5,6 +5,7 @@ import type {
   RequestLogOutcome,
   RequestLogProtocol,
 } from "../api/request-log-contracts";
+import { formatCompactDateTime } from "@/shared/lib/date-time";
 
 export type UpstreamSourceKind = "api_key" | "oauth" | "none";
 
@@ -211,6 +212,10 @@ export function formatLogTime(milliseconds: number) {
     second: "2-digit",
     hour12: false,
   }).format(milliseconds);
+}
+
+export function formatLogListTime(milliseconds: number) {
+  return formatCompactDateTime(milliseconds);
 }
 
 /** Prefer seconds for human scan, like the reference log table. */

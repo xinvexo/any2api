@@ -50,7 +50,7 @@ hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", 
 ipnet = "2.12.1"
 libmimalloc-sys = { version = "0.1.49", default-features = false, features = ["extended"] }
 memmap2 = "0.9.11"
-mimalloc = { version = "0.1.52", default-features = false }
+mimalloc = { version = "0.1.52", default-features = false, features = ["no_thp"] }
 multer = "3.1.0"
 proptest = { version = "1.8.0", default-features = false, features = ["std"] }
 rcgen = { version = "0.14.9", default-features = false, features = ["ring"] }

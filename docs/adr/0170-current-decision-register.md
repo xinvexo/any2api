@@ -59,10 +59,14 @@
   因此 payload 只在需要的新容量达到 `2 MiB` 后使用匿名映射，已经足够的 mimalloc capacity 不做无收益迁移。
   zstd 另按真实 allocation tier 决策：约 `95,984 B` 交给 mimalloc，streaming `2 MiB` window 对应的
   `2,490,432 B` workspace 继续 direct mmap；两者当前边界虽同为 `2 MiB`，但不共享策略常量。Rust
-  通用堆固定使用默认行为的 mimalloc，不保留系统分配器构建分支，不启用全局 C allocator
-  override、`no_thp` 或操作系统专用调参，避免把 SQLite 等原生依赖纳入未经验证的替换范围，也避免为了压低
-  RSS 数字牺牲吞吐。Tokio 调度与 Blocking Pool 线程显式声明为 mimalloc thread-pool thread；页由 mimalloc
-  的跨线程回收、默认 purge 和线程退出生命周期管理；应用不调用 `mi_collect`，避免把没有全局
+  通用堆固定使用 mimalloc，不保留系统分配器构建分支，也不启用全局 C allocator override，避免把 SQLite 等
+  原生依赖纳入未经验证的替换范围。Linux 现网验证表明，默认透明大页会把 mimalloc 稀疏使用的 arena 以大粒度
+  驻留并形成与存活对象无关的稳定 RSS；因此构建统一启用 `no_thp`，以普通页和默认 purge 换取单节点部署更可控
+  的常驻内存。当前 mimalloc v3 的该 feature 只移除主动大页建议，不能覆盖宿主机 `always` 策略，因此 Linux
+  二进制在 mimalloc 构造器之前同时固定 `allow_thp=false` 并执行 `PR_SET_THP_DISABLE`，Composition Root 再验证
+  内核调用；拒绝只在某台机器注入 allocator 环境变量，也拒绝把 supervisor 变成正确性的组成部分。该取舍接受
+  极端内存密集负载可能失去部分 TLB 收益，但不把未受控吞吐假设凌驾于已观测的驻留内存问题。Tokio 调度与 Blocking Pool 线程显式声明为
+  mimalloc thread-pool thread；页由 mimalloc 的跨线程回收、默认 purge 和线程退出生命周期管理；应用不调用 `mi_collect`，避免把没有全局
   完成语义的线程局部操作包装成进程级回收。拒绝后台强制收集、`force=true`、唤醒空闲线程和按服务器设置
   allocator 参数。总览不展示分配器内部分类；payload 不维护堆/映射/HTTP 捕获当前与峰值原子指标，遥测
   Writer 也只保留字节准入需要的私有总预留，不维护 queued/in-flight/reserved 三项 owned-byte 快照。

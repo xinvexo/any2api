@@ -1,16 +1,8 @@
 import type { SystemLog, SystemLogOutcome } from "../api/system-log-contracts";
-
-const dateTime = new Intl.DateTimeFormat("zh-CN", {
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
+import { formatCompactDateTime } from "@/shared/lib/date-time";
 
 export function formatSystemLogTime(value: number) {
-  return dateTime.format(new Date(value));
+  return formatCompactDateTime(value);
 }
 
 export function formatDuration(value: number) {

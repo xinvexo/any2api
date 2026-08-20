@@ -69,21 +69,21 @@ export function SystemLogManagement() {
 
   return (
     <div className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden" aria-busy={query.isFetching}>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
+      <header className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-secondary">
           <Toggle id="system-log-admin-operations" label="显示管理操作" checked={showAdminOperations} onChange={handleShowAdminOperationsChange} />
           {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
         </div>
         <div className="flex items-center gap-0.5">
-          <Button size="sm" variant="ghost" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage} title="刷新">
+          <Button size="lg" variant="ghost" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-8 md:min-h-8 md:w-auto md:rounded-[7px] md:px-3.5" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage} title="刷新">
             <RefreshCw size={14} className={query.isFetching && !query.isFetchingNextPage ? "animate-spin" : undefined} />
             <span className="sr-only md:not-sr-only">刷新</span>
           </Button>
-          <Button size="sm" variant="danger" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5" disabled={clearMutation.isPending} onClick={() => setConfirmClear(true)} title="清空记录">
+          <Button size="lg" variant="danger" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-8 md:min-h-8 md:w-auto md:rounded-[7px] md:px-3.5" disabled={clearMutation.isPending} onClick={() => setConfirmClear(true)} title="清空记录">
             <Trash2 size={14} /><span className="sr-only md:not-sr-only">清空记录</span>
           </Button>
         </div>
-      </div>
+      </header>
 
       {query.isError && query.data ? <p className="shrink-0 border-b border-warning/30 py-3 text-[12px] text-warning" role="status">同步失败，当前显示最近一次有效数据</p> : null}
 

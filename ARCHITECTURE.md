@@ -305,10 +305,14 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
   Runtime；当前帧增量写入 `payload-buffer`，需要超过阈值的新容量时由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
-- 应用二进制固定使用 mimalloc 作为 Rust 全局分配器，不保留系统分配器构建分支，不启用 `override`、
-  `secure`、`no_thp` 等行为 feature，也不依赖操作系统环境变量或服务器级 allocator 配置。该选择覆盖通过
-  Rust `GlobalAlloc` 产生的通用堆分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；payload 在需要新容量且
-  目标小于 `2 MiB` 时使用 mimalloc，zstd workspace 则按自身实际分配档位独立选择存储。Composition Root 在创建 Tokio Runtime 时把调度线程和
+- 应用二进制固定使用 mimalloc 作为 Rust 全局分配器，不保留系统分配器构建分支，不启用 `override` 或
+  `secure`；构建固定启用 `no_thp`，阻止 mimalloc 在 Linux/Android 上为 arena 映射主动建议透明大页。Linux
+  二进制还必须在 mimalloc 进程构造器之前将其 `allow_thp` 固定为 false，并通过 `PR_SET_THP_DISABLE` 禁用本进程
+  透明大页，覆盖宿主机 `always` 策略；Composition Root 在应用初始化前再次验证内核调用，失败时启动失败，
+  不退回服务器环境变量或 supervisor 专用 allocator 配置。两层约束只改变透明大页准入，不改变普通页分配、
+  默认 purge、arena 虚拟地址预留或跨线程回收语义。该选择覆盖通过 Rust `GlobalAlloc`
+  产生的通用堆分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；payload 在需要新容量且目标小于
+  `2 MiB` 时使用 mimalloc，zstd workspace 则按自身实际分配档位独立选择存储。Composition Root 在创建 Tokio Runtime 时把调度线程和
   Blocking Pool 线程显式标记为 mimalloc thread-pool thread，使跨线程释放按线程池负载处理，避免任意任务
   所属关系让单个长期线程无限承担其他线程的回收。Blocking Pool 和调度线程都在创建时完成该标记；此后
   由 mimalloc 的跨线程回收、默认 purge 和线程退出生命周期管理各自的页。应用不调用 `mi_collect`，不唤醒

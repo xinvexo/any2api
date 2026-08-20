@@ -20,7 +20,7 @@ import {
 
 const ROW_HEIGHT = 44;
 const gridClass =
-  "grid grid-cols-[7rem_9rem_3.5rem_minmax(13rem,1fr)_3rem_4.5rem_4rem_4.5rem_4rem] items-center gap-2 px-2";
+  "grid w-full grid-cols-[7rem_11rem_3.5rem_minmax(13rem,1fr)_3rem_4.5rem_4rem_4.5rem_4rem] items-center gap-x-2 px-2";
 
 interface SystemLogVirtualTableProps {
   items: readonly SystemLog[];
@@ -95,11 +95,11 @@ export function SystemLogVirtualTable({
   };
 
   return (
-    <div className="hidden h-full min-h-0 overflow-x-auto md:block">
-      <div role="table" aria-label="系统日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[920px] flex-col">
+    <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
+      <div role="table" aria-label="系统日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[60rem] flex-col">
         <div role="rowgroup" aria-label="系统日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
           <div role="row" aria-rowindex={1} className={cn(gridClass, "text-[11px] font-medium text-tertiary")}>
-            <Header>时间</Header><Header>客户端</Header><Header>方法</Header><Header>请求 URI</Header><Header>状态</Header><Header>协议</Header><Header>耗时</Header><Header>响应</Header><Header>结果</Header>
+            <Header>时间</Header><Header>客户端 IP</Header><Header>方法</Header><Header>请求 URI</Header><Header>状态</Header><Header>协议</Header><Header>耗时</Header><Header>响应</Header><Header>结果</Header>
           </div>
         </div>
         <div
@@ -167,7 +167,13 @@ function SystemLogRow({
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
     >
       <Cell className="tabular-nums text-secondary">{formatSystemLogTime(log.startedAtMs)}</Cell>
-      <Cell className="font-mono text-secondary" title={log.clientIp ?? "未知"}>{log.clientIp ?? "未知"}</Cell>
+      <Cell
+        truncate={false}
+        className="break-all font-mono leading-4 text-secondary"
+        title={log.clientIp ?? "未知"}
+      >
+        {log.clientIp ?? "未知"}
+      </Cell>
       <Cell className="font-mono font-semibold">{log.method}</Cell>
       <Cell className="font-mono" title={log.uri}>{log.uri}</Cell>
       <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</Cell>
@@ -180,9 +186,19 @@ function SystemLogRow({
 }
 
 function Header({ children }: { children: ReactNode }) {
-  return <div role="columnheader" className="min-w-0 px-1 py-2 text-left">{children}</div>;
+  return <div role="columnheader" className="min-w-0 whitespace-nowrap px-1 py-2 text-left">{children}</div>;
 }
 
-function Cell({ children, className, title }: { children: ReactNode; className?: string; title?: string }) {
-  return <div role="cell" title={title} className={cn("min-w-0 truncate px-1", className)}>{children}</div>;
+function Cell({
+  children,
+  className,
+  title,
+  truncate = true,
+}: {
+  children: ReactNode;
+  className?: string;
+  title?: string;
+  truncate?: boolean;
+}) {
+  return <div role="cell" title={title} className={cn("min-w-0 px-1", truncate && "truncate", className)}>{children}</div>;
 }

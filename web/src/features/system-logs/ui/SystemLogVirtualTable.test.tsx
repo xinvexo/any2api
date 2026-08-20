@@ -23,10 +23,13 @@ test("renders only the visible system log rows", async () => {
   );
 
   const viewport = screen.getByRole("rowgroup", { name: "系统日志表格数据" });
+  expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
   expect(within(viewport).getByText("/system/1")).toBeInTheDocument();
   expect(within(viewport).queryByText("/system/200")).not.toBeInTheDocument();
-  expect(within(viewport).getAllByTitle("255.255.255.255")[0])
-    .toHaveTextContent("255.255.255.255");
+  const clientIp = within(viewport).getAllByTitle("2600:1900:4030:9fdd::")[0];
+  expect(clientIp).toHaveTextContent("2600:1900:4030:9fdd::");
+  expect(clientIp).toHaveClass("break-all");
+  expect(clientIp).not.toHaveClass("truncate");
   expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
 
   const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
@@ -48,7 +51,7 @@ function systemLog(index: number): SystemLog {
     requestId: `request-${index}`,
     startedAtMs: 1_700_000_000_000 + index,
     configRevision: 1,
-    clientIp: "255.255.255.255",
+    clientIp: "2600:1900:4030:9fdd::",
     method: "GET",
     path: `/system/${index}`,
     uri: `/system/${index}`,

@@ -3,7 +3,7 @@ import { memo } from "react";
 import type { ActiveRequestLog } from "../api/request-log-contracts";
 import {
   formatDurationMs,
-  formatLogTime,
+  formatLogListTime,
   processingTone,
   upstreamKindTone,
   upstreamSource,
@@ -33,7 +33,7 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
           className="shrink-0 text-[11px] tabular-nums text-tertiary"
           dateTime={new Date(log.startedAtMs).toISOString()}
         >
-          {formatLogTime(log.startedAtMs)}
+          {formatLogListTime(log.startedAtMs)}
         </time>
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="min-w-0 truncate text-[13px] font-semibold text-primary">
@@ -64,8 +64,14 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
   const model = log.publicModel?.trim() || "未解析模型";
   return (
     <>
-      <Cell className="tabular-nums text-secondary">{formatLogTime(log.startedAtMs)}</Cell>
-      <Cell className="tabular-nums text-secondary">{log.clientIp}</Cell>
+      <Cell className="tabular-nums text-secondary">{formatLogListTime(log.startedAtMs)}</Cell>
+      <Cell
+        truncate={false}
+        className="break-all font-mono leading-4 tabular-nums text-secondary"
+        title={log.clientIp}
+      >
+        {log.clientIp}
+      </Cell>
       <Cell>
         {source.kind === "none" ? (
           <span className="text-tertiary">未选上游</span>
