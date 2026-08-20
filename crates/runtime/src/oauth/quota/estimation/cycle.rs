@@ -32,7 +32,10 @@ pub(super) async fn measure(
         capacity_eligible,
     } = measurement;
     let previous = previous.filter(|state| state.matches_cycle(cycle));
-    if let Some(previous) = previous.filter(|state| state.credits_takeover) {
+    let credits_takeover = credits_takeover || previous.is_some_and(|state| state.credits_takeover);
+    if let Some(previous) = previous.filter(|state| state.credits_takeover)
+        && (previous.estimated_included_cost_nanos.is_some() || !capacity_eligible)
+    {
         return Ok(QuotaWindowState::measured(
             key,
             cycle,
@@ -61,6 +64,7 @@ pub(super) async fn measure(
             previous
                 .and_then(QuotaWindowState::capacity_cost_nanos)
                 .map(|capacity| capacity.min(local_cost_nanos))
+                .or_else(|| (local_cost_nanos > 0).then_some(local_cost_nanos))
         } else {
             None
         }

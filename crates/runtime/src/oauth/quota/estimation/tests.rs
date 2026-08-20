@@ -198,32 +198,47 @@ async fn credits_takeover_freezes_the_last_included_window_capacity() {
 }
 
 #[tokio::test]
-async fn credits_takeover_without_a_safe_baseline_stays_unknown() {
+async fn an_empty_takeover_marker_recovers_at_the_first_positive_observation() {
     let repository = std::sync::Arc::new(UsageRepository::default());
-    repository.set_cost(120.0);
     let estimator = OAuthQuotaEstimator::new(repository.clone());
 
-    let takeover = observe_usage(
+    let empty_takeover = observe_usage(
         &estimator,
         None,
         usage_with_credits(100.0, Some(RESET_AT)),
         1,
     )
     .await;
-    assert_eq!(takeover.estimates[0].estimated_used_credits, None);
-    assert_eq!(takeover.estimates[0].estimated_capacity_credits, None);
-    assert_eq!(takeover.estimates[0].estimated_remaining_credits, None);
+    assert_eq!(empty_takeover.estimates[0].estimated_used_credits, None);
+
+    repository.set_cost(120.0);
+    let takeover = observe(
+        &estimator,
+        Some(empty_takeover.state),
+        99.0,
+        Some(RESET_AT),
+        2,
+    )
+    .await;
+    assert_eq!(takeover.estimates[0].estimated_used_credits, Some(120.0));
+    assert_eq!(
+        takeover.estimates[0].estimated_capacity_credits,
+        Some(120.0)
+    );
+    assert_eq!(takeover.estimates[0].estimated_remaining_credits, Some(0.0));
 
     repository.set_cost(200.0);
     let later = observe_usage(
         &estimator,
         Some(takeover.state),
         usage_with_credits(100.0, Some(RESET_AT)),
-        2,
+        3,
     )
     .await;
-    assert_eq!(later.estimates[0].estimated_used_credits, None);
-    assert_eq!(repository.queries().len(), 1);
+    assert_eq!(later.estimates[0].estimated_used_credits, Some(120.0));
+    assert_eq!(later.estimates[0].estimated_capacity_credits, Some(120.0));
+    assert_eq!(later.estimates[0].estimated_remaining_credits, Some(0.0));
+    assert_eq!(repository.queries().len(), 2);
 }
 
 #[tokio::test]
