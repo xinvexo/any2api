@@ -1,9 +1,6 @@
 use sqlx::{AssertSqlSafe, Connection, SqliteConnection};
 
-use crate::{
-    gateway_api_key::GATEWAY_API_KEY_USAGE_SUMMARY_SQL,
-    request_log::UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL,
-};
+use crate::gateway_api_key::GATEWAY_API_KEY_USAGE_SUMMARY_SQL;
 
 use super::{DIRECT_PROXY_ID, foreign_key_violations, migrate_through, migration_versions};
 
@@ -26,6 +23,17 @@ const LEGACY_UPSTREAM_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS
      SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
      COUNT(*) AS total_requests, \
      SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
+const LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE credential_id IS NOT NULL GROUP BY credential_id \
+     UNION ALL \
+     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
      AS successful_requests \
      FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
 
@@ -62,7 +70,7 @@ async fn request_usage_index_migration_preserves_rows_and_covers_aggregate_queri
     );
     assert!(foreign_key_violations(&mut connection).await.is_empty());
     assert_index_columns(&mut connection).await;
-    assert_aggregate_results(&mut connection).await;
+    assert_aggregate_results(&mut connection, LEGACY_UPSTREAM_USAGE_SUMMARY_SQL).await;
     assert_covering_query_plans(
         &mut connection,
         LEGACY_UPSTREAM_USAGE_SUMMARY_SQL,
@@ -100,10 +108,14 @@ async fn final_outcome_index_migration_keeps_stream_failures_covering_and_failed
     );
     assert!(foreign_key_violations(&mut connection).await.is_empty());
     assert_final_outcome_index_columns(&mut connection).await;
-    assert_final_outcome_aggregate_results(&mut connection).await;
+    assert_final_outcome_aggregate_results(
+        &mut connection,
+        LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL,
+    )
+    .await;
     assert_covering_query_plans(
         &mut connection,
-        UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL,
+        LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL,
         GATEWAY_API_KEY_USAGE_SUMMARY_SQL,
     )
     .await;
@@ -241,12 +253,11 @@ async fn assert_final_outcome_index_columns(connection: &mut SqliteConnection) {
     );
 }
 
-async fn assert_aggregate_results(connection: &mut SqliteConnection) {
-    let upstream =
-        sqlx::query_as::<_, (String, String, i64, i64)>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
-            .fetch_all(&mut *connection)
-            .await
-            .expect("upstream aggregate");
+async fn assert_aggregate_results(connection: &mut SqliteConnection, upstream_sql: &'static str) {
+    let upstream = sqlx::query_as::<_, (String, String, i64, i64)>(upstream_sql)
+        .fetch_all(&mut *connection)
+        .await
+        .expect("upstream aggregate");
     assert_eq!(
         upstream,
         [
@@ -262,12 +273,14 @@ async fn assert_aggregate_results(connection: &mut SqliteConnection) {
     assert_eq!(gateway, [(GATEWAY_ID.into(), 4, 2)]);
 }
 
-async fn assert_final_outcome_aggregate_results(connection: &mut SqliteConnection) {
-    let upstream =
-        sqlx::query_as::<_, (String, String, i64, i64)>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
-            .fetch_all(&mut *connection)
-            .await
-            .expect("upstream aggregate");
+async fn assert_final_outcome_aggregate_results(
+    connection: &mut SqliteConnection,
+    upstream_sql: &'static str,
+) {
+    let upstream = sqlx::query_as::<_, (String, String, i64, i64)>(upstream_sql)
+        .fetch_all(&mut *connection)
+        .await
+        .expect("upstream aggregate");
     assert_eq!(
         upstream,
         [

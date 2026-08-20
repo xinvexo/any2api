@@ -4,7 +4,7 @@ use any2api_contract_tests::TestApplication;
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
     OAuthProxySelection, ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId,
-    RequestId, RequestLog,
+    RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog,
 };
 use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::{
@@ -383,9 +383,15 @@ fn oauth_request_log(
     started_at_ms: u64,
     status_code: u16,
 ) -> CompletedRequestLog {
+    let request_id = RequestId::new();
+    let outcome = if (200..300).contains(&status_code) {
+        RequestAttemptOutcome::Success
+    } else {
+        RequestAttemptOutcome::UpstreamError
+    };
     CompletedRequestLog {
         request: RequestLog {
-            request_id: RequestId::new(),
+            request_id,
             started_at_ms,
             client_ip: "127.0.0.1".parse().expect("loopback address"),
             config_revision: ConfigRevision::INITIAL,
@@ -401,7 +407,7 @@ fn oauth_request_log(
             status_code,
             error_class: None,
             error_message: None,
-            attempt_count: 0,
+            attempt_count: 1,
             latency_ms: 1,
             first_token_ms: None,
             input_tokens: None,
@@ -413,7 +419,26 @@ fn oauth_request_log(
             effective_speed_tier: None,
             is_stream: false,
         },
-        attempts: Vec::new(),
+        attempts: vec![RequestAttempt {
+            request_id,
+            attempt_no: 1,
+            route_target_id: None,
+            credential_id: None,
+            oauth_account_id: Some(account_id),
+            proxy_profile_id: Some(ProxyProfileId::DIRECT),
+            routing_mode: None,
+            started_at_ms,
+            duration_ms: 1,
+            retry_safety: None,
+            failure_scope: None,
+            retry_decision: None,
+            error_class: None,
+            error_message: None,
+            status_code: Some(status_code),
+            outcome,
+            transport: None,
+            stream_timing: None,
+        }],
         telemetry_position: None,
     }
 }

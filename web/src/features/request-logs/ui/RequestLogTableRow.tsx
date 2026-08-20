@@ -18,6 +18,7 @@ import {
   RequestModeBadges,
   RequestStreamBadge,
 } from "./RequestModeBadges";
+import { RequestAttemptMarker } from "./RequestAttemptMarker";
 import { cn } from "@/shared/lib/cn";
 
 export const REQUEST_LOG_ROW_HEIGHT = 44;
@@ -45,7 +46,7 @@ export const RequestLogCard = memo(function RequestLogCard({
         role="button"
         tabIndex={0}
         className={cn(
-          "focus-ring block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
+          "focus-ring relative block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
           selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
         )}
         aria-label={`查看请求 ${model}`}
@@ -59,7 +60,8 @@ export const RequestLogCard = memo(function RequestLogCard({
           }
         }}
       >
-      <div className="flex min-w-0 items-center gap-2">
+      <RequestAttemptMarker attemptCount={log.attemptCount} />
+      <div className="relative z-10 flex min-w-0 items-center gap-2">
         <time
           className="shrink-0 text-[11px] tabular-nums text-tertiary"
           dateTime={new Date(log.startedAtMs).toISOString()}
@@ -77,7 +79,7 @@ export const RequestLogCard = memo(function RequestLogCard({
         </span>
         <ResultBadge log={log} />
       </div>
-      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
+      <div className="relative z-10 mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
         <span className="shrink-0 tabular-nums">
           {formatDurationMs(log.latencyMs)}
         </span>
@@ -169,5 +171,5 @@ export function RequestLogTableCell({
   title?: string;
   truncate?: boolean;
 }) {
-  return <div role="cell" title={title} className={cn("min-w-0 px-1 text-left", truncate && "truncate", className)}>{children}</div>;
+  return <div role="cell" title={title} className={cn("relative z-10 min-w-0 px-1 text-left", truncate && "truncate", className)}>{children}</div>;
 }

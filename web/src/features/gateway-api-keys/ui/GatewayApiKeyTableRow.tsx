@@ -51,6 +51,7 @@ export function GatewayApiKeyTableRow({
         <RequestUsageStats
           className="mt-1.5 flex-wrap items-center gap-x-1.5 gap-y-2 sm:mt-0 sm:flex-nowrap sm:gap-2.5"
           label={apiKey.name}
+          unitLabel="客户端请求"
           usage={apiKey.usage}
         />
       </td>

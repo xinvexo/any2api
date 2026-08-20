@@ -13,6 +13,7 @@ import {
   RequestModeBadges,
   RequestStreamBadge,
 } from "./RequestModeBadges";
+import { RequestAttemptMarker } from "./RequestAttemptMarker";
 import { RequestLogTableCell as Cell } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
 
@@ -27,8 +28,9 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
 }: ActiveRequestLogRowProps) {
   const model = log.publicModel?.trim() || "未解析模型";
   return (
-    <article className="log-entry-processing min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
+    <article className="log-entry-processing relative min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
+      <RequestAttemptMarker attemptCount={log.attemptCount} />
+      <div className="relative z-10 flex min-w-0 items-center gap-2">
         <time
           className="shrink-0 text-[11px] tabular-nums text-tertiary"
           dateTime={new Date(log.startedAtMs).toISOString()}
@@ -46,7 +48,7 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
         </span>
         <StatusBadge />
       </div>
-      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
+      <div className="relative z-10 mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
         <span className="shrink-0 tabular-nums">{elapsed(log, nowMs)}</span>
         <span className="min-w-0 flex-1 truncate text-right">
           {upstreamSource(log).displayName}

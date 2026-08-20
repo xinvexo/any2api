@@ -127,6 +127,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         200,
     );
     failed_stream.request.error_class = Some(ErrorClass::Upstream);
+    failed_stream.attempts[0].outcome = RequestAttemptOutcome::StreamError;
     records.push(failed_stream);
     records.push(usage_record(
         RoutingCredentialId::oauth_account(oauth_account_id),
@@ -140,6 +141,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         now_bucket + 200,
         200,
     );
+    retried.attempts[0].attempt_no = 2;
     retried.attempts.push(RequestAttempt {
         request_id: retried.request.request_id,
         attempt_no: 1,
@@ -160,7 +162,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         transport: None,
         stream_timing: None,
     });
-    retried.request.attempt_count = 1;
+    retried.request.attempt_count = 2;
     records.push(retried);
     records.push(usage_record_without_upstream(now_bucket + 300));
     store
@@ -177,16 +179,16 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         .iter()
         .find(|summary| summary.id == RoutingCredentialId::provider_credential(credential_id))
         .expect("provider usage");
-    assert_eq!(provider.total_requests, 5);
+    assert_eq!(provider.total_requests, 6);
     assert_eq!(provider.successful_requests, 2);
-    assert_eq!(provider.failed_requests(), 3);
+    assert_eq!(provider.failed_requests(), 4);
     assert_eq!(provider.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     assert_eq!(
         provider.window_slots.last().map(|slot| slot.started_at_ms),
         Some(now_bucket)
     );
     let newest = provider.window_slots.last().expect("newest slot");
-    assert_eq!(newest.total_requests, 3);
+    assert_eq!(newest.total_requests, 4);
     assert_eq!(newest.successful_requests, 1);
     let previous = &provider.window_slots[REQUEST_USAGE_WINDOW_COUNT - 2];
     assert_eq!(previous.started_at_ms, now_bucket.saturating_sub(WINDOW_MS));
@@ -227,9 +229,16 @@ fn usage_record(
     started_at_ms: u64,
     status_code: u16,
 ) -> CompletedRequestLog {
+    let request_id = RequestId::new();
+    let id_for_attempt = id;
+    let outcome = if (200..300).contains(&status_code) {
+        RequestAttemptOutcome::Success
+    } else {
+        RequestAttemptOutcome::UpstreamError
+    };
     CompletedRequestLog {
         request: RequestLog {
-            request_id: RequestId::new(),
+            request_id,
             started_at_ms,
             client_ip: "127.0.0.1".parse().expect("client IP"),
             config_revision: ConfigRevision::INITIAL,
@@ -245,7 +254,7 @@ fn usage_record(
             status_code,
             error_class: None,
             error_message: None,
-            attempt_count: 0,
+            attempt_count: 1,
             latency_ms: 1,
             first_token_ms: None,
             input_tokens: None,
@@ -257,7 +266,26 @@ fn usage_record(
             effective_speed_tier: None,
             is_stream: false,
         },
-        attempts: Vec::new(),
+        attempts: vec![RequestAttempt {
+            request_id,
+            attempt_no: 1,
+            route_target_id: None,
+            credential_id: id_for_attempt.provider_credential_id(),
+            oauth_account_id: id_for_attempt.oauth_account_id(),
+            proxy_profile_id: Some(ProxyProfileId::DIRECT),
+            routing_mode: None,
+            started_at_ms,
+            duration_ms: 1,
+            retry_safety: None,
+            failure_scope: None,
+            retry_decision: None,
+            error_class: None,
+            error_message: None,
+            status_code: Some(status_code),
+            outcome,
+            transport: None,
+            stream_timing: None,
+        }],
         telemetry_position: None,
     }
 }
@@ -271,5 +299,7 @@ fn usage_record_without_upstream(started_at_ms: u64) -> CompletedRequestLog {
     );
     record.request.provider_endpoint_id = None;
     record.request.credential_id = None;
+    record.request.attempt_count = 0;
+    record.attempts.clear();
     record
 }

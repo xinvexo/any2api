@@ -26,10 +26,12 @@ export function RequestUsageStats({
   label,
   usage,
   className,
+  unitLabel = "请求",
 }: {
   label: string;
   usage: RequestUsage;
   className?: string;
+  unitLabel?: string;
 }) {
   const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -62,6 +64,7 @@ export function RequestUsageStats({
       className={cn("flex min-w-0 max-w-full items-center gap-2.5", className)}
     >
       <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
+        <span className="sr-only">统计单位：{unitLabel}</span>
         <span className="font-medium text-[#1fa382] dark:text-[#24c19a]">
           成功 {formatCount(usage.successfulRequests)}
         </span>
@@ -73,7 +76,7 @@ export function RequestUsageStats({
       <div
         className="flex h-[14px] w-full min-w-[9rem] max-w-[16rem] flex-1 items-stretch gap-[2px]"
         role="group"
-        aria-label={`${label} 近 1 小时，每格 ${usage.windowMinutes} 分钟：${outcomeSummary || "暂无调用"}`}
+        aria-label={`${label}近 1 小时${unitLabel}，每格 ${usage.windowMinutes} 分钟：${outcomeSummary || "暂无调用"}`}
         onMouseLeave={() => setHover(null)}
       >
         {usage.windowSlots.map((slot, index) => {

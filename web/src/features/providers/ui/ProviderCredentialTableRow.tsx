@@ -74,7 +74,7 @@ export function ProviderCredentialTableRow({
           </div>
 
           <div className="w-full min-w-0 sm:w-72 sm:shrink-0">
-            <RequestUsageStats label={credential.label} usage={credential.usage} />
+            <RequestUsageStats label={credential.label} unitLabel="上游尝试" usage={credential.usage} />
           </div>
 
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-0.5 sm:shrink-0">
@@ -120,7 +120,7 @@ export function ProviderCredentialTableRow({
           <p className="text-[11px] tabular-nums text-secondary">
             处理中 {credential.runtime.inFlight}
           </p>
-          <RequestUsageStats label={credential.label} usage={credential.usage} />
+          <RequestUsageStats label={credential.label} unitLabel="上游尝试" usage={credential.usage} />
         </div>
       </td>
       <td className="py-2 pl-3 align-middle">

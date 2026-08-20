@@ -1,7 +1,7 @@
 # any2api 架构基线
 
 > 状态：Current<br>
-> 版本：1.6<br>
+> 版本：1.7<br>
 > 最后更新：2026-08-20<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
@@ -61,7 +61,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均只展示最近 3 天，并以 `(started_at_ms, request_id)` 头部锚点和排他边界做单向 Keyset 连续读取；管理 API 每批最多返回 100 条摘要及可选 `next_cursor`/`has_more`，不再返回页码、页大小、精确总数或执行任何 OFFSET 跳页。系统日志列表提供默认开启的“显示管理操作”查询开关；关闭时服务端从锚点和每个游标批次中统一排除 `/api/admin` 及其子路径、`/assets/*` 编译资源和管理 Web 的固定根资源，且筛选状态必须进入 Cursor 作用域。该开关是每个浏览器独立、使用带版本 `localStorage` key 持久化的非敏感界面偏好，只改变查询视图，不改变日志采集、保留或清理。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知；请求日志与系统日志页面在已认证且挂载时始终订阅统一 SSE，不提供系统日志自动刷新开关或对应浏览器偏好。Web 把约 100 ms 内的事件合并并单飞执行 HTTP 追赶，从最新锚点沿 Cursor 读取到已知持久化 ID 或 3000 条缓存边界，断线重连依靠服务端立即发送当前 epoch 恢复一致。浏览历史时不改写可见链、不显示新日志计数横幅；固定右下角“回到顶部”执行待追赶同步并回到最新。固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
-24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。调用分析同时按所选范围展示 Prompt Cache 命中率，固定以 RequestLog 的 `cache_read_tokens / input_tokens` 计算；单条缓存读取最多按该条归一化输入量计入，没有输入 Token 时显示未知，缓存读取不能再次计入 Token 总量。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。总览当前状态通过已认证的统一 `/api/admin/events` SSE 获取：服务端一个共享 sampler 每 2 秒构建并广播最新资源/运行态快照，浏览器管理员壳只创建一个 EventSource 并向各视图分发。断线保留最近快照并标示 stale；连接存在但 7 秒未收到 fresh snapshot 时同样标示 stale；重连立即以最新快照恢复，session 失效时停止重连。历史调用统计继续通过 HTTP 按当前范围每 60 秒刷新，实时事件不得触发统计重算。scheduler epoch、遥测丢弃数、Transport Client 缓存条目与命中等运行诊断字段保留在受认证 API 中但不得占据总览视觉空间；它们与 Prompt Cache Token 命中率不是同一口径。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
+24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。总览的“请求数/成功率/Token”严格按一条客户端逻辑请求（一个 RequestLog）统计，不把重试中的 RequestAttempt 重复计入。调用分析同时按所选范围展示 Prompt Cache 命中率，固定以 RequestLog 的 `cache_read_tokens / input_tokens` 计算；单条缓存读取最多按该条归一化输入量计入，没有输入 Token 时显示未知，缓存读取不能再次计入 Token 总量。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。总览当前状态通过已认证的统一 `/api/admin/events` SSE 获取：服务端一个共享 sampler 每 2 秒构建并广播最新资源/运行态快照，浏览器管理员壳只创建一个 EventSource 并向各视图分发。断线保留最近快照并标示 stale；连接存在但 7 秒未收到 fresh snapshot 时同样标示 stale；重连立即以最新快照恢复，session 失效时停止重连。历史调用统计继续通过 HTTP 按当前范围每 60 秒刷新，实时事件不得触发统计重算。scheduler epoch、遥测丢弃数、Transport Client 缓存条目与命中等运行诊断字段保留在受认证 API 中但不得占据总览视觉空间；它们与 Prompt Cache Token 命中率不是同一口径。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流通过根级 `pnpm package` 生成发行归档，并在归档前执行二进制 `--version` 精确核对输入。首版官方 Release 只发布 Linux AMD64 GNU 归档及其 SHA-256 文件。
@@ -1176,7 +1176,7 @@ revision、Gateway Key、协议与操作；请求解码和每次开始 Attempt �
 精确模型和 Gateway Key 筛选同时作用于活动投影；任何 `outcome=success|failed|cancelled` 筛选都只看
 最终日志并隐藏活动项。带 Cursor 的历史读取不返回活动项。
 
-管理 Web 的请求日志详情抽屉按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。普通 Web 不再另设与 Attempt 重复的请求级错误卡片；时间线必须在对应 Attempt 内展示尝试序号、HTTP 状态、耗时、面向操作员的上游来源、出口代理和真实错误正文。Provider API Key 来源必须组合 Provider Endpoint 名称与 Credential 标签，OAuth 来源显示账号；最终 Attempt 自身缺少错误正文时，才使用请求级错误作为回退，没有 Attempt 的本地失败则在时间线空状态中展示该错误。普通 Web 不展示 Route Target、负载均衡/失败决策或 Transport 实现诊断。最终请求汇总使用同一上游来源口径。列表行不得内联展开；桌面行与移动卡片都只在双击时打开右侧 Drawer/窄屏 Sheet，单击保留文本选择，键盘 Enter/Space 仍可打开。单条详情只在选择后按需读取并使用短生命周期缓存。
+管理 Web 的请求日志详情抽屉按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。普通 Web 不再另设与 Attempt 重复的请求级错误卡片；时间线必须在对应 Attempt 内展示尝试序号、HTTP 状态、耗时、面向操作员的上游来源、出口代理和真实错误正文。Provider API Key 来源必须组合 Provider Endpoint 名称与 Credential 标签，OAuth 来源显示账号；最终 Attempt 自身缺少错误正文时，才使用请求级错误作为回退，没有 Attempt 的本地失败则在时间线空状态中展示该错误。普通 Web 不展示 Route Target、负载均衡/失败决策或 Transport 实现诊断。最终请求汇总使用同一上游来源口径。列表摘要对 `attempt_count > 1` 的请求在行最左侧背景显示带淡红色圆弧收尾的重试标记，不增设字段列或文字徽标；单次请求不显示，标记只提供包含真实次数的无障碍文本，不能只靠颜色表达，也不在悬停时弹出额外数据。桌面行与移动卡片都只在双击时打开右侧 Drawer/窄屏 Sheet，单击保留文本选择，键盘 Enter/Space 仍可打开。单条详情只在选择后按需读取并使用短生命周期缓存。
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
@@ -2385,9 +2385,9 @@ RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程
 代理密码、URL 或原始响应正文。它们只用于已认证的请求详情与验证，不参与重启后的任何运行态恢复。
 完整候选路径与故障归因
 
-管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近 1 小时固定时间桶。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
+管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总逻辑请求数、成功数、失败数和最近 1 小时固定时间桶。Gateway API Key 统计只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
 
-同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，只有 2xx 且 `error_class IS NULL` 计成功，其余状态、流式失败与取消计失败；Gateway API Key、Provider API Key 和 OAuthAccount 使用同一固定时间条带契约：最近 1 小时、30 个按时间升序排列的 2 分钟桶，空桶保留为零。重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。三类统计同时保留、独立查询，累计总数均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。累计汇总必须直接扫描按凭据 ID 排序且包含 `status_code` 与 `error_class` 的覆盖索引；Provider API Key 与 OAuthAccount 在各自互斥分支内完成聚合后再 `UNION ALL`，禁止先把两份原始行合并后外层分组造成重复表扫描和临时 B 树。该优化不得以永久计数器或把累计值缩窄为一小时时间条带为代价。
+上游凭据统计必须按 `request_attempts` 的每一条 Attempt 聚合，而不是按最终 RequestLog 的来源聚合：Provider API Key 使用 Attempt 的 `credential_id`，OAuthAccount 使用 Attempt 的 `oauth_account_id`。每条已持久化 Attempt 都只归入它实际尝试的目标一次；Attempt 的 `outcome = success` 且 HTTP 状态为 2xx 才计成功，其余 Attempt（包括失败、取消、传输或本地失败）计失败。因此一个请求依次尝试 key1、key2、key3 时，三把凭据各自都得到一条调用结果；若 key3 最终成功，前两把各记失败、key3 记成功。上游凭据统计与 Gateway API Key/总览的逻辑请求统计使用同一固定时间条带契约：最近 1 小时、30 个按时间升序排列的 2 分钟桶，空桶保留为零。累计汇总必须直接扫描按来源 ID、Attempt 开始时间、结果和状态组成的覆盖索引；Provider API Key 与 OAuthAccount 在各自互斥分支内完成聚合后再 `UNION ALL`，禁止先把两份原始行合并后外层分组造成重复表扫描和临时 B 树。该优化不得以永久计数器或把累计值缩窄为一小时时间条带为代价。
 
 ## 15. 流式响应状态机
 
@@ -3218,7 +3218,7 @@ Provider Driver 定义的模型目录，展示可搜索的模型多选列表。�
 
 Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、当前 60 秒已用、`in_flight`、有限运行状态、启用状态、指纹和 API Key 可选尾号，不显示配置版本，也不显示或导出明文 Secret。
 
-每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定时间条带；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。时间条带按 2 分钟分桶，鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数。
+每把 Provider API Key 同时显示当前 RequestLog 保留窗口内全部 `RequestAttempt` 的上游尝试总数、成功数、失败数，以及最近 1 小时的固定时间条带；每次换凭据或同号重试都在实际 Attempt 所属凭据块中留下结果，不把最终 RequestLog 的来源复制为额外调用。这些本地观测不读取或展示 Secret，不参与调度、额度或计费。时间条带按 Attempt 的 `started_at_ms` 以 2 分钟分桶，鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数。
 
 ### 19.2.1 路由检查
 
@@ -3242,7 +3242,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示真实数据面耗尽响应中经过校验的 `actual/limit`，没有该证据时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 卡片展示当前 `token_version` 最近一次 Token 刷新失败的触发来源、阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间与是否需要重新授权；成功换代或重新授权后该提示自动消失，页面不得展示原始上游正文或任何 Token；
-- 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
+- 每个 OAuthAccount 显示当前 RequestLog 保留窗口内全部 `RequestAttempt` 的上游尝试总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；每次换账号或同号重试都在实际 Attempt 所属账号块中留下结果。鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；
 - session ID、state、authorization code、device code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage；Grok user code 与验证地址只保留在当前组件内存。
@@ -3597,6 +3597,8 @@ HttpAccessLog Completion = Body EOF / Error / Drop Exactly Once
 System Log Clear = Ordered Telemetry Command + Clear Before Ack
 
 Overview Load = Process/Host Resources + Active Upstream + Queue + 60s RPM + Pool Clients
+Gateway/Overview History = Logical RequestLog Counts
+Provider/OAuth Usage = Per-RequestAttempt Counts (each attempted credential/account)
 Overview Resource Sampling = In-Memory RuntimeRegistry + Lifecycle-Tracked Blocking Task + No Persistence
 Overview Resource API = Authenticated `/api/admin/overview/resources` + Stable 503 On Sampling Failure
 

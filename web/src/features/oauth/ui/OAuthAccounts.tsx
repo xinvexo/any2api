@@ -256,7 +256,7 @@ function OAuthAccountItem({
           ) : null}
           {!reauthorizationRequired ? (
             <>
-              <RequestUsageStats label={account.label} usage={account.usage} />
+              <RequestUsageStats label={account.label} unitLabel="上游尝试" usage={account.usage} />
               <OAuthQuotaPanel
                 accountId={account.id}
                 accountLabel={account.label}

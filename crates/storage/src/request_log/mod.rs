@@ -22,8 +22,6 @@ pub use overview::{
     RequestLogOverviewTotals,
 };
 pub use repository::RequestLogRepository;
-#[cfg(test)]
-pub(crate) use usage::UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL;
 pub use usage::{UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary};
 pub use usage_window::{
     REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,

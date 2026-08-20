@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use any2api_domain::{CredentialId, OAuthAccountId, RoutingCredentialId};
 use async_trait::async_trait;
-use sqlx::{AssertSqlSafe, FromRow};
+use sqlx::FromRow;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
@@ -13,15 +13,33 @@ use super::usage_window::{
 
 pub(crate) const UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
      COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
+     SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
      AS successful_requests \
-     FROM request_logs WHERE credential_id IS NOT NULL GROUP BY credential_id \
+     FROM request_attempts WHERE credential_id IS NOT NULL GROUP BY credential_id \
      UNION ALL \
      SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
      COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
+     SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
      AS successful_requests \
-     FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
+     FROM request_attempts WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
+
+pub(crate) const UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
+            (started_at_ms / ?) * ? AS bucket_start_ms, \
+            COUNT(*) AS total_requests, \
+            SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+            AS successful_requests \
+     FROM request_attempts \
+     WHERE credential_id IS NOT NULL AND started_at_ms >= ? \
+     GROUP BY credential_id, bucket_start_ms \
+     UNION ALL \
+     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
+            (started_at_ms / ?) * ? AS bucket_start_ms, \
+            COUNT(*) AS total_requests, \
+            SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+            AS successful_requests \
+     FROM request_attempts \
+     WHERE oauth_account_id IS NOT NULL AND started_at_ms >= ? \
+     GROUP BY oauth_account_id, bucket_start_ms";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpstreamCredentialUsageSummary {
@@ -57,22 +75,20 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
             sqlx::query_as::<_, UpstreamUsageRow>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
                 .fetch_all(&mut *transaction)
                 .await?;
-        let slot_rows = sqlx::query_as::<_, UpstreamWindowSlotRow>(AssertSqlSafe(format!(
-            "{} SELECT source, upstream_id, \
-             (started_at_ms / ?) * ? AS bucket_start_ms, \
-             COUNT(*) AS total_requests, \
-             SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
-             AS successful_requests \
-             FROM upstream_requests \
-             WHERE started_at_ms >= ? \
-             GROUP BY source, upstream_id, bucket_start_ms",
-            upstream_requests_cte()
-        )))
-        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
-        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
-        .bind(i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?)
-        .fetch_all(&mut *transaction)
-        .await?;
+        let window_ms =
+            i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?;
+        let range_start_ms =
+            i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?;
+        let slot_rows =
+            sqlx::query_as::<_, UpstreamWindowSlotRow>(UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL)
+                .bind(window_ms)
+                .bind(window_ms)
+                .bind(range_start_ms)
+                .bind(window_ms)
+                .bind(window_ms)
+                .bind(range_start_ms)
+                .fetch_all(&mut *transaction)
+                .await?;
         transaction.commit().await?;
 
         let mut slots_by_id: HashMap<RoutingCredentialId, HashMap<u64, (u64, u64)>> =
@@ -110,15 +126,6 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
             })
             .collect()
     }
-}
-
-fn upstream_requests_cte() -> &'static str {
-    "WITH upstream_requests AS ( \
-     SELECT 'provider_credential' AS source, credential_id AS upstream_id, status_code, error_class, \
-            started_at_ms, request_id FROM request_logs WHERE credential_id IS NOT NULL \
-     UNION ALL \
-     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, status_code, error_class, \
-            started_at_ms, request_id FROM request_logs WHERE oauth_account_id IS NOT NULL)"
 }
 
 #[derive(FromRow)]

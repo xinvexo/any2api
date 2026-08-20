@@ -122,6 +122,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (38, "correct request log quota tiers".to_owned()),
             (39, "stabilize oauth quota identity".to_owned()),
             (40, "freeze codex quota before purchased credits".to_owned()),
+            (41, "optimize request attempt usage aggregates".to_owned()),
         ]
     );
 

@@ -9,6 +9,7 @@ import {
   type RequestLogFeedItem,
 } from "../model/request-log-feed";
 import { ActiveRequestLogTableCells } from "./ActiveRequestLogRow";
+import { RequestAttemptMarker } from "./RequestAttemptMarker";
 import {
   REQUEST_LOG_ROW_HEIGHT,
   RequestLogTableCells,
@@ -189,7 +190,7 @@ function RequestLogFeedTableRow({
       title={active ? undefined : "双击查看详情"}
       className={cn(
         requestLogGridClass,
-        "compact-row-surface h-11 rounded-[8px] text-[12px]",
+        "compact-row-surface relative h-11 rounded-[8px] text-[12px]",
         (active || settling) && "log-entry-surface-processing",
         active
           ? undefined
@@ -205,6 +206,7 @@ function RequestLogFeedTableRow({
         }
       }}
     >
+      <RequestAttemptMarker attemptCount={item.attemptCount} />
       {isActiveRequestLog(item) ? (
         <ActiveRequestLogTableCells log={item} nowMs={nowMs} />
       ) : (
