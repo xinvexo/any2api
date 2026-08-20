@@ -11,6 +11,7 @@ import { useProviderCredentialModelSelection } from "../model/use-provider-crede
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError, FormNotice } from "@/shared/ui/form-field";
+import { cn } from "@/shared/lib/cn";
 
 const EMPTY_MODELS: readonly string[] = [];
 
@@ -143,13 +144,13 @@ export function ProviderCredentialModels({
           onChange={(event) => selection.setQuery(event.target.value)}
         />
       </div>
-      <div className="max-h-[min(52vh,28rem)] overflow-y-auto rounded-[8px] border border-subtle">
+      <div className="max-h-[min(52vh,28rem)] overflow-y-auto pr-1" role="list" aria-label="模型选择">
         {selection.visibleModels.length === 0 ? (
-          <p className="p-6 text-center text-sm text-secondary">
+          <p className="rounded-[10px] bg-surface-muted/35 px-4 py-8 text-center text-sm text-secondary">
             {selection.query.trim() ? "没有匹配的模型" : "尚未发现或添加模型"}
           </p>
         ) : (
-          <div className="divide-y divide-subtle">
+          <div className="space-y-1.5">
             {selection.visibleModels.map((model) => {
               const saved = selection.savedUpstreamModels.has(model);
               const returned = discovered.includes(model);
@@ -158,9 +159,13 @@ export function ProviderCredentialModels({
               return (
                 <div
                   key={model}
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-surface-hover"
+                  role="listitem"
+                  className={cn(
+                    "group flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-[10px] px-3 py-2.5 text-sm transition-colors",
+                    checked ? "bg-accent/[0.07]" : "hover:bg-surface-muted/60",
+                  )}
                 >
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 py-0.5">
+                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
                     <input
                       type="checkbox"
                       className="size-4 shrink-0 accent-accent"
@@ -169,18 +174,27 @@ export function ProviderCredentialModels({
                       disabled={saving}
                       onChange={() => selection.toggle(model)}
                     />
-                    <span className="min-w-0 break-all font-mono text-[12px]">{model}</span>
+                    <span className="min-w-0 flex-1 break-all font-mono text-[12px] text-primary">
+                      {model}
+                    </span>
                     {saved && !returned ? (
-                      <span className="ml-auto shrink-0 text-[11px] text-warning">已保存</span>
+                      <span className="shrink-0 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                        已保存
+                      </span>
                     ) : manuallyAdded ? (
-                      <span className="ml-auto shrink-0 text-[11px] text-secondary">手动</span>
+                      <span className="shrink-0 rounded-full bg-surface-muted/70 px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+                        手动
+                      </span>
                     ) : null}
                   </label>
                   {checked ? (
                     <input
-                      className={controlClass(false, "h-7 w-36 shrink-0 font-mono")}
+                      className={controlClass(
+                        false,
+                        "h-8 w-full shrink-0 border-transparent bg-surface-muted/55 font-mono shadow-none hover:bg-surface-muted sm:w-40",
+                      )}
                       value={selection.aliasFor(model)}
-                      placeholder="公开名称"
+                      placeholder="公开名称（可选）"
                       aria-label={`${model} 的公开名称`}
                       autoComplete="off"
                       disabled={saving}

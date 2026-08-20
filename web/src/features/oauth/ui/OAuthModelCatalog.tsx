@@ -7,6 +7,7 @@ import { getOAuthErrorMessage } from "../model/oauth-error";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { FormError } from "@/shared/ui/form-field";
+import { cn } from "@/shared/lib/cn";
 
 export function OAuthModelCatalog({
   account,
@@ -123,17 +124,20 @@ export function OAuthModelCatalog({
         />
       </div>
 
-      <div className="max-h-[min(52vh,28rem)] overflow-y-auto rounded-[8px] border border-subtle">
+      <div className="max-h-[min(52vh,28rem)] overflow-y-auto pr-1">
         {catalog.length === 0 ? (
-          <p className="p-6 text-center text-[13px] text-secondary">
+          <p className="rounded-[10px] bg-surface-muted/35 px-4 py-8 text-center text-[13px] text-secondary">
             {query.trim() ? "没有匹配的模型" : "该账号模型目录为空"}
           </p>
         ) : (
-          <div className="divide-y divide-subtle" aria-label="可用模型">
+          <div className="space-y-1.5" role="list" aria-label="可用模型">
             {catalog.map((model) => (
               <label
                 key={model}
-                className="flex cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-surface-hover"
+                className={cn(
+                  "group flex cursor-pointer items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm transition-colors",
+                  selected.has(model) ? "bg-accent/[0.07]" : "hover:bg-surface-muted/60",
+                )}
               >
                 <input
                   type="checkbox"
