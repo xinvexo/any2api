@@ -74,7 +74,7 @@ export function SystemLogManagement() {
           <Toggle id="system-log-admin-operations" label="显示管理操作" checked={showAdminOperations} onChange={handleShowAdminOperationsChange} />
           {!realtime.connected ? <span className="text-warning">实时连接中断</span> : null}
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-2">
           <Button size="lg" variant="ghost" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-8 md:min-h-8 md:w-auto md:rounded-[7px] md:px-3.5" onClick={() => void refreshLogs()} disabled={query.isFetching && !query.isFetchingNextPage} title="刷新">
             <RefreshCw size={14} className={query.isFetching && !query.isFetchingNextPage ? "animate-spin" : undefined} />
             <span className="sr-only md:not-sr-only">刷新</span>
