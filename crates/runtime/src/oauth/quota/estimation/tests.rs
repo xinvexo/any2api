@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use any2api_domain::{OAuthAccountId, QuotaCostUnit, RequestTelemetryPosition};
 use any2api_provider::api::{
-    OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthQuotaCredits, OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 use any2api_storage::api::{OAuthQuotaEstimationRepository, StorageError};
 use async_trait::async_trait;
@@ -81,6 +81,16 @@ fn usage(percent: f64, reset_at: Option<i64>, tier: Option<&str>) -> OAuthQuotaU
     }
 }
 
+fn usage_with_credits(percent: f64, reset_at: Option<i64>) -> OAuthQuotaUsage {
+    let mut usage = usage(percent, reset_at, None);
+    usage.credits = Some(OAuthQuotaCredits {
+        has_credits: true,
+        unlimited: false,
+        balance: Some("50".into()),
+    });
+    usage
+}
+
 fn observation(sequence: u64) -> QuotaObservationBoundary {
     QuotaObservationBoundary {
         observed_at_ms: 5_000_000 + sequence * 1_000,
@@ -98,10 +108,19 @@ async fn observe(
     reset_at: Option<i64>,
     sequence: u64,
 ) -> super::EstimationResult {
+    observe_usage(estimator, state, usage(percent, reset_at, None), sequence).await
+}
+
+async fn observe_usage(
+    estimator: &OAuthQuotaEstimator,
+    state: Option<QuotaEstimatorState>,
+    usage: OAuthQuotaUsage,
+    sequence: u64,
+) -> super::EstimationResult {
     estimator
         .observe(
             OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(percent, reset_at, None),
+            &usage,
             state,
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
@@ -150,6 +169,107 @@ async fn later_refresh_replaces_the_whole_cycle_total_instead_of_adding_segments
             .iter()
             .all(|query| query.window_started_at_ms == WINDOW_STARTED_AT_MS)
     );
+}
+
+#[tokio::test]
+async fn credits_takeover_freezes_the_last_included_window_capacity() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.set_cost(40.0);
+    let estimator = OAuthQuotaEstimator::new(repository.clone());
+    let before_takeover = observe(&estimator, None, 50.0, Some(RESET_AT), 1).await;
+
+    repository.set_cost(120.0);
+    let takeover = observe_usage(
+        &estimator,
+        Some(before_takeover.state),
+        usage_with_credits(100.0, Some(RESET_AT)),
+        2,
+    )
+    .await;
+    assert_eq!(takeover.estimates[0].estimated_used_credits, Some(80.0));
+    assert_eq!(takeover.estimates[0].estimated_capacity_credits, Some(80.0));
+    assert_eq!(takeover.estimates[0].estimated_remaining_credits, Some(0.0));
+
+    repository.set_cost(180.0);
+    let later = observe(&estimator, Some(takeover.state), 99.0, Some(RESET_AT), 3).await;
+    assert_eq!(later.estimates[0].estimated_used_credits, Some(80.0));
+    assert_eq!(later.estimates[0].estimated_capacity_credits, Some(80.0));
+    assert_eq!(repository.queries().len(), 2);
+}
+
+#[tokio::test]
+async fn credits_takeover_without_a_safe_baseline_stays_unknown() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.set_cost(120.0);
+    let estimator = OAuthQuotaEstimator::new(repository.clone());
+
+    let takeover = observe_usage(
+        &estimator,
+        None,
+        usage_with_credits(100.0, Some(RESET_AT)),
+        1,
+    )
+    .await;
+    assert_eq!(takeover.estimates[0].estimated_used_credits, None);
+    assert_eq!(takeover.estimates[0].estimated_capacity_credits, None);
+    assert_eq!(takeover.estimates[0].estimated_remaining_credits, None);
+
+    repository.set_cost(200.0);
+    let later = observe_usage(
+        &estimator,
+        Some(takeover.state),
+        usage_with_credits(100.0, Some(RESET_AT)),
+        2,
+    )
+    .await;
+    assert_eq!(later.estimates[0].estimated_used_credits, None);
+    assert_eq!(repository.queries().len(), 1);
+}
+
+#[tokio::test]
+async fn a_new_official_cycle_ends_credits_takeover_freezing() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.set_cost(40.0);
+    let estimator = OAuthQuotaEstimator::new(repository.clone());
+    let before_takeover = observe(&estimator, None, 50.0, Some(RESET_AT), 1).await;
+    repository.set_cost(120.0);
+    let takeover = observe_usage(
+        &estimator,
+        Some(before_takeover.state),
+        usage_with_credits(100.0, Some(RESET_AT)),
+        2,
+    )
+    .await;
+
+    repository.set_cost(2.0);
+    let next_reset = RESET_AT + i64::try_from(WINDOW_SECONDS).expect("window seconds");
+    let next_cycle = observe(
+        &estimator,
+        Some(takeover.state),
+        5.0,
+        Some(next_reset),
+        20_000,
+    )
+    .await;
+    assert_eq!(next_cycle.estimates[0].estimated_used_credits, Some(2.0));
+    assert_eq!(
+        next_cycle.estimates[0].estimated_capacity_credits,
+        Some(40.0)
+    );
+    assert_eq!(repository.queries().len(), 3);
+}
+
+#[tokio::test]
+async fn a_full_window_without_credits_still_uses_its_local_total() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.set_cost(80.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+
+    let full = observe(&estimator, None, 100.0, Some(RESET_AT), 1).await;
+
+    assert_eq!(full.estimates[0].estimated_used_credits, Some(80.0));
+    assert_eq!(full.estimates[0].estimated_capacity_credits, Some(80.0));
+    assert_eq!(full.estimates[0].estimated_remaining_credits, Some(0.0));
 }
 
 #[tokio::test]

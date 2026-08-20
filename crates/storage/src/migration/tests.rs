@@ -22,6 +22,7 @@ mod oauth_account_proxy_selection;
 mod oauth_model_catalog_snapshots;
 mod oauth_quota_estimation_boundaries;
 mod oauth_quota_snapshot_v10;
+mod oauth_quota_snapshot_v11;
 mod oauth_quota_snapshot_v5;
 mod oauth_quota_snapshot_v6;
 mod oauth_quota_snapshot_v7;
@@ -120,6 +121,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (37, "add request log speed tiers".to_owned()),
             (38, "correct request log quota tiers".to_owned()),
             (39, "stabilize oauth quota identity".to_owned()),
+            (40, "freeze codex quota before purchased credits".to_owned()),
         ]
     );
 
@@ -191,7 +193,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
-    assert!(oauth_quota_schema.contains("schema_version = 10"));
+    assert!(oauth_quota_schema.contains("schema_version = 11"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
     let oauth_model_catalog_schema = table_schema(&pool, "oauth_model_catalog_snapshots").await;

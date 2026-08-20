@@ -22,18 +22,14 @@ pub(in crate::oauth::quota) fn project(
             if !state.matches_cycle(cycle) {
                 return None;
             }
-            Some(project_window(window.used_percent, window.reset_at, state))
+            Some(project_window(window.reset_at, state))
         })
         .collect()
 }
 
-fn project_window(
-    used_percent: f64,
-    window_reset_at: Option<i64>,
-    state: &QuotaWindowState,
-) -> OAuthQuotaEstimate {
-    let used = Some(state.local_cost_credits());
-    let capacity = state.capacity_credits(used_percent);
+fn project_window(window_reset_at: Option<i64>, state: &QuotaWindowState) -> OAuthQuotaEstimate {
+    let used = state.included_cost_credits();
+    let capacity = state.capacity_credits();
     let remaining = capacity
         .zip(used)
         .map(|(capacity, used)| (capacity - used).max(0.0));

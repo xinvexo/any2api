@@ -2,8 +2,9 @@
 //!
 //! Premise: an OAuth account managed by any2api is consumed through
 //! any2api, so the current official quota cycle can be measured by summing
-//! the account's persisted RequestLogs. Each refresh recomputes that whole
-//! cycle; adjacent refreshes are never treated as independent samples.
+//! the account's persisted RequestLogs. Once purchased Credits take over an
+//! exhausted window, the included-window estimate freezes at its last safe
+//! capacity instead of absorbing later paid usage.
 
 mod cycle;
 mod projection;
@@ -75,6 +76,10 @@ impl OAuthQuotaEstimator {
             .rate_limit
             .as_ref()
             .map_or(&[][..], |rate| rate.windows.as_slice());
+        let credits_available = usage
+            .credits
+            .as_ref()
+            .is_some_and(|credits| credits.usable());
         let mut next_windows = Vec::with_capacity(current_windows.len().min(MAX_WINDOWS));
         for window in current_windows.iter().take(MAX_WINDOWS) {
             let key = QuotaWindowKey::from_window(window);
@@ -89,9 +94,14 @@ impl OAuthQuotaEstimator {
             let window_state = cycle::measure(
                 self,
                 id,
-                key,
-                cycle,
-                capacity_eligible,
+                cycle::WindowMeasurement {
+                    key,
+                    cycle,
+                    previous: previous.as_ref(),
+                    used_percent: window.used_percent,
+                    credits_takeover: credits_available && window.used_percent >= 100.0,
+                    capacity_eligible,
+                },
                 expected_unit,
                 &observation,
             )

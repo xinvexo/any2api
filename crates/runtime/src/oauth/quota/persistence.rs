@@ -205,7 +205,19 @@ mod tests {
             "estimator_state": {
                 "credential_fingerprint": "fingerprint",
                 "subscription_tier": null,
-                "windows": []
+                "windows": [{
+                    "key": {
+                        "id": "primary",
+                        "kind": "time",
+                        "limit_window_seconds": 18_000
+                    },
+                    "cycle_started_at_ms": 2_000_000,
+                    "cycle_reset_at": 20_000,
+                    "estimated_included_cost_nanos": null,
+                    "last_used_percent": 100.0,
+                    "credits_takeover": true,
+                    "capacity_eligible": true
+                }]
             }
         })
     }

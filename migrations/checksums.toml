@@ -38,3 +38,4 @@
 "0037_add_request_log_speed_tiers.sql" = "7865c949ad9cdf29e8c7186fc408e162ad70d1e92feb9e02cd00ba18de6e99f1"
 "0038_correct_request_log_quota_tiers.sql" = "fd2dae1de1d61c2eb72b16b5fcb9b0d90df2cd71f99175cbd9d82c5486150ff3"
 "0039_stabilize_oauth_quota_identity.sql" = "91aeabfa5be8721fa4cbb84316f6b513159601421e0d95786ff8cc44202f0dde"
+"0040_freeze_codex_quota_before_purchased_credits.sql" = "8611e59409bcbf9ef1239ad961083cc40af998101558d4b62616434a14916a9b"

@@ -85,7 +85,10 @@ pub(super) struct QuotaWindowState {
     pub(super) key: QuotaWindowKey,
     pub(super) cycle_started_at_ms: u64,
     pub(super) cycle_reset_at: i64,
-    pub(super) local_cost_nanos: u64,
+    #[serde(deserialize_with = "deserialize_nullable")]
+    pub(super) estimated_included_cost_nanos: Option<u64>,
+    pub(super) last_used_percent: f64,
+    pub(super) credits_takeover: bool,
     pub(super) capacity_eligible: bool,
 }
 
@@ -93,14 +96,18 @@ impl QuotaWindowState {
     pub(super) fn measured(
         key: QuotaWindowKey,
         cycle: OfficialQuotaCycle,
-        local_cost_nanos: u64,
+        estimated_included_cost_nanos: Option<u64>,
+        last_used_percent: f64,
+        credits_takeover: bool,
         capacity_eligible: bool,
     ) -> Self {
         Self {
             key,
             cycle_started_at_ms: cycle.started_at_ms,
             cycle_reset_at: cycle.reset_at,
-            local_cost_nanos,
+            estimated_included_cost_nanos,
+            last_used_percent,
+            credits_takeover,
             capacity_eligible,
         }
     }
@@ -113,29 +120,43 @@ impl QuotaWindowState {
         self.capacity_eligible = false;
     }
 
-    pub(super) fn local_cost_credits(&self) -> f64 {
-        self.local_cost_nanos as f64 / NANOS_PER_CREDIT
+    pub(super) fn included_cost_credits(&self) -> Option<f64> {
+        self.estimated_included_cost_nanos
+            .map(|cost| cost as f64 / NANOS_PER_CREDIT)
     }
 
-    pub(super) fn capacity_credits(&self, used_percent: f64) -> Option<f64> {
-        if !self.capacity_eligible
-            || !used_percent.is_finite()
-            || used_percent < MIN_CAPACITY_USED_PERCENT
+    pub(super) fn capacity_cost_nanos(&self) -> Option<u64> {
+        if !self.capacity_eligible {
+            return None;
+        }
+        let included_cost = self.estimated_included_cost_nanos?;
+        if included_cost == 0 {
+            return None;
+        }
+        if self.credits_takeover {
+            return Some(included_cost);
+        }
+        if !self.last_used_percent.is_finite() || self.last_used_percent < MIN_CAPACITY_USED_PERCENT
         {
             return None;
         }
-        let local_cost = self.local_cost_credits();
-        if local_cost <= 0.0 {
-            return None;
-        }
-        let capacity = local_cost * 100.0 / used_percent;
-        (capacity.is_finite() && capacity > 0.0).then_some(capacity)
+        let capacity = included_cost as f64 * 100.0 / self.last_used_percent;
+        (capacity.is_finite() && capacity > 0.0 && capacity <= u64::MAX as f64)
+            .then(|| capacity.round() as u64)
+    }
+
+    pub(super) fn capacity_credits(&self) -> Option<f64> {
+        self.capacity_cost_nanos()
+            .map(|cost| cost as f64 / NANOS_PER_CREDIT)
     }
 
     fn valid(&self) -> bool {
         !self.key.id.trim().is_empty()
             && self.key.id.len() <= MAX_SAFE_TEXT_BYTES
             && self.cycle_reset_at >= 0
+            && self.last_used_percent.is_finite()
+            && self.last_used_percent >= 0.0
+            && (self.credits_takeover || self.estimated_included_cost_nanos.is_some())
             && self
                 .key
                 .limit_window_seconds

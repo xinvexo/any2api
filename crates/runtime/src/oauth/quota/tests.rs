@@ -344,6 +344,10 @@ async fn real_credits_keep_an_exhausted_rolling_window_routable() {
             .and_then(|credits| credits.balance.as_deref()),
         Some("17.50")
     );
+    assert_eq!(quota.estimates.len(), 1);
+    assert_eq!(quota.estimates[0].estimated_used_credits, None);
+    assert_eq!(quota.estimates[0].estimated_capacity_credits, None);
+    assert_eq!(quota.estimates[0].estimated_remaining_credits, None);
     assert!(quota.usage.account_status.is_none());
     let snapshot = context.snapshots.load();
     let generation = snapshot
