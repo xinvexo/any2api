@@ -46,17 +46,12 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(screen.getByText("ANY2API 内存")).toBeInTheDocument();
   expect(screen.getByText("ANY2API CPU")).toBeInTheDocument();
   expect(screen.getByText("整机内存")).toBeInTheDocument();
-  expect(screen.getByText("正文映射内存")).toBeInTheDocument();
+  expect(screen.queryByText("正文堆内存")).not.toBeInTheDocument();
+  expect(screen.queryByText("正文映射内存")).not.toBeInTheDocument();
+  expect(screen.queryByText("HTTP 捕获")).not.toBeInTheDocument();
   expect(screen.queryByText("遥测待写")).not.toBeInTheDocument();
   expect(screen.queryByText("遥测写入中")).not.toBeInTheDocument();
   expect(screen.queryByText("内存回收阻塞")).not.toBeInTheDocument();
-  expect(screen.getByText("正文堆内存").closest("dl")).toHaveClass(
-    "rounded-[14px]",
-    "bg-surface-muted/35",
-    "shadow-hairline",
-    "lg:col-span-2",
-    "min-[360px]:grid-cols-3",
-  );
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
   expect(screen.getByText("账号与密钥")).toBeInTheDocument();
@@ -166,16 +161,6 @@ interface ResourcesQuery {
     sampledAtMs: number;
     process: { residentMemoryBytes: number; cpuUsagePercent: number };
     system: { usedMemoryBytes: number; totalMemoryBytes: number; cpuUsagePercent: number };
-    ownership: {
-      payloadBuffers: {
-        heapCurrentBytes: number;
-        heapPeakBytes: number;
-        mappedCurrentBytes: number;
-        mappedPeakBytes: number;
-        httpBodyCaptureCurrentBytes: number;
-        httpBodyCapturePeakBytes: number;
-      };
-    };
   };
   isError: boolean;
   isFetching: boolean;
@@ -225,16 +210,6 @@ function resourcesQuery(refetch: () => Promise<{ isSuccess: boolean }>): Resourc
         usedMemoryBytes: 8 * 1024 ** 3,
         totalMemoryBytes: 16 * 1024 ** 3,
         cpuUsagePercent: 31.7,
-      },
-      ownership: {
-        payloadBuffers: {
-          heapCurrentBytes: 1 * 1024 ** 2,
-          heapPeakBytes: 2 * 1024 ** 2,
-          mappedCurrentBytes: 8 * 1024 ** 2,
-          mappedPeakBytes: 16 * 1024 ** 2,
-          httpBodyCaptureCurrentBytes: 512 * 1024,
-          httpBodyCapturePeakBytes: 1 * 1024 ** 2,
-        },
       },
     },
     isError: false,

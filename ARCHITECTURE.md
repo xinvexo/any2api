@@ -284,8 +284,9 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 
 - 公共请求多块聚合、入口 zstd 解压、Provider Endpoint Profile 正文规范化、Raw/结构化 JSON 最终编码、
   multipart 重编码、SSE 单帧/多行 data/模型改写、buffered 成功响应和 HTTP Body 捕获等短命连续字节
-  产物统一使用可增长的 `payload-buffer`；实际分配达到
-  `256 KiB` 前使用普通堆，达到阈值后迁移到匿名私有映射。映射由最终不可变 `Bytes` 直接拥有，最后一个
+  产物统一使用可增长的 `payload-buffer`；容量提示或增长需要的新容量小于
+  `2 MiB` 时使用 mimalloc 管理的普通堆，达到阈值后使用匿名私有映射；已经足够的堆 capacity 不因逻辑长度
+  跨过阈值而额外迁移。映射由最终不可变 `Bytes` 直接拥有，最后一个
   所有者 Drop 时由 Linux、macOS、Windows 的虚拟内存实现解除映射，不等待通用堆决定是否清理 arena。
   已经由网络栈提供的单块共享 `Bytes` 仍直接复用，不为采用该原语而额外复制。
 - `Content-Length`/`size_hint` 只能作为不超过现有单对象硬上限的初始容量提示；实际累计长度仍逐块使用
@@ -302,12 +303,12 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
   排序的连续条目并以二分查找读取，重复字段保留最后一个值；不得为每个字段建立树节点，也不得为直通转发复制
   大字符串、图片 base64 或未来未知字段。
 - SSE 解码器每次只从当前 transport chunk 消费到一个完整帧结束，未消费后缀继续以共享 `Bytes` 切片留在
-  Runtime；当前帧增量写入 `payload-buffer`，超过阈值后由映射持有。多行 `data:` 合并和模型字段改写同样
+  Runtime；当前帧增量写入 `payload-buffer`，需要超过阈值的新容量时由映射持有。多行 `data:` 合并和模型字段改写同样
   直接写入最终缓冲，不允许为了适配映射存储重新复制整帧或形成随 chunk 数增长的重复搬移。
 - 应用二进制固定使用 mimalloc 作为 Rust 全局分配器，不保留系统分配器构建分支，不启用 `override`、
   `secure`、`no_thp` 等行为 feature，也不依赖操作系统环境变量或服务器级 allocator 配置。该选择覆盖通过
-  Rust `GlobalAlloc` 产生的通用堆分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；大块 payload 和
-  zstd workspace 仍按各自阈值使用匿名映射。Composition Root 在创建 Tokio Runtime 时把调度线程和
+  Rust `GlobalAlloc` 产生的通用堆分配，不接管 SQLite 等原生依赖直接调用的 C 系统分配器；payload 在需要新容量且
+  目标小于 `2 MiB` 时使用 mimalloc，zstd workspace 则按自身实际分配档位独立选择存储。Composition Root 在创建 Tokio Runtime 时把调度线程和
   Blocking Pool 线程显式标记为 mimalloc thread-pool thread，使跨线程释放按线程池负载处理，避免任意任务
   所属关系让单个长期线程无限承担其他线程的回收。Blocking Pool 和调度线程都在创建时完成该标记；此后
   由 mimalloc 的跨线程回收、默认 purge 和线程退出生命周期管理各自的页。应用不调用 `mi_collect`，不唤醒
@@ -327,18 +328,16 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
   平台保持安全 no-op。mimalloc 线程生命周期 FFI 与平台原生堆压力释放 FFI 只允许存在于独立、可审计的
   `memory-reclaimer` crate；前者只向 Composition Root 暴露安全的当前线程标记操作，后者只由空闲期后台任务
   调用，两者不得共享含混的“进程回收”入口。zstd native workspace FFI 只允许存在于独立、可审计的
-  `zstd-workspace` crate；zstd 已观测的约 96 KiB 与
-  2.4 MiB 解码 workspace 都使用匿名映射，因此该专用 allocator 的映射阈值为 `64 KiB`，不复用通用
-  payload 的 `256 KiB` 阈值。其他 Workspace 继续禁止
+  `zstd-workspace` crate；当前 zstd streaming 解码实际申请的约 96 KiB workspace 通过 Rust GlobalAlloc 交给 mimalloc，
+  `2,490,432 B` workspace 继续使用匿名映射。zstd 的映射边界独立设为 `2 MiB`，用于隔开这两个真实分配档位，
+  不复用 payload 的策略常量。其他 Workspace 继续禁止
   unsafe。两个 crate 都不向业务层暴露指针或 unsafe API；macOS/Windows 原生 CI 必须实际运行映射、zstd
   workspace 与回收基础测试后再链接 release 二进制。
-- `payload-buffer` 在实际分配、扩容、冻结和最后一个 `Bytes` 所有者 Drop 时，以进程级原子计数维护普通堆、
-  匿名映射和其中 HTTP Body 捕获用途的当前/峰值 owned bytes；只在分配生命周期边界更新，不按写入字节逐次
-  计数。RequestTelemetry 仍在内部维护队列中、Writer in-flight 和总 reserved owned bytes，供字节准入、
-  生命周期校验和测试使用；进程回收也继续维护 blocker、完成次数与最近耗时供内部诊断。上述状态通常只存在
-  数毫秒或只描述实现机制，不进入总览 DTO 或 2 秒资源快照。AdminRealtimeHub 只把正文堆、匿名映射和
-  HTTP Body 捕获的固定规模只读值并入既有资源快照；指标不写 SQLite、不建立新采样任务、不包含正文或
-  Secret，也不参与并发、路由、限流、回收决策或资源准入。
+- `payload-buffer` 不维护普通堆、匿名映射或 HTTP Body 捕获用途的进程级当前/峰值原子指标；最终所有者仍携带
+  自身真实堆 capacity 或映射长度，供遥测队列的字节准入计算。RequestTelemetry 只维护执行队列总字节上限
+  所必需的私有总 reserved owned bytes 和鉴权拒绝子容量，不再分别维护或导出 queued/in-flight/reserved
+  owned-byte 指标；记录条数、持久化数和丢弃数继续保留。总览资源契约只返回进程与整机的内存/CPU，不暴露
+  分配器、映射、HTTP 捕获、遥测 Writer 或进程堆回收实现细节。
 - SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
   回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
 
@@ -406,9 +405,9 @@ any2api/
 │  └─ adr/                       # 文档入口、当前决策登记册与模板
 ├─ crates/
 │  ├─ domain/                    # ID、路由、错误、状态和领域不变量
-│  ├─ payload-buffer/            # 小堆/大匿名映射聚合与精确所有权计量
+│  ├─ payload-buffer/            # mimalloc/大匿名映射聚合与单对象所有权计量
 │  ├─ memory-reclaimer/          # Linux/macOS/Windows 进程堆压力释放 FFI 边界
-│  ├─ zstd-workspace/             # zstd 大块 native workspace 的跨平台映射分配边界
+│  ├─ zstd-workspace/             # zstd mimalloc/大匿名映射 workspace 分配边界
 │  ├─ protocol/
 │  │  └─ src/
 │  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
@@ -1479,7 +1478,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
 - Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
 - 公开请求不设置进程级总内存预算、加权内存 Semaphore、Permit 或基于预计工作集的本地 `429`。并发请求不得因端点理论最大 Body、buffered/SSE 硬上限或 Continuation 最大状态而预占尚未实际分配的内存；机器可承载的并发量由实际工作集、分配器与操作系统资源决定，不在应用层另设总量阈值。
-- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计；不超过当前单对象上限的 `Content-Length`/`size_hint` 只可作为初始容量提示。多块聚合跨过 `256 KiB` 后转入匿名映射，最终共享 `Bytes` 持有实际堆 capacity 或映射长度；最后一个所有者 Drop 直接解除大映射。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，并把实际解压产物写入同一映射缓冲；Server 的 zstd CPU 许可数按 `max(2, available_parallelism / 2)` 自适应，不设置固定的 CPU 总量上限；单个请求最多等待 10 秒，超时产生 `local_rate_limit`，这只是 blocking CPU 队列保护，不是公开请求内存总量准入，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。最终 Body 需要执行 Provider Profile 规范化或 multipart 重编码时，同样按实际写入增长并让大产物由映射所有；不得在映射输入之外再建立一个同量级普通 `Vec` 高水位。协议和 Transport 继续复用共享 `Bytes` 并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配。
+- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计；不超过当前单对象上限的 `Content-Length`/`size_hint` 只可作为初始容量提示。多块聚合需要新容量且目标小于 `2 MiB` 时由 mimalloc 管理，达到阈值后转入匿名映射；已经足够的堆 capacity 不为跨过逻辑长度阈值而额外迁移。最终共享 `Bytes` 持有实际堆 capacity 或映射长度，最后一个所有者 Drop 直接解除大映射。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，并把实际解压产物写入同一缓冲；其约 96 KiB workspace 使用 mimalloc，`2,490,432 B` workspace 使用匿名映射。Server 的 zstd CPU 许可数按 `max(2, available_parallelism / 2)` 自适应，不设置固定的 CPU 总量上限；单个请求最多等待 10 秒，超时产生 `local_rate_limit`，这只是 blocking CPU 队列保护，不是公开请求内存总量准入，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。最终 Body 需要执行 Provider Profile 规范化或 multipart 重编码时，同样按实际写入增长并让大产物由映射所有；不得在映射输入之外再建立一个同量级普通 `Vec` 高水位。协议和 Transport 继续复用共享 `Bytes` 并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
 
@@ -3080,7 +3079,7 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.10 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态、any2api RSS/CPU、系统内存/CPU，以及固定规模的正文堆/映射和 HTTP 捕获投影到首屏。遥测 queued/in-flight/reserved owned bytes 与进程堆回收 blocker/次数/耗时属于内部实现诊断，不进入总览资源契约。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；总览的调度负载和进程/主机资源统一由受认证的 `GET /api/admin/events` SSE 推送 `overview_snapshot`，只把尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量、受保护状态、any2api RSS/CPU 和系统内存/CPU 投影到首屏，不返回正文堆/映射、HTTP 捕获、遥测 owned bytes 或进程堆回收实现指标。HTTP `GET /api/admin/overview/resources` 与 `GET /api/admin/balancing` 保留为首屏 bootstrap、手动刷新和 SSE 故障回退，不作为周期来源。资源采样由 RuntimeRegistry 内存中的 `system_metrics` 采样器完成，应用级 AdminRealtimeHub 使用生命周期追踪的后台任务每 2 秒共享采样一次；不写 SQLite、不进入 PublishedSnapshot、不参与路由、RPM、健康或额度，也不把资源字段塞进 balancing DTO。采样失败保留最近有效快照并标记 freshness；尚无快照时返回稳定的 `system_metrics_unavailable` 语义，禁止以零值伪装可用性。整个进程只建立一套实时 sampler，不因浏览器连接或页面数量增加而重复采样。
 
 总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。AdminRealtimeHub 每 2 秒读取并广播一次聚合结果；调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。受认证 Affinity 管理 API 仍可返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。“建立中”只表示首次绑定提交前的瞬时状态。系统总览不渲染独立会话指标，前端也不保留无路由入口的会话总览组件，避免把策略关闭时的两个零值占据负载首屏。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。`overview_snapshot` 只包含安全聚合字段、`sampled_at_ms` 和 freshness/error 状态，不包含日志正文或任何 Secret。
 
@@ -3249,7 +3248,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 实时运行态统一订阅已认证的 `/api/admin/events`：管理壳只创建一个共享 `EventSource`，由 `AdminRealtimeProvider` 将 `overview_snapshot` 分发给总览、日志、系统日志和 Provider 视图。服务端共享 sampler 每 2 秒广播一次最新资源/运行态快照；连接建立和重连立即发送当前快照，连接存在但连续 7 秒没有 fresh snapshot 时 Web 也把最近值标记为陈旧。快照不需要回放，日志仍以 epoch 失效通知和游标 HTTP 查询作为事实来源；旧 `/api/admin/log-events` 不再作为独立连接入口；
 - SSE 断线时保留最近快照并显示 stale/disconnected 状态，不把暂时不可达渲染成零值；重连成功后以最新快照替换。session 失效或收到 401/403 后关闭 EventSource、停止自动重连并回到管理员登录态，避免重连风暴。总览仍保留手动 HTTP 刷新作为回退；历史 usage 统计继续按当前范围每 60 秒 HTTP 刷新，实时快照不得触发聚合查询风暴；
 - 页面在应用主 Surface 内使用标题、资源网格、请求负载面板、调用分析和细分隔线形成扁平分区，禁止再用多个大卡片包裹内部小卡片；Provider 行使用紧凑列表，不使用卡片套卡片；
-- 首屏把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠；资源区在主指标下以紧凑定义列表显示正文堆内存、正文映射内存和 HTTP 捕获的当前值与峰值，不展示采样周期无法稳定观测的遥测 Writer 瞬时字节或进程堆回收实现计数。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
+- 首屏只把四项资源（ANY2API 内存、ANY2API CPU、整机内存、整机 CPU）与请求负载面板并列展示，窄屏自然堆叠；不显示正文堆/映射、HTTP 捕获、遥测 Writer 字节或进程堆回收等分配实现细节。请求负载面板固定包含近 60 秒请求率、尚未结束的上游请求、排队等待和已启用账号与密钥数量；存在本地 RPM 限制时才增加达到每分钟请求上限的提示。资源采样无数据时显示稳定占位符，已有数据刷新失败时保留最近值并明确提示，不得显示伪造的零值。界面文案使用普通用户能够理解的“进行中请求”“账号与密钥”等名称，不直接展示 `in_flight`、RSS、逻辑 CPU、Transport Client 或 socket 等实现术语；
 - 提供近 1 小时、24 小时、7 天和 30 天选择，并在 URL 中保留范围；请求数、成功率、真实总 Token、usage 覆盖请求数和平均 RPM 必须全部使用当前所选时间段，切换范围时与图表一同更新，不在指标带混入日志保留窗口累计；无请求时成功率显示为无数据而不是 0%；
 - 平均 RPM 固定等于所选时间段最终请求数除以该时间段完整分钟数，不按活跃分钟、成功请求或时间桶平均值另造口径；日志关闭、遥测丢弃或上游未返回 usage 时不得猜测缺失 Token；
 - 图表在宽屏固定左侧平滑时间曲线、右侧紧凑模型占比饼图，窄屏按相同顺序上下排列；时间曲线保留固定空桶并标出失败调用。饼图本体不得挤占主要趋势空间，最多展示八个扇区：按调用量取前七项，剩余项只在 Web 展示层守恒合并为“其余 N 个模型”，不改写管理 API 原始统计。两图直接并列展示，不增加时间/模型切换；图形必须使用语义 Token、清晰坐标和非颜色唯一的摘要，不能以大面积高饱和柱块压过数据内容；

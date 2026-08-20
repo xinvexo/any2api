@@ -367,7 +367,7 @@ impl RequestTelemetry {
             self.counters.rejected(records);
             return false;
         }
-        self.counters.enqueued(records, owned_bytes);
+        self.counters.enqueued(records);
         if sender.try_send(envelope).is_err() {
             self.counters.send_failed(records, owned_bytes, queue_class);
             return false;

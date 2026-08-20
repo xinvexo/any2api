@@ -97,7 +97,7 @@ async fn collapsed_gateway_updates_preserve_record_metrics() {
             envelope.owned_bytes,
             TelemetryQueueClass::Regular,
         ));
-        counters.enqueued(envelope.record_count, envelope.owned_bytes);
+        counters.enqueued(envelope.record_count);
         sender.try_send(envelope).expect("gateway usage event");
     }
     drop(sender);

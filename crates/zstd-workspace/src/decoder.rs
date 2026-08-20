@@ -142,6 +142,8 @@ pub enum DecodeError {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
 
     #[test]
@@ -166,11 +168,17 @@ mod tests {
     }
 
     #[test]
-    fn large_native_workspace_uses_mapped_storage() {
-        let payload = (0..8 * 1024 * 1024)
+    fn streaming_two_mebibyte_window_keeps_its_large_workspace_mapped() {
+        let payload = (0..1_500_000)
             .map(|index| (index as u8).wrapping_mul(31))
             .collect::<Vec<_>>();
-        let input = zstd::stream::encode_all(payload.as_slice(), 1).expect("encode payload");
+        let mut encoder = zstd::stream::Encoder::new(Vec::new(), 1).expect("create encoder");
+        encoder.window_log(21).expect("set 2 MiB window");
+        encoder
+            .include_contentsize(false)
+            .expect("omit content size");
+        encoder.write_all(&payload).expect("encode payload");
+        let input = encoder.finish().expect("finish frame");
         let mut decoder = Decoder::try_new().expect("decoder");
 
         assert_eq!(

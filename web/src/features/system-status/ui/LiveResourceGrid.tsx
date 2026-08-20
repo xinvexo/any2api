@@ -85,57 +85,6 @@ export function LiveResourceGrid({ resources }: { resources: OverviewResources |
   );
 }
 
-export function MemoryOwnershipDetails({
-  ownership,
-}: {
-  ownership: OverviewResources["ownership"] | undefined;
-}) {
-  const details = [
-    {
-      label: "正文堆内存",
-      value: ownership ? formatResourceBytes(ownership.payloadBuffers.heapCurrentBytes) : "—",
-      note: ownership
-        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.heapPeakBytes)}`
-        : "等待采样",
-    },
-    {
-      label: "正文映射内存",
-      value: ownership ? formatResourceBytes(ownership.payloadBuffers.mappedCurrentBytes) : "—",
-      note: ownership
-        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.mappedPeakBytes)}`
-        : "等待采样",
-    },
-    {
-      label: "HTTP 捕获",
-      value: ownership
-        ? formatResourceBytes(ownership.payloadBuffers.httpBodyCaptureCurrentBytes)
-        : "—",
-      note: ownership
-        ? `峰值 ${formatResourceBytes(ownership.payloadBuffers.httpBodyCapturePeakBytes)}`
-        : "等待采样",
-    },
-  ];
-
-  return (
-    <dl className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 rounded-[14px] bg-surface-muted/35 px-3.5 py-3 shadow-hairline min-[360px]:grid-cols-3 lg:col-span-2">
-      {details.map((detail) => (
-        <div key={detail.label} className="min-w-0">
-          <dt className="truncate text-[11px] leading-4 text-tertiary">{detail.label}</dt>
-          <dd className="mt-0.5 truncate text-sm font-semibold tabular-nums text-primary">
-            {detail.value}
-          </dd>
-          <dd
-            className="mt-0.5 truncate text-[10px] leading-4 text-tertiary"
-            title={detail.note}
-          >
-            {detail.note}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 interface ResourceMetric {
   label: string;
   value: string;

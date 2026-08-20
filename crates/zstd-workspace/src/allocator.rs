@@ -16,7 +16,9 @@ use std::{
 
 use memmap2::{MmapMut, MmapOptions};
 
-const MAPPED_ALLOCATION_THRESHOLD_BYTES: usize = 64 * 1024;
+// Separates zstd's observed 95,984-byte allocation from the 2,490,432-byte
+// workspace used by streaming frames with a 2 MiB window.
+const ZSTD_DIRECT_MMAP_THRESHOLD_BYTES: usize = 2 * 1024 * 1024;
 const ZSTD_ALLOCATION_ALIGNMENT: usize = 16;
 
 enum Allocation {
@@ -116,7 +118,7 @@ unsafe extern "C" fn allocate(opaque: *mut c_void, size: usize) -> *mut c_void {
 }
 
 const fn uses_mapped_storage(size: usize) -> bool {
-    size >= MAPPED_ALLOCATION_THRESHOLD_BYTES
+    size >= ZSTD_DIRECT_MMAP_THRESHOLD_BYTES
 }
 
 fn allocate_heap(state: &AllocatorState, size: usize) -> std::io::Result<Allocation> {
@@ -150,13 +152,13 @@ unsafe extern "C" fn free(opaque: *mut c_void, address: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAPPED_ALLOCATION_THRESHOLD_BYTES, uses_mapped_storage};
+    use super::{ZSTD_DIRECT_MMAP_THRESHOLD_BYTES, uses_mapped_storage};
 
     #[test]
-    fn zstd_workspace_threshold_maps_medium_and_large_allocations() {
-        assert!(!uses_mapped_storage(MAPPED_ALLOCATION_THRESHOLD_BYTES - 1));
-        assert!(uses_mapped_storage(MAPPED_ALLOCATION_THRESHOLD_BYTES));
-        assert!(uses_mapped_storage(95_984));
+    fn zstd_workspace_only_maps_multi_mebibyte_allocations() {
+        assert!(!uses_mapped_storage(ZSTD_DIRECT_MMAP_THRESHOLD_BYTES - 1));
+        assert!(uses_mapped_storage(ZSTD_DIRECT_MMAP_THRESHOLD_BYTES));
+        assert!(!uses_mapped_storage(95_984));
         assert!(uses_mapped_storage(2_490_432));
     }
 }

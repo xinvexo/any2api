@@ -15,9 +15,6 @@ pub(super) enum TelemetryQueueClass {
 pub struct RequestTelemetryMetrics {
     pub queued_records: usize,
     pub in_flight_records: usize,
-    pub queued_owned_bytes: usize,
-    pub in_flight_owned_bytes: usize,
-    pub reserved_owned_bytes: usize,
     pub dropped_records: u64,
     pub persisted_records: u64,
 }
@@ -35,8 +32,6 @@ struct Counters {
     gateway_auth_rejected_owned_bytes: AtomicUsize,
     queued_records: AtomicUsize,
     in_flight_records: AtomicUsize,
-    queued_owned_bytes: AtomicUsize,
-    in_flight_owned_bytes: AtomicUsize,
     dropped_records: AtomicU64,
     persisted_records: AtomicU64,
 }
@@ -94,13 +89,10 @@ impl TelemetryCounters {
         self.inner.queue_slots.fetch_add(1, Ordering::AcqRel);
     }
 
-    pub(super) fn enqueued(&self, records: usize, owned_bytes: usize) {
+    pub(super) fn enqueued(&self, records: usize) {
         self.inner
             .queued_records
             .fetch_add(records, Ordering::AcqRel);
-        self.inner
-            .queued_owned_bytes
-            .fetch_add(owned_bytes, Ordering::AcqRel);
     }
 
     pub(super) fn send_failed(
@@ -111,7 +103,6 @@ impl TelemetryCounters {
     ) {
         self.add_dropped(records);
         subtract(&self.inner.queued_records, records);
-        subtract(&self.inner.queued_owned_bytes, owned_bytes);
         subtract(&self.inner.queue_slots, 1);
         self.release_gateway_auth_rejected_slot(class);
         self.release_owned_bytes(owned_bytes, class);
@@ -121,15 +112,11 @@ impl TelemetryCounters {
         self.add_dropped(records);
     }
 
-    pub(super) fn received(&self, records: usize, owned_bytes: usize, class: TelemetryQueueClass) {
+    pub(super) fn received(&self, records: usize, class: TelemetryQueueClass) {
         self.inner
             .in_flight_records
             .fetch_add(records, Ordering::AcqRel);
-        self.inner
-            .in_flight_owned_bytes
-            .fetch_add(owned_bytes, Ordering::AcqRel);
         subtract(&self.inner.queued_records, records);
-        subtract(&self.inner.queued_owned_bytes, owned_bytes);
         subtract(&self.inner.queue_slots, 1);
         self.release_gateway_auth_rejected_slot(class);
     }
@@ -161,8 +148,6 @@ impl TelemetryCounters {
     pub(super) fn writer_stopped(&self) {
         let queued = self.inner.queued_records.swap(0, Ordering::AcqRel);
         let in_flight = self.inner.in_flight_records.swap(0, Ordering::AcqRel);
-        self.inner.queued_owned_bytes.store(0, Ordering::Release);
-        self.inner.in_flight_owned_bytes.store(0, Ordering::Release);
         self.inner.owned_bytes.store(0, Ordering::Release);
         self.inner.queue_slots.store(0, Ordering::Release);
         self.inner
@@ -178,9 +163,6 @@ impl TelemetryCounters {
         RequestTelemetryMetrics {
             queued_records: self.inner.queued_records.load(Ordering::Acquire),
             in_flight_records: self.inner.in_flight_records.load(Ordering::Acquire),
-            queued_owned_bytes: self.inner.queued_owned_bytes.load(Ordering::Acquire),
-            in_flight_owned_bytes: self.inner.in_flight_owned_bytes.load(Ordering::Acquire),
-            reserved_owned_bytes: self.inner.owned_bytes.load(Ordering::Acquire),
             dropped_records: self.inner.dropped_records.load(Ordering::Relaxed),
             persisted_records: self.inner.persisted_records.load(Ordering::Relaxed),
         }
@@ -206,7 +188,6 @@ impl TelemetryCounters {
     }
 
     fn finish_owned_bytes(&self, owned_bytes: usize, rejected_owned_bytes: usize) {
-        subtract(&self.inner.in_flight_owned_bytes, owned_bytes);
         subtract(&self.inner.owned_bytes, owned_bytes);
         subtract(
             &self.inner.gateway_auth_rejected_owned_bytes,
@@ -215,12 +196,8 @@ impl TelemetryCounters {
     }
 
     #[cfg(test)]
-    pub(super) fn owned_bytes(&self) -> (usize, usize, usize) {
-        (
-            self.inner.queued_owned_bytes.load(Ordering::Acquire),
-            self.inner.in_flight_owned_bytes.load(Ordering::Acquire),
-            self.inner.owned_bytes.load(Ordering::Acquire),
-        )
+    pub(super) fn owned_bytes_for_admission(&self) -> usize {
+        self.inner.owned_bytes.load(Ordering::Acquire)
     }
 }
 
@@ -254,30 +231,24 @@ mod tests {
         let counters = TelemetryCounters::default();
         let class = TelemetryQueueClass::Regular;
         assert!(counters.try_reserve(8, 150, 100, class));
-        counters.enqueued(1, 100);
-        let queued = counters.snapshot();
-        assert_eq!(queued.queued_owned_bytes, 100);
-        assert_eq!(queued.in_flight_owned_bytes, 0);
-        assert_eq!(queued.reserved_owned_bytes, 100);
-        counters.received(1, 100, class);
-        assert_eq!(counters.owned_bytes(), (0, 100, 100));
-        let in_flight = counters.snapshot();
-        assert_eq!(in_flight.queued_owned_bytes, 0);
-        assert_eq!(in_flight.in_flight_owned_bytes, 100);
-        assert_eq!(in_flight.reserved_owned_bytes, 100);
+        counters.enqueued(1);
+        assert_eq!(counters.owned_bytes_for_admission(), 100);
+        counters.received(1, class);
+        assert_eq!(counters.owned_bytes_for_admission(), 100);
         assert!(!counters.try_reserve(8, 150, 51, class));
 
         counters.persisted(1, 100, 0);
-        assert_eq!(counters.owned_bytes(), (0, 0, 0));
+        assert_eq!(counters.owned_bytes_for_admission(), 0);
         assert!(counters.try_reserve(8, 150, 100, class));
-        counters.enqueued(1, 100);
-        counters.received(1, 100, class);
+        counters.enqueued(1);
+        counters.received(1, class);
         counters.storage_failed(1, 100, 0);
-        assert_eq!(counters.owned_bytes(), (0, 0, 0));
+        assert_eq!(counters.owned_bytes_for_admission(), 0);
 
         assert!(counters.try_reserve(8, 150, 100, class));
-        counters.enqueued(1, 100);
+        counters.enqueued(1);
         counters.writer_stopped();
+        assert_eq!(counters.owned_bytes_for_admission(), 0);
     }
 
     #[test]
@@ -287,20 +258,20 @@ mod tests {
         assert!(counters.try_reserve(4, 400, 100, class));
         assert!(!counters.try_reserve(4, 400, 100, class));
 
-        counters.enqueued(1, 100);
+        counters.enqueued(1);
         counters.send_failed(1, 100, class);
         assert!(counters.try_reserve(4, 400, 100, class));
-        counters.enqueued(1, 100);
-        counters.received(1, 100, class);
-        assert_eq!(counters.owned_bytes(), (0, 100, 100));
+        counters.enqueued(1);
+        counters.received(1, class);
+        assert_eq!(counters.owned_bytes_for_admission(), 100);
         assert!(!counters.try_reserve(4, 400, 1, class));
         counters.persisted(1, 100, 100);
 
         assert!(counters.try_reserve(4, 400, 100, class));
-        counters.enqueued(1, 100);
+        counters.enqueued(1);
         counters.writer_stopped();
         assert!(counters.try_reserve(4, 400, 100, class));
-        counters.enqueued(1, 100);
+        counters.enqueued(1);
         counters.writer_stopped();
 
         let metrics = counters.snapshot();

@@ -11,7 +11,7 @@ import { IconButton } from "@/shared/ui/IconButton";
 
 import { useOverviewResources } from "../model/use-overview-resources";
 import { LiveLoadPanel } from "./LiveLoadPanel";
-import { LiveResourceGrid, MemoryOwnershipDetails } from "./LiveResourceGrid";
+import { LiveResourceGrid } from "./LiveResourceGrid";
 
 type SystemStatus = "pending" | "error" | "ok" | "stale" | "draining" | "forced";
 
@@ -72,7 +72,6 @@ export function SystemOverview() {
       <div className="mt-5 grid min-w-0 gap-6 lg:grid-cols-2 lg:items-start">
         <LiveResourceGrid resources={resources.data} />
         <LiveLoadPanel runtime={runtime.data} />
-        <MemoryOwnershipDetails ownership={resources.data?.ownership} />
       </div>
 
       {resources.isError ? (

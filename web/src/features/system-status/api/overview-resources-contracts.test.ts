@@ -10,16 +10,6 @@ const resources = () => ({
     total_memory_bytes: 17_179_869_184,
     cpu_usage_percent: 31.7,
   },
-  ownership: {
-    payload_buffers: {
-      heap_current_bytes: 1_048_576,
-      heap_peak_bytes: 2_097_152,
-      mapped_current_bytes: 8_388_608,
-      mapped_peak_bytes: 16_777_216,
-      http_body_capture_current_bytes: 524_288,
-      http_body_capture_peak_bytes: 1_048_576,
-    },
-  },
 });
 
 test("parses process and system resource snapshots", () => {
@@ -30,16 +20,6 @@ test("parses process and system resource snapshots", () => {
       usedMemoryBytes: 8_589_934_592,
       totalMemoryBytes: 17_179_869_184,
       cpuUsagePercent: 31.7,
-    },
-    ownership: {
-      payloadBuffers: {
-        heapCurrentBytes: 1_048_576,
-        heapPeakBytes: 2_097_152,
-        mappedCurrentBytes: 8_388_608,
-        mappedPeakBytes: 16_777_216,
-        httpBodyCaptureCurrentBytes: 524_288,
-        httpBodyCapturePeakBytes: 1_048_576,
-      },
     },
   });
 });

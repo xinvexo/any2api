@@ -1,4 +1,3 @@
-use any2api_payload_buffer::PayloadBufferMetricsSnapshot;
 use any2api_runtime::api::{
     RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel,
     RequestLogOverviewTotals, SystemMetricsSnapshot,
@@ -29,7 +28,6 @@ pub(crate) struct OverviewResourcesResponse {
     sampled_at_ms: u64,
     process: OverviewProcessResourcesResponse,
     system: OverviewSystemResourcesResponse,
-    ownership: OverviewMemoryOwnershipResponse,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -55,36 +53,8 @@ struct OverviewSystemResourcesResponse {
     cpu_usage_percent: f32,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(
-    test,
-    derive(ts_rs::TS),
-    ts(export_to = "OverviewMemoryOwnershipResponse.ts")
-)]
-struct OverviewMemoryOwnershipResponse {
-    payload_buffers: OverviewPayloadBufferResourcesResponse,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[cfg_attr(
-    test,
-    derive(ts_rs::TS),
-    ts(export_to = "OverviewPayloadBufferResourcesResponse.ts")
-)]
-struct OverviewPayloadBufferResourcesResponse {
-    heap_current_bytes: usize,
-    heap_peak_bytes: usize,
-    mapped_current_bytes: usize,
-    mapped_peak_bytes: usize,
-    http_body_capture_current_bytes: usize,
-    http_body_capture_peak_bytes: usize,
-}
-
 impl OverviewResourcesResponse {
-    pub(crate) fn new(
-        system: SystemMetricsSnapshot,
-        payload_buffers: PayloadBufferMetricsSnapshot,
-    ) -> Self {
+    pub(crate) fn new(system: SystemMetricsSnapshot) -> Self {
         Self {
             sampled_at_ms: system.sampled_at_ms,
             process: OverviewProcessResourcesResponse {
@@ -95,17 +65,6 @@ impl OverviewResourcesResponse {
                 used_memory_bytes: system.system_used_memory_bytes,
                 total_memory_bytes: system.system_total_memory_bytes,
                 cpu_usage_percent: system.system_cpu_usage_percent,
-            },
-            ownership: OverviewMemoryOwnershipResponse {
-                payload_buffers: OverviewPayloadBufferResourcesResponse {
-                    heap_current_bytes: payload_buffers.heap_current_bytes(),
-                    heap_peak_bytes: payload_buffers.heap_peak_bytes(),
-                    mapped_current_bytes: payload_buffers.mapped_current_bytes(),
-                    mapped_peak_bytes: payload_buffers.mapped_peak_bytes(),
-                    http_body_capture_current_bytes: payload_buffers
-                        .http_body_capture_current_bytes(),
-                    http_body_capture_peak_bytes: payload_buffers.http_body_capture_peak_bytes(),
-                },
             },
         }
     }

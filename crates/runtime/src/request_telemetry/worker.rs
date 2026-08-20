@@ -146,9 +146,7 @@ async fn receive_event(
         queue_class,
         owned_bytes,
     } = envelope;
-    state
-        .counters
-        .received(record_count, owned_bytes, queue_class);
+    state.counters.received(record_count, queue_class);
     match event {
         TelemetryEvent::RequestLog(record) => {
             batch.request_logs.records.push(*record);

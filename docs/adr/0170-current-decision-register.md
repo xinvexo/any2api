@@ -53,13 +53,19 @@
   时才允许重试或换路；提交任何响应字节后永久禁止切换。
 - SSE 使用预提交预算和一次性 Guard，提交前失败与提交后失败分开处理。未知失败不伪装成成功，也不为了
   计费而继续 Drain 上游。
-- 大块短命连续数据不适合与长期小对象共同依赖通用堆的回收时机，因此聚合缓冲跨过固定大小后迁移到匿名
-  映射。Rust 通用堆固定使用默认行为的 mimalloc，不保留系统分配器构建分支，不启用全局 C allocator
+- 大块短命连续数据不适合与长期小对象共同依赖通用堆的回收时机，但过低的 mmap 阈值会让中型对象承担
+  额外映射与迁移成本。现网主路径抽样的 zstd 压缩正文约 0.3–0.6 MiB、解压后 P99 约 1.5 MiB，旧 `256 KiB`
+  payload 阈值会为一次普通请求连续建立约 0.5/1/1.5 MiB 映射；HTTP 捕获本身又被限制在 `1 MiB`。
+  因此 payload 只在需要的新容量达到 `2 MiB` 后使用匿名映射，已经足够的 mimalloc capacity 不做无收益迁移。
+  zstd 另按真实 allocation tier 决策：约 `95,984 B` 交给 mimalloc，streaming `2 MiB` window 对应的
+  `2,490,432 B` workspace 继续 direct mmap；两者当前边界虽同为 `2 MiB`，但不共享策略常量。Rust
+  通用堆固定使用默认行为的 mimalloc，不保留系统分配器构建分支，不启用全局 C allocator
   override、`no_thp` 或操作系统专用调参，避免把 SQLite 等原生依赖纳入未经验证的替换范围，也避免为了压低
   RSS 数字牺牲吞吐。Tokio 调度与 Blocking Pool 线程显式声明为 mimalloc thread-pool thread；页由 mimalloc
   的跨线程回收、默认 purge 和线程退出生命周期管理；应用不调用 `mi_collect`，避免把没有全局
   完成语义的线程局部操作包装成进程级回收。拒绝后台强制收集、`force=true`、唤醒空闲线程和按服务器设置
-  allocator 参数。
+  allocator 参数。总览不展示分配器内部分类；payload 不维护堆/映射/HTTP 捕获当前与峰值原子指标，遥测
+  Writer 也只保留字节准入需要的私有总预留，不维护 queued/in-flight/reserved 三项 owned-byte 快照。
   现有空闲期平台压力释放只覆盖原生系统堆；OAuth Token/额度等后台 Worker 与公共请求共用活动 epoch。该策略
   只改善确定性归还，不恢复全局内存准入，也不承诺 RSS 回到冷启动值。停机跟踪与内存回收阻塞使用独立 Guard，
   使长期管理通知流仍参与优雅停机，却不会永久阻塞空闲回收。

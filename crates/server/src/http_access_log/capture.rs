@@ -5,7 +5,7 @@ use std::{
 };
 
 use any2api_domain::{HttpBodyCapture, MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES};
-use any2api_payload_buffer::{PayloadBuffer, PayloadBufferUsage};
+use any2api_payload_buffer::PayloadBuffer;
 use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
@@ -20,10 +20,7 @@ pub(super) struct BodyCapture {
 impl BodyCapture {
     pub(super) const fn new(initially_complete: bool) -> Self {
         Self {
-            content: PayloadBuffer::new_for_usage(
-                MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES,
-                PayloadBufferUsage::HttpBodyCapture,
-            ),
+            content: PayloadBuffer::new(MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES),
             accepting_content: true,
             total_bytes: 0,
             complete: initially_complete,
@@ -59,10 +56,7 @@ impl BodyCapture {
     pub(super) fn take_snapshot(&mut self) -> HttpBodyCapture {
         let content = std::mem::replace(
             &mut self.content,
-            PayloadBuffer::new_for_usage(
-                MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES,
-                PayloadBufferUsage::HttpBodyCapture,
-            ),
+            PayloadBuffer::new(MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES),
         )
         .freeze();
         let captured_bytes = content.as_ref().len();
@@ -257,7 +251,7 @@ mod tests {
     #[test]
     fn capture_allocation_failure_is_fail_open_and_marks_the_snapshot_truncated() {
         let mut capture = BodyCapture::new(false);
-        capture.content = PayloadBuffer::new_for_usage(0, PayloadBufferUsage::HttpBodyCapture);
+        capture.content = PayloadBuffer::new(0);
         capture.observe(b"still forwarded");
         capture.finish(true);
 

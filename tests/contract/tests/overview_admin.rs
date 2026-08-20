@@ -139,19 +139,7 @@ async fn overview_resources_exposes_current_process_and_system_load() {
             .as_f64()
             .is_some_and(|value| (0.0..=100.0).contains(&value))
     );
-    let payload_buffers = &body["ownership"]["payload_buffers"];
-    for field in [
-        "heap_current_bytes",
-        "heap_peak_bytes",
-        "mapped_current_bytes",
-        "mapped_peak_bytes",
-        "http_body_capture_current_bytes",
-        "http_body_capture_peak_bytes",
-    ] {
-        assert!(payload_buffers[field].as_u64().is_some(), "missing {field}");
-    }
-    assert!(body["ownership"].get("telemetry").is_none());
-    assert!(body["ownership"].get("reclamation").is_none());
+    assert!(body.get("ownership").is_none());
 }
 
 #[tokio::test]

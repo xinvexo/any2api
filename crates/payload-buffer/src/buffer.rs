@@ -4,44 +4,28 @@ use bytes::Bytes;
 use memmap2::MmapMut;
 use thiserror::Error;
 
-use crate::metrics::{AllocationKind, AllocationLease, PayloadBufferUsage};
-
-const MAPPED_ALLOCATION_THRESHOLD_BYTES: usize = 256 * 1024;
+// Keeps the observed sub-1.5 MiB request/decode path in mimalloc while
+// retaining direct unmap for genuinely large buffered payloads.
+const DIRECT_MMAP_THRESHOLD_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct PayloadBuffer {
     storage: Storage,
     len: usize,
     max_len: usize,
-    usage: PayloadBufferUsage,
 }
 
 enum Storage {
-    Heap {
-        storage: Vec<u8>,
-        allocation: AllocationLease,
-    },
-    Mapped {
-        storage: MmapMut,
-        allocation: AllocationLease,
-    },
+    Heap(Vec<u8>),
+    Mapped(MmapMut),
 }
 
 impl PayloadBuffer {
     #[must_use]
     pub const fn new(max_len: usize) -> Self {
-        Self::new_for_usage(max_len, PayloadBufferUsage::General)
-    }
-
-    #[must_use]
-    pub const fn new_for_usage(max_len: usize, usage: PayloadBufferUsage) -> Self {
         Self {
-            storage: Storage::Heap {
-                storage: Vec::new(),
-                allocation: AllocationLease::empty(AllocationKind::Heap, usage),
-            },
+            storage: Storage::Heap(Vec::new()),
             len: 0,
             max_len,
-            usage,
         }
     }
 
@@ -51,23 +35,14 @@ impl PayloadBuffer {
         expected_len: Option<usize>,
         max_len: usize,
     ) -> Result<Self, PayloadBufferError> {
-        Self::with_capacity_hint_for_usage(expected_len, max_len, PayloadBufferUsage::General)
-    }
-
-    pub fn with_capacity_hint_for_usage(
-        expected_len: Option<usize>,
-        max_len: usize,
-        usage: PayloadBufferUsage,
-    ) -> Result<Self, PayloadBufferError> {
         let capacity = expected_len
             .filter(|expected| *expected <= max_len)
             .unwrap_or_default();
-        let storage = allocate_storage(capacity, usage)?;
+        let storage = allocate_storage(capacity)?;
         Ok(Self {
             storage,
             len: 0,
             max_len,
-            usage,
         })
     }
 
@@ -79,8 +54,8 @@ impl PayloadBuffer {
             .ok_or(PayloadBufferError::TooLarge)?;
         self.ensure_capacity(next_len)?;
         match &mut self.storage {
-            Storage::Heap { storage, .. } => storage.extend_from_slice(bytes),
-            Storage::Mapped { storage, .. } => {
+            Storage::Heap(storage) => storage.extend_from_slice(bytes),
+            Storage::Mapped(storage) => {
                 storage[self.len..next_len].copy_from_slice(bytes);
             }
         }
@@ -101,8 +76,8 @@ impl PayloadBuffer {
     #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         match &self.storage {
-            Storage::Heap { storage, .. } => storage.as_slice(),
-            Storage::Mapped { storage, .. } => &storage[..self.len],
+            Storage::Heap(storage) => storage.as_slice(),
+            Storage::Mapped(storage) => &storage[..self.len],
         }
     }
 
@@ -124,41 +99,29 @@ impl PayloadBuffer {
 
     fn ensure_capacity(&mut self, required: usize) -> Result<(), PayloadBufferError> {
         let current = self.storage.allocated_bytes();
-        if required < MAPPED_ALLOCATION_THRESHOLD_BYTES {
-            if required <= current {
-                return Ok(());
-            }
-            let Storage::Heap {
-                storage,
-                allocation,
-            } = &mut self.storage
-            else {
+        if required <= current {
+            return Ok(());
+        }
+        if required < DIRECT_MMAP_THRESHOLD_BYTES {
+            let Storage::Heap(storage) = &mut self.storage else {
                 unreachable!("mapped payload capacity cannot be below its threshold")
             };
             storage
                 .try_reserve(required.saturating_sub(storage.len()))
                 .map_err(|_| PayloadBufferError::AllocationFailed)?;
-            allocation.resize(storage.capacity());
             return Ok(());
         }
-        if matches!(self.storage, Storage::Mapped { .. }) && required <= current {
-            return Ok(());
-        }
-
         let capacity = required.max(current.saturating_mul(2)).min(self.max_len);
         let mut replacement = map_anon(capacity)?;
         match &self.storage {
-            Storage::Heap { storage, .. } => {
+            Storage::Heap(storage) => {
                 replacement[..self.len].copy_from_slice(storage);
             }
-            Storage::Mapped { storage, .. } => {
+            Storage::Mapped(storage) => {
                 replacement[..self.len].copy_from_slice(&storage[..self.len]);
             }
         }
-        self.storage = Storage::Mapped {
-            allocation: AllocationLease::new(AllocationKind::Mapped, self.usage, replacement.len()),
-            storage: replacement,
-        };
+        self.storage = Storage::Mapped(replacement);
         Ok(())
     }
 }
@@ -166,7 +129,8 @@ impl PayloadBuffer {
 impl Storage {
     fn allocated_bytes(&self) -> usize {
         match self {
-            Self::Heap { allocation, .. } | Self::Mapped { allocation, .. } => allocation.bytes(),
+            Self::Heap(storage) => storage.capacity(),
+            Self::Mapped(storage) => storage.len(),
         }
     }
 }
@@ -174,8 +138,8 @@ impl Storage {
 impl AsRef<[u8]> for Storage {
     fn as_ref(&self) -> &[u8] {
         match self {
-            Self::Heap { storage, .. } => storage.as_slice(),
-            Self::Mapped { storage, .. } => storage.as_ref(),
+            Self::Heap(storage) => storage.as_slice(),
+            Self::Mapped(storage) => storage.as_ref(),
         }
     }
 }
@@ -199,25 +163,16 @@ fn buffer_io_error(error: PayloadBufferError) -> io::Error {
     io::Error::new(kind, error)
 }
 
-fn allocate_storage(
-    capacity: usize,
-    usage: PayloadBufferUsage,
-) -> Result<Storage, PayloadBufferError> {
-    if capacity >= MAPPED_ALLOCATION_THRESHOLD_BYTES {
+fn allocate_storage(capacity: usize) -> Result<Storage, PayloadBufferError> {
+    if capacity >= DIRECT_MMAP_THRESHOLD_BYTES {
         let storage = map_anon(capacity)?;
-        return Ok(Storage::Mapped {
-            allocation: AllocationLease::new(AllocationKind::Mapped, usage, storage.len()),
-            storage,
-        });
+        return Ok(Storage::Mapped(storage));
     }
     let mut storage = Vec::new();
     storage
         .try_reserve_exact(capacity)
         .map_err(|_| PayloadBufferError::AllocationFailed)?;
-    Ok(Storage::Heap {
-        allocation: AllocationLease::new(AllocationKind::Heap, usage, storage.capacity()),
-        storage,
-    })
+    Ok(Storage::Heap(storage))
 }
 
 fn map_anon(capacity: usize) -> Result<MmapMut, PayloadBufferError> {
@@ -269,7 +224,7 @@ mod tests {
     #[test]
     fn small_payload_stays_on_the_heap_and_reports_capacity() {
         let mut buffer = PayloadBuffer::with_capacity_hint(Some(1024), 2048).expect("buffer");
-        assert!(matches!(buffer.storage, Storage::Heap { .. }));
+        assert!(matches!(buffer.storage, Storage::Heap(_)));
         buffer.extend_from_slice(b"small").expect("content");
 
         let frozen = buffer.freeze();
@@ -287,10 +242,19 @@ mod tests {
     }
 
     #[test]
+    fn medium_payload_stays_on_the_mimalloc_heap() {
+        let size = 1024 * 1024;
+        let buffer = PayloadBuffer::with_capacity_hint(Some(size), size).expect("buffer");
+
+        assert!(matches!(buffer.storage, Storage::Heap(_)));
+        assert_eq!(buffer.storage.allocated_bytes(), size);
+    }
+
+    #[test]
     fn large_payload_uses_mapped_storage_with_exact_owned_bytes() {
-        let size = MAPPED_ALLOCATION_THRESHOLD_BYTES;
+        let size = DIRECT_MMAP_THRESHOLD_BYTES;
         let mut buffer = PayloadBuffer::with_capacity_hint(Some(size), size).expect("buffer");
-        assert!(matches!(buffer.storage, Storage::Mapped { .. }));
+        assert!(matches!(buffer.storage, Storage::Mapped(_)));
         buffer.extend_from_slice(b"first chunk").expect("prefix");
         buffer
             .extend_from_slice(&vec![b'x'; size - 11])
@@ -303,41 +267,35 @@ mod tests {
     }
 
     #[test]
-    fn frozen_bytes_keep_http_capture_allocation_accounted_until_last_drop() {
-        let size = MAPPED_ALLOCATION_THRESHOLD_BYTES;
-        let before = crate::payload_buffer_metrics().http_body_capture_current_bytes();
-        let mut buffer = PayloadBuffer::new_for_usage(size, PayloadBufferUsage::HttpBodyCapture);
+    fn growing_payload_moves_from_heap_to_mapped_storage() {
+        let mut buffer = PayloadBuffer::new(DIRECT_MMAP_THRESHOLD_BYTES);
         buffer
-            .extend_from_slice(&vec![b'x'; size])
-            .expect("capture content");
-        let frozen = buffer.freeze();
-
-        assert_eq!(
-            crate::payload_buffer_metrics().http_body_capture_current_bytes(),
-            before + size
-        );
-        let bytes = frozen.into_bytes();
-        assert_eq!(
-            crate::payload_buffer_metrics().http_body_capture_current_bytes(),
-            before + size
-        );
-        drop(bytes);
-        assert_eq!(
-            crate::payload_buffer_metrics().http_body_capture_current_bytes(),
-            before
-        );
+            .extend_from_slice(&vec![b'x'; DIRECT_MMAP_THRESHOLD_BYTES - 1])
+            .expect("heap content");
+        assert!(matches!(buffer.storage, Storage::Heap(_)));
+        buffer.extend_from_slice(b"y").expect("mapped content");
+        assert!(matches!(buffer.storage, Storage::Mapped(_)));
+        assert_eq!(buffer.freeze().as_ref().last(), Some(&b'y'));
     }
 
     #[test]
-    fn growing_payload_moves_from_heap_to_mapped_storage() {
-        let mut buffer = PayloadBuffer::new(MAPPED_ALLOCATION_THRESHOLD_BYTES);
+    fn sufficient_heap_capacity_is_not_migrated_only_for_crossing_the_threshold() {
+        let mut buffer = PayloadBuffer::new(DIRECT_MMAP_THRESHOLD_BYTES * 2);
         buffer
-            .extend_from_slice(&vec![b'x'; MAPPED_ALLOCATION_THRESHOLD_BYTES - 1])
-            .expect("heap content");
-        assert!(matches!(buffer.storage, Storage::Heap { .. }));
-        buffer.extend_from_slice(b"y").expect("mapped content");
-        assert!(matches!(buffer.storage, Storage::Mapped { .. }));
-        assert_eq!(buffer.freeze().as_ref().last(), Some(&b'y'));
+            .extend_from_slice(&vec![b'x'; DIRECT_MMAP_THRESHOLD_BYTES * 3 / 4])
+            .expect("first heap allocation");
+        buffer
+            .extend_from_slice(&vec![b'y'; DIRECT_MMAP_THRESHOLD_BYTES / 8])
+            .expect("grow heap capacity");
+        assert!(matches!(
+            buffer.storage,
+            Storage::Heap(ref storage) if storage.capacity() > DIRECT_MMAP_THRESHOLD_BYTES
+        ));
+
+        buffer
+            .extend_from_slice(&vec![b'z'; DIRECT_MMAP_THRESHOLD_BYTES / 4])
+            .expect("cross logical threshold within existing capacity");
+        assert!(matches!(buffer.storage, Storage::Heap(_)));
     }
 
     #[test]
@@ -345,7 +303,7 @@ mod tests {
         let mut buffer = PayloadBuffer::with_capacity_hint(Some(1024), 4).expect("buffer");
         assert!(matches!(
             buffer.storage,
-            Storage::Heap { ref storage, .. } if storage.capacity() == 0
+            Storage::Heap(ref storage) if storage.capacity() == 0
         ));
         buffer.extend_from_slice(b"four").expect("bounded content");
         assert_eq!(
@@ -357,15 +315,15 @@ mod tests {
 
     #[test]
     fn write_interface_moves_large_serialized_output_to_mapped_storage() {
-        let mut buffer = PayloadBuffer::new(MAPPED_ALLOCATION_THRESHOLD_BYTES);
+        let mut buffer = PayloadBuffer::new(DIRECT_MMAP_THRESHOLD_BYTES);
         buffer
-            .write_all(&vec![b'x'; MAPPED_ALLOCATION_THRESHOLD_BYTES])
+            .write_all(&vec![b'x'; DIRECT_MMAP_THRESHOLD_BYTES])
             .expect("write mapped content");
 
-        assert!(matches!(buffer.storage, Storage::Mapped { .. }));
+        assert!(matches!(buffer.storage, Storage::Mapped(_)));
         let frozen = buffer.freeze();
-        assert_eq!(frozen.as_ref().len(), MAPPED_ALLOCATION_THRESHOLD_BYTES);
-        assert_eq!(frozen.allocated_bytes(), MAPPED_ALLOCATION_THRESHOLD_BYTES);
+        assert_eq!(frozen.as_ref().len(), DIRECT_MMAP_THRESHOLD_BYTES);
+        assert_eq!(frozen.allocated_bytes(), DIRECT_MMAP_THRESHOLD_BYTES);
     }
 
     #[test]
