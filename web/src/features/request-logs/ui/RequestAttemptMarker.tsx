@@ -7,7 +7,7 @@ export function RequestAttemptMarker({ attemptCount }: { attemptCount: number })
     <span
       role="img"
       aria-label={`共 ${attemptCount} 次上游尝试`}
-      className="pointer-events-none absolute inset-y-0 left-0 z-0 w-8 rounded-l-[8px] rounded-r-full bg-gradient-to-r from-danger/20 via-danger/8 to-transparent"
+      className="pointer-events-none absolute inset-y-1 left-1 z-0 w-4 rounded-[999px] border-2 border-l-danger/60 border-t-danger/60 border-b-danger/60 border-r-transparent"
     />
   );
 }
