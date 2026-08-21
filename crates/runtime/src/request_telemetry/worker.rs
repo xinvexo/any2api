@@ -1,4 +1,5 @@
 use std::{
+    collections::hash_map::Entry,
     mem,
     sync::{Arc, RwLock},
     time::Duration,
@@ -313,16 +314,18 @@ async fn flush_gateway_usage(
         return;
     }
     let count = batch.records.len();
-    let mut collapsed = std::collections::HashMap::new();
+    let mut collapsed = std::collections::HashMap::<_, String>::new();
     for update in batch.records {
-        collapsed
-            .entry(update.id)
-            .and_modify(|existing: &mut String| {
-                if update.last_used_at.as_str() > existing.as_str() {
-                    *existing = update.last_used_at.clone();
+        match collapsed.entry(update.id) {
+            Entry::Occupied(mut entry) => {
+                if update.last_used_at.as_str() > entry.get().as_str() {
+                    entry.insert(update.last_used_at);
                 }
-            })
-            .or_insert(update.last_used_at);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(update.last_used_at);
+            }
+        }
     }
     let updates = collapsed
         .into_iter()

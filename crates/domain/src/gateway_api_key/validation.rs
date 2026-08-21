@@ -57,11 +57,11 @@ pub(crate) fn validate_prefix(prefix: String) -> Result<String, GatewayApiKeyVal
     Ok(prefix)
 }
 
-pub(crate) fn validate_timestamp(value: String) -> Result<String, GatewayApiKeyValidationError> {
+pub(crate) fn validate_timestamp(value: &str) -> Result<(), GatewayApiKeyValidationError> {
     if value.trim().is_empty() || value.trim() != value || value.chars().any(char::is_control) {
         return Err(GatewayApiKeyValidationError::InvalidTimestamp);
     }
-    Ok(value)
+    Ok(())
 }
 
 pub(crate) const fn valid_version(value: u64) -> bool {
@@ -76,7 +76,7 @@ pub(crate) fn next_version(value: u64) -> Result<u64, GatewayApiKeyValidationErr
 }
 
 /// Current prefix plus a 32-byte URL-safe Base64 body without padding.
-pub fn validate_token(token: String) -> Result<String, GatewayApiKeyValidationError> {
+pub fn validate_token(token: &str) -> Result<(), GatewayApiKeyValidationError> {
     let Some(body) = token.strip_prefix(GATEWAY_TOKEN_PREFIX) else {
         return Err(GatewayApiKeyValidationError::InvalidToken);
     };
@@ -89,7 +89,7 @@ pub fn validate_token(token: String) -> Result<String, GatewayApiKeyValidationEr
     {
         return Err(GatewayApiKeyValidationError::InvalidToken);
     }
-    Ok(token)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -106,26 +106,24 @@ mod tests {
             token.len(),
             GATEWAY_TOKEN_PREFIX.len() + GATEWAY_TOKEN_BODY_LEN
         );
-        assert_eq!(validate_token(token.clone()).expect("valid"), token);
+        validate_token(&token).expect("valid");
     }
 
     #[test]
     fn rejects_unversioned_and_malformed_tokens() {
-        assert!(validate_token(format!("a2k_v1_{}", "a".repeat(43))).is_err());
-        assert!(validate_token(format!("{GATEWAY_TOKEN_PREFIX}{}", "a".repeat(10))).is_err());
-        assert!(
-            validate_token(format!(
-                "{GATEWAY_TOKEN_PREFIX}{}",
-                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "+"
-            ))
-            .is_err()
+        let unversioned = format!("a2k_v1_{}", "a".repeat(43));
+        let short = format!("{GATEWAY_TOKEN_PREFIX}{}", "a".repeat(10));
+        assert!(validate_token(&unversioned).is_err());
+        assert!(validate_token(&short).is_err());
+        let plus = format!(
+            "{GATEWAY_TOKEN_PREFIX}{}",
+            "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "+"
         );
-        assert!(
-            validate_token(format!(
-                "{GATEWAY_TOKEN_PREFIX}{}",
-                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "="
-            ))
-            .is_err()
+        let equals = format!(
+            "{GATEWAY_TOKEN_PREFIX}{}",
+            "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "="
         );
+        assert!(validate_token(&plus).is_err());
+        assert!(validate_token(&equals).is_err());
     }
 }

@@ -142,12 +142,10 @@ impl RequestRecorder {
         let Some(inner) = &self.inner else {
             return AttemptRecorder::disabled();
         };
+        let credential_id = candidate.credential_id.provider_credential_id();
         let target = FinalTarget {
-            endpoint_id: candidate
-                .credential_id
-                .provider_credential_id()
-                .map(|_| candidate.endpoint_id),
-            credential_id: candidate.credential_id.provider_credential_id(),
+            endpoint_id: credential_id.map(|_| candidate.endpoint_id),
+            credential_id,
             oauth_account_id: candidate.credential_id.oauth_account_id(),
             proxy_id: candidate.proxy_id,
         };
@@ -165,9 +163,6 @@ impl RequestRecorder {
             target.oauth_account_id,
             target.proxy_id,
         );
-        inner
-            .telemetry
-            .update_active_request_speed_tiers(inner.request_id, None, None);
         AttemptRecorder::new(
             self.clone(),
             inner.request_id,

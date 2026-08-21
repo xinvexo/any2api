@@ -35,7 +35,7 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
     assert!(created.body.get("token").is_none());
     let first_token = gateway_token(&created.body);
     assert!(first_token.starts_with(any2api_domain::GATEWAY_TOKEN_PREFIX));
-    any2api_domain::validate_gateway_token(first_token.clone()).expect("generated token");
+    any2api_domain::validate_gateway_token(&first_token).expect("generated token");
     assert_eq!(created.body["config_revision"], 2);
     let key_id = created.body["items"][0]["id"]
         .as_str()

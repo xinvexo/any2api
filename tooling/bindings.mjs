@@ -15,9 +15,9 @@ import { cargoTargetDirectory } from "./cargo.mjs";
 import { cargoCommand, generatedBindingsRoot, repositoryRoot } from "./paths.mjs";
 import { runCommand } from "./process.mjs";
 
-export async function generateAdminBindings({ onProcess, grouped = true } = {}) {
-  const targetDirectory = await cargoTargetDirectory({ onProcess });
-  const scratchRoot = join(targetDirectory, "any2api", "bindings");
+export async function generateAdminBindings({ targetDirectory, onProcess, grouped = true } = {}) {
+  const cargoTarget = targetDirectory ?? (await cargoTargetDirectory({ onProcess }));
+  const scratchRoot = join(cargoTarget, "any2api", "bindings");
   await mkdir(scratchRoot, { recursive: true });
   const temporary = await mkdtemp(join(scratchRoot, "export-"));
   try {

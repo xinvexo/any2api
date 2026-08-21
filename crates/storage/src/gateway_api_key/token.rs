@@ -8,8 +8,7 @@ const DISPLAY_PREFIX_BYTES: usize = 16;
 pub(crate) fn display_prefix(token: &SecretBytes) -> Result<String, StorageError> {
     let value = std::str::from_utf8(token.expose_secret())
         .map_err(|_| StorageError::InvalidGatewayApiKeyToken)?;
-    validate_gateway_token(value.to_owned())
-        .map_err(|_| StorageError::InvalidGatewayApiKeyToken)?;
+    validate_gateway_token(value).map_err(|_| StorageError::InvalidGatewayApiKeyToken)?;
     debug_assert_eq!(
         value.len(),
         GATEWAY_TOKEN_PREFIX.len() + GATEWAY_TOKEN_BODY_LEN

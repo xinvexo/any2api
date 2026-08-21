@@ -91,12 +91,16 @@ impl ActiveRequestRegistry {
                 || log.provider_endpoint_id != provider_endpoint_id
                 || log.credential_id != credential_id
                 || log.oauth_account_id != oauth_account_id
-                || log.proxy_profile_id != Some(proxy_profile_id);
+                || log.proxy_profile_id != Some(proxy_profile_id)
+                || log.requested_speed_tier.is_some()
+                || log.effective_speed_tier.is_some();
             log.attempt_count = attempt_count;
             log.provider_endpoint_id = provider_endpoint_id;
             log.credential_id = credential_id;
             log.oauth_account_id = oauth_account_id;
             log.proxy_profile_id = Some(proxy_profile_id);
+            log.requested_speed_tier = None;
+            log.effective_speed_tier = None;
             changed
         };
         if changed {

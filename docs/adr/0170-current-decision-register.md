@@ -110,6 +110,8 @@
 - 逻辑请求与上游尝试采用分层统计：Gateway API Key、总览和 Token/请求趋势按一条最终 RequestLog 计数，
   Provider API Key/OAuthAccount 统计按每条 RequestAttempt 归属计数。这样重试后的最终结果不会掩盖中间凭据
   的失败，同时不会把一次客户端请求在总览和网关统计中放大成多条请求。
+- 本地 Web 构建选择由同一次 Node→Cargo 生命周期直接传递临时资源目录，避免维护持久化产物索引和重复
+  校验；网络发布边界仍单独校验 Release 归档 checksum，以覆盖跨机器传输的完整性风险。
 - Web 面向重复操作和响应式浏览器使用，页面状态、API 调用和 feature 组件按功能归属；架构约束不再复制到
   每个页面或测试说明中。
 - Node/pnpm 统筹完整应用的开发、构建和打包，Cargo 保持 Rust-only；正式包是内嵌 Web 的单一二进制，更新器

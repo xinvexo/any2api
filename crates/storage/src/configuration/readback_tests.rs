@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn affected_gateway_readback_revalidates_the_changed_digest() {
+async fn affected_gateway_readback_validates_the_changed_digest() {
     let (_directory, store, id) = store_with_gateway_key().await;
     let mut transaction = store
         .pool()
@@ -32,7 +32,7 @@ async fn affected_gateway_readback_revalidates_the_changed_digest() {
 }
 
 #[tokio::test]
-async fn proxy_readback_reuses_gateway_keys_verified_at_transaction_start() {
+async fn proxy_readback_preserves_transaction_start_gateway_keys() {
     let (_directory, store, id) = store_with_gateway_key().await;
     let mut transaction = store
         .pool()
@@ -48,9 +48,8 @@ async fn proxy_readback_reuses_gateway_keys_verified_at_transaction_start() {
         .expect("gateway key")
         .clone();
 
-    // This direct write is deliberately outside the Proxy mutation contract. It makes a second
-    // full load fail and therefore proves that the Proxy readback reused the already-verified
-    // immutable Gateway aggregate instead of hashing it again.
+    // The transaction-start Gateway aggregate remains authoritative for this selective readback;
+    // a complete reload still reports the separately corrupted row.
     corrupt_gateway_digest(&mut transaction, id).await;
     let candidate = readback_proxy_mutation(&mut transaction, current)
         .await

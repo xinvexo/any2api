@@ -133,20 +133,16 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyAuthProof> {
-        validate_gateway_token(token.to_owned()).ok()?;
+        validate_gateway_token(token).ok()?;
         let digest = self.gateway_api_key_verifier.hash(token.as_bytes());
         let id = *self.gateway_api_key_index.get(&digest)?;
-        // The index only shortcuts the scan; the final decision recomputes a
-        // constant-time comparison against the stored hash of the found key.
         self.gateway_api_keys
-            .keys()
-            .iter()
-            .find(|key| key.id() == id)
+            .get(id)
             .filter(|key| {
                 key.is_active()
                     && self
                         .gateway_api_key_verifier
-                        .verify(token.as_bytes(), key.token_hash())
+                        .verify_digest(&digest, key.token_hash())
             })
             .map(|key| GatewayApiKeyAuthProof {
                 id: key.id(),

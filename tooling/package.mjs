@@ -14,11 +14,7 @@ import { basename, join } from "node:path";
 import { create as createTar } from "tar";
 
 import { buildApplication } from "./build.mjs";
-import {
-  cargoTargetDirectory,
-  distributionForTarget,
-  resolveBuildTarget,
-} from "./cargo.mjs";
+import { distributionForTarget, resolveBuildTarget } from "./cargo.mjs";
 import { binaryName, distributionRoot } from "./paths.mjs";
 
 export async function packageApplication({ target, onProcess, throwIfInterrupted = () => undefined } = {}) {
@@ -37,7 +33,7 @@ export async function packageApplication({ target, onProcess, throwIfInterrupted
   const version = build.compiledVersion ?? process.env.ANY2API_BUILD_VERSION;
   validateArtifactVersion(version);
 
-  const targetDirectory = await cargoTargetDirectory({ onProcess });
+  const targetDirectory = build.targetDirectory;
   const scratchRoot = join(targetDirectory, "any2api", "package");
   await mkdir(scratchRoot, { recursive: true });
   const staging = await mkdtemp(join(scratchRoot, "staging-"));

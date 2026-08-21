@@ -6,7 +6,7 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 
 import chokidar from "chokidar";
 
-import { ASSET_MANIFEST_ENV } from "./assets.mjs";
+import { WEB_ASSET_DIR_ENV } from "./assets.mjs";
 import { generateAdminBindings } from "./bindings.mjs";
 import { cargoBuild, resolveBuildTarget } from "./cargo.mjs";
 import { binaryName, repositoryRoot, webRoot } from "./paths.mjs";
@@ -19,7 +19,7 @@ export async function runDevelopment() {
   const sessionDirectory = await mkdtemp(join(tmpdir(), "any2api-dev-"));
   let descriptor;
   const childEnvironment = { ...process.env };
-  delete childEnvironment[ASSET_MANIFEST_ENV];
+  delete childEnvironment[WEB_ASSET_DIR_ENV];
   let frontend;
   let runtime;
   let activeBuild;

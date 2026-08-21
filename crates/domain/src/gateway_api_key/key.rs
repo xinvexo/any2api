@@ -58,9 +58,11 @@ impl GatewayApiKey {
         token_hash: [u8; 32],
         created_at: impl Into<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
-        let token = validate_token(token.into())?;
+        let token = token.into();
+        validate_token(&token)?;
         let token_prefix = validate_prefix(token_prefix.into())?;
-        let created_at = validate_timestamp(created_at.into())?;
+        let created_at = created_at.into();
+        validate_timestamp(&created_at)?;
         Ok(Self {
             id,
             name: draft.name,
@@ -95,15 +97,12 @@ impl GatewayApiKey {
         {
             return Err(GatewayApiKeyValidationError::InvalidVersion);
         }
-        let token = validate_token(token)?;
+        validate_token(&token)?;
         let token_prefix = validate_prefix(token_prefix)?;
-        if created_at.trim().is_empty() {
-            return Err(GatewayApiKeyValidationError::InvalidTimestamp);
-        }
         if let Some(value) = last_used_at.as_ref() {
-            validate_timestamp(value.clone())?;
+            validate_timestamp(value)?;
         }
-        let created_at = validate_timestamp(created_at)?;
+        validate_timestamp(&created_at)?;
         Ok(Self {
             id,
             name: draft.name,
@@ -137,8 +136,10 @@ impl GatewayApiKey {
         token_prefix: impl Into<String>,
         token_hash: [u8; 32],
     ) -> Result<Self, GatewayApiKeyValidationError> {
+        let token = token.into();
+        validate_token(&token)?;
         Ok(Self {
-            token: validate_token(token.into())?,
+            token,
             token_prefix: validate_prefix(token_prefix.into())?,
             token_hash,
             token_version: next_version(self.token_version)?,
@@ -267,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn rotate_updates_the_token_without_a_second_lifecycle_state() {
+    fn rotation_updates_the_token_and_preserves_enabled_state() {
         let token = sample_token('b');
         let rotated = key()
             .rotated(token.clone(), &token[..16], [9; 32])

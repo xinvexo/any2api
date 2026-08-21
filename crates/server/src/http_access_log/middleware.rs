@@ -53,19 +53,20 @@ pub(crate) async fn record(
     // Capture is skipped entirely when logging cannot persist anything.
     // `should_record` still runs at completion because its status and outcome
     // inputs are unknown here, so it can never pre-exclude a request.
+    let request_snapshot = client_context.snapshot();
     let mut completion = None;
-    if state.request_telemetry().http_access_capture_enabled(
-        client_context.snapshot().revision(),
-        client_context.snapshot().settings().logging(),
-    ) {
+    if state
+        .request_telemetry()
+        .http_access_capture_enabled(request_snapshot.settings().logging())
+    {
         let request_body_capture = RequestBodyCaptureSlot::new();
         completion = Some(AccessLogCompletion::new(
             state.request_telemetry_handle(),
-            client_context.snapshot().settings().logging().clone(),
+            request_snapshot.settings().logging().clone(),
             AccessLogMetadata::new(
                 request_id,
                 unix_time_ms(),
-                client_context.snapshot().revision(),
+                request_snapshot.revision(),
                 client_context.audit_client_ip(),
                 request.method().as_str().to_owned(),
                 request.uri().path().to_owned(),

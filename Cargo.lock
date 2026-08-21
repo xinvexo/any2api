@@ -75,7 +75,6 @@ dependencies = [
  "hyper-util",
  "mimalloc",
  "secrecy",
- "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",

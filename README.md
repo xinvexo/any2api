@@ -18,7 +18,7 @@ ANY2API_DATA_DIR=/var/lib/any2api /path/to/any2api
 
 `pnpm build` produces the standalone production executable. `pnpm package` builds the same application through the shared build lifecycle, then writes a predictably named distribution archive and SHA-256 checksum to `dist/`.
 
-Cargo commands remain Rust-only: `cargo check`, `cargo test`, and `cargo build --release` never start Node, pnpm, or Vite and never create distribution archives. Without an application-build manifest they embed an explicit Rust-only notice page, never a previous production UI. Use the root `pnpm build` command when the executable must contain the current production frontend.
+Cargo commands remain Rust-only: `cargo check`, `cargo test`, and `cargo build --release` never start Node, pnpm, or Vite and never create distribution archives. They embed the explicit Rust-only notice page. The root `pnpm build` command passes its temporary Vite asset directory to Cargo when the executable must contain the current production frontend.
 
 The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after startup. On a new data directory, the process prints a one-time administrator setup token. Enter that token in the local Web UI, or set `ANY2API_ADMIN_PASSWORD` only for first-run password initialization.
 

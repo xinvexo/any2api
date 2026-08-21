@@ -75,6 +75,10 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
     ) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
         let now_ms = unix_now_ms()?;
         let range_start_ms = request_usage_window_range_start(now_ms);
+        let window_ms =
+            i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?;
+        let range_start_ms =
+            i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?;
         let mut transaction = self.pool().begin().await?;
         let summary_rows =
             sqlx::query_as::<_, GatewayApiKeyUsageRow>(GATEWAY_API_KEY_USAGE_SUMMARY_SQL)
@@ -90,9 +94,9 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
              WHERE gateway_api_key_id IS NOT NULL AND started_at_ms >= ? \
              GROUP BY gateway_api_key_id, bucket_start_ms",
         )
-        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
-        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
-        .bind(i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?)
+        .bind(window_ms)
+        .bind(window_ms)
+        .bind(range_start_ms)
         .fetch_all(&mut *transaction)
         .await?;
         transaction.commit().await?;

@@ -58,6 +58,6 @@ mod tests {
         let body = value.strip_prefix(GATEWAY_TOKEN_PREFIX).expect("prefix");
         assert_eq!(body.len(), GATEWAY_TOKEN_BODY_LEN);
         assert_eq!(URL_SAFE_NO_PAD.decode(body).expect("base64 body").len(), 32);
-        assert!(validate_gateway_token(value.to_owned()).is_ok());
+        assert!(validate_gateway_token(value).is_ok());
     }
 }

@@ -170,12 +170,8 @@ impl RequestTelemetry {
     /// access log. Lets the ingress middleware skip header and body capture
     /// entirely instead of discarding a fully captured exchange at the end.
     #[must_use]
-    pub fn http_access_capture_enabled(
-        &self,
-        revision: ConfigRevision,
-        settings: &LoggingSettings,
-    ) -> bool {
-        self.policy(revision, settings).enabled
+    pub fn http_access_capture_enabled(&self, settings: &LoggingSettings) -> bool {
+        self.request_logs.is_some() && settings.request_enabled()
     }
 
     fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {

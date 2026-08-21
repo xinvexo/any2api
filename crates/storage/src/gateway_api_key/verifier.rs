@@ -24,7 +24,12 @@ impl GatewayApiKeyVerifier {
 
     #[must_use]
     pub fn verify(&self, token: &[u8], expected: &[u8; 32]) -> bool {
-        bool::from(self.hash(token).ct_eq(expected))
+        self.verify_digest(&self.hash(token), expected)
+    }
+
+    #[must_use]
+    pub fn verify_digest(&self, digest: &[u8; 32], expected: &[u8; 32]) -> bool {
+        bool::from(digest.ct_eq(expected))
     }
 }
 

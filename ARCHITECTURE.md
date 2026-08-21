@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.7<br>
-> 最后更新：2026-08-20<br>
+> 最后更新：2026-08-21<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 文档所有权
@@ -564,13 +564,13 @@ Vite 只负责前端 dev server、HMR 与生产 bundle；Cargo 只负责 Rust de
 Rust 二进制只负责运行时。`build.rs` 不得调用 Node/pnpm/Vite，Rust runtime 不得启动或监管
 Vite，`xtask` 不得提供第二套 application dev/build/package 入口。
 
-`pnpm build` 每次从当前 Web 源码执行 Vite 生产构建，直接把结果原子发布到 Cargo
-target 目录下的内容寻址 asset bundle，并生成包含精确文件集、大小与 SHA-256 的版本化
-manifest。Node 只把该 manifest 作为本次 Cargo release 的显式输入；`build.rs` 复核完整性后才生成
-`include_bytes!` 表。缺失或损坏的显式 manifest 必须使完整应用构建失败。
+`pnpm build` 每次从当前 Web 源码生成一个构建专用临时资源目录，并把该目录的绝对路径通过
+`ANY2API_BUILD_WEB_DIR` 传给本次 Cargo 构建。`build.rs` 负责目录、文件类型、稳定路径和非空
+`index.html` 校验，并从每个最终资源字节生成一次强 `ETag` 后写出 `include_bytes!` 表；Cargo
+编译完成后 Node 清理临时目录。
 
-普通 `cargo check/test/build/build --release` 不读取任何历史 Vite 产物，也不生成前端。未提供显式
-manifest 时，它嵌入仓库中人工维护的最小 Rust-only 占位页，并发出构建警告；该二进制
+普通 `cargo check/test/build/build --release` 不读取任何历史 Vite 产物，也不生成前端。未设置
+`ANY2API_BUILD_WEB_DIR` 时，它嵌入仓库中人工维护的最小 Rust-only 占位页，并发出构建警告；该二进制
 明确不承诺包含完整管理 UI。只有 `pnpm build` 和建立在同一内部 build primitive 上的
 `pnpm package` 才承诺产出包含当前前端的 standalone executable。
 
@@ -627,7 +627,7 @@ Provider/Protocol 组件、测试管理员会话和最小 Web 根，并允许从
 
 浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
-浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的完整应用二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试通过根 Node tooling 复用同一 asset manifest 与 Cargo artifact 解析 primitive，不能假定固定 `target/debug`、误跑此前构建的二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
+浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的完整应用二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试通过根 Node tooling 复用同一临时 Web 资源暂存和 Cargo artifact 解析原语，不能假定固定 `target/debug`、误跑此前构建的二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
 
 fuzz 目标建立后：每个 PR 回放固定 fuzz corpus，长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。在此之前，SSE 解析由确定性切分矩阵测试与 proptest 属性测试共同覆盖。
 
@@ -3367,13 +3367,14 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 React 生产构建产物属于完整应用二进制的编译时输入，不是运行时旁车目录。前端源码以
 `web/src`、`web/public`、前端配置、workspace lockfile 与本轮生成的 Rust 管理 DTO binding 为真相。
-Vite 在 `pnpm build` 中直接输出到 Cargo target 下的临时目录；Node 验证后以内容摘要原子发布
-asset root 与 manifest。仓库不追踪 Vite 生产 bytes，正常 build 不修改源树中的 JS/CSS/HTML。
+Vite 在 `pnpm build` 中直接输出到 Cargo target 下的构建专用临时目录；Node 将该目录通过
+`ANY2API_BUILD_WEB_DIR` 传给本次 Cargo 构建，Cargo 完成后由 Node 清理。仓库不追踪 Vite 生产 bytes，
+正常 build 不修改源树中的 JS/CSS/HTML。
 
-Rust `build.rs` 只接受本次 Node build 显式传入的版本化 manifest，或在纯 Cargo 模式下读取最小
-Rust-only 占位页。它不调用 Node、pnpm、Vite，不联网，不写源码树，也不在 target 中猜测“最近一次”
-前端产物。CI 中 Cargo-only quality job 验证 Rust 边界；完整 application job、E2E 和 Release 调用根
-pnpm lifecycle，保证当前 Web 与 Rust 源码进入同一二进制。
+Rust `build.rs` 接收本次 Node build 的显式资源目录，或在纯 Cargo 模式下读取最小 Rust-only 占位页。
+它不调用 Node、pnpm、Vite，不联网，不写源码树，也不在 target 中猜测“最近一次”前端产物。CI 中
+Cargo-only quality job 验证 Rust 边界；完整 application job、E2E 和 Release 调用根 pnpm lifecycle，
+保证当前 Web 与 Rust 源码进入同一二进制。
 
 ### 20.1 启动语义
 
@@ -3451,21 +3452,20 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 内嵌资源实现额外遵守：
 
 - 精确资源路径返回编译时字节和正确 `Content-Type`；`HEAD` 返回相同元数据但不返回 Body；
-- 构建清单按规范化路径排序，Server 使用二分查找而不是逐项扫描；每项资源在构建期从最终字节生成强 `ETag`，`GET/HEAD` 命中 `If-None-Match` 时返回无 Body 的 `304 Not Modified`，并保留该资源原有的 `Cache-Control`；SPA deep link 回落必须使用 `index.html` 自身的验证器；
+- 内嵌资源按规范化路径排序，Server 使用二分查找而不是逐项扫描；每项资源在构建期从最终字节生成强 `ETag`，`GET/HEAD` 命中 `If-None-Match` 时返回无 Body 的 `304 Not Modified`，并保留该资源原有的 `Cache-Control`；SPA deep link 回落必须使用 `index.html` 自身的验证器；
 - `index.html` 与未带内容哈希的根资源使用 `Cache-Control: no-cache`；Vite `/assets/*` 使用一年 `immutable` 缓存；
 - 不读取请求路径对应的文件系统。
 
 管理 Web 的外部目录与内嵌资源必须共享同一组 Web 专属安全响应头；全局响应边界再为两者及全部 API 统一添加 `X-Content-Type-Options: nosniff`，避免开发/诊断入口或 API 错误分支形成不同的类型嗅探边界。
 
-最终生成的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与生成目录只允许
-普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 若追踪快照则按原始字节保存，避免跨平台换行转换
-改变同一哈希资源的内容。资源缺失、同步失败或重复规范路径直接使当前打包失败；不为被替换文件名保留
-兼容别名。
+最终生成的内嵌目录必须至少包含 `index.html`，内嵌资源按稳定路径排序。源目录与生成目录只允许普通目录
+和普通文件，拒绝符号链接及其他特殊文件；资源缺失、读取失败或重复规范路径直接使当前打包失败，不为
+被替换文件名保留兼容别名。
 
 `pnpm build` 是包含当前前后端源码的正式本地应用构建入口，`pnpm package` 在其上执行分发归档和
 checksum。不得再要求操作者手工构建 Web、复制资源目录或经过 Rust xtask 编排应用生命周期。
-`build.rs` 始终只验证显式 asset manifest 或 Rust-only 占位目录，并在 `OUT_DIR` 生成 Rust 清单，禁止调用
-Node、pnpm、Vite、联网或写入源码树。
+`build.rs` 始终只验证显式 Web 资源目录或 Rust-only 占位目录，并在 `OUT_DIR` 生成 Rust 资源表，禁止
+调用 Node、pnpm、Vite、联网或写入源码树。
 
 
 
@@ -3482,8 +3482,8 @@ Node、pnpm、Vite、联网或写入源码树。
 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 的源码到二进制阶段调用根命令 `pnpm package --target x86_64-unknown-linux-gnu`。
-该命令复用统一的 Node 构建原语，先从当前前端与后端源码生成显式资源清单并编译二进制，再生成
-归档与 checksum；工作流只负责 Tag 校验和最终上传，不得重复实现构建、归档或摘要逻辑。
+该命令复用统一的 Node 构建原语，先从当前前端与后端源码准备资源目录并编译二进制，再生成归档与
+checksum；工作流只负责 Tag 校验和最终上传，不得重复实现构建、归档或摘要逻辑。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、配置、日志或 Secret。

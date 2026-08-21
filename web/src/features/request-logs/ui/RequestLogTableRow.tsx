@@ -41,25 +41,24 @@ export const RequestLogCard = memo(function RequestLogCard({
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
   return (
-    <div>
-      <div
-        role="button"
-        tabIndex={0}
-        className={cn(
-          "focus-ring relative block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
-          selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
-        )}
-        aria-label={`查看请求 ${model}`}
-        title="双击查看详情"
-        aria-pressed={selected}
-        onDoubleClick={() => onSelect(log.requestId)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelect(log.requestId);
-          }
-        }}
-      >
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "focus-ring relative block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
+        selected ? "bg-accent/10 ring-1 ring-accent/35" : "hover:bg-surface-muted/70",
+      )}
+      aria-label={`查看请求 ${model}`}
+      title="双击查看详情"
+      aria-pressed={selected}
+      onDoubleClick={() => onSelect(log.requestId)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(log.requestId);
+        }
+      }}
+    >
       <RequestAttemptMarker attemptCount={log.attemptCount} />
       <div className="relative z-10 flex min-w-0 items-center gap-2">
         <time
@@ -88,7 +87,6 @@ export const RequestLogCard = memo(function RequestLogCard({
         <span className="min-w-0 flex-1 truncate text-right" title={source.displayName}>
           {source.displayName}
         </span>
-      </div>
       </div>
     </div>
   );

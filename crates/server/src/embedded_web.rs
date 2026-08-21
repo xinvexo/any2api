@@ -223,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn sorted_manifest_is_queried_by_path() {
+    fn sorted_assets_are_queried_by_path() {
         assert_eq!(
             find(ASSETS, "assets/app-123.css").map(EmbeddedWebAsset::path),
             Some("assets/app-123.css")
