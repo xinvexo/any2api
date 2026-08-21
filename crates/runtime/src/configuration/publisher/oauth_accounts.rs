@@ -316,5 +316,4 @@ pub(super) fn unique_label(
 }
 
 #[cfg(test)]
-#[path = "oauth_accounts_tests.rs"]
 mod tests;

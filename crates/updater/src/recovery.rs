@@ -338,5 +338,4 @@ fn with_cleanup(
 }
 
 #[cfg(test)]
-#[path = "recovery_tests.rs"]
 mod tests;

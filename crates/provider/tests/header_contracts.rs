@@ -3,7 +3,7 @@ use std::sync::Arc;
 use any2api_domain::{ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind};
 use http::{HeaderMap, HeaderValue};
 
-use crate::{
+use any2api_provider::{
     ClaudeDriver, CodexDriver, GrokDriver, KimiDriver,
     api::{ProviderDriver, ProviderRegistry, ProviderRequestContext},
 };

@@ -1,9 +1,9 @@
 pub mod api;
 
 mod github;
+mod github_release_updater;
 mod install;
 mod recovery;
-mod service;
 mod smoke;
 mod state;
 mod temporary;

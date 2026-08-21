@@ -3,7 +3,7 @@ use sqlx::{Connection, SqliteConnection};
 use super::{foreign_key_violations, migrate_through, migration_versions};
 
 #[tokio::test]
-async fn gateway_auth_rejected_migration_preserves_history_and_adds_covering_index() {
+async fn gateway_auth_rejected_migration_preserves_history_and_adds_retention_index() {
     let mut connection = SqliteConnection::connect(":memory:")
         .await
         .expect("SQLite connection");
@@ -50,22 +50,5 @@ async fn gateway_auth_rejected_migration_preserves_history_and_adds_covering_ind
             "request_id",
             "exchange_bytes",
         ]
-    );
-    let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(
-        "EXPLAIN QUERY PLAN SELECT request_id, exchange_bytes FROM http_access_logs \
-         INDEXED BY http_access_logs_gateway_auth_rejected_retention_idx \
-         WHERE gateway_auth_rejected = 1 \
-         ORDER BY started_at_ms ASC, request_id ASC",
-    )
-    .fetch_all(&mut connection)
-    .await
-    .expect("gateway rejection capacity query plan")
-    .into_iter()
-    .map(|(_, _, _, detail)| detail)
-    .collect::<Vec<_>>()
-    .join("\n");
-    assert!(
-        plan.contains("USING COVERING INDEX http_access_logs_gateway_auth_rejected_retention_idx"),
-        "{plan}"
     );
 }

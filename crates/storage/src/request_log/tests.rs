@@ -19,6 +19,7 @@ use crate::{
 mod capacity;
 mod corruption;
 mod cursor;
+mod usage_query_plan;
 
 const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 

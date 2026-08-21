@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod capacity;
+mod query_plan;
 
 const GENEROUS_CAPACITY: HttpAccessLogCapacity =
     HttpAccessLogCapacity::new(10_000, 64 * 1024 * 1024);

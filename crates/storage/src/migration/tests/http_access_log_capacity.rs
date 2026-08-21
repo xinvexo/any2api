@@ -38,21 +38,6 @@ async fn capacity_migration_backfills_exchange_bytes_and_preserves_history() {
     .await
     .expect("retention index columns");
     assert_eq!(columns, ["started_at_ms", "request_id", "exchange_bytes"]);
-    let plan = sqlx::query_as::<_, (i64, i64, i64, String)>(
-        "EXPLAIN QUERY PLAN SELECT COUNT(*), COALESCE(SUM(exchange_bytes), 0) \
-         FROM http_access_logs INDEXED BY http_access_logs_retention_idx",
-    )
-    .fetch_all(&mut connection)
-    .await
-    .expect("capacity query plan")
-    .into_iter()
-    .map(|(_, _, _, detail)| detail)
-    .collect::<Vec<_>>()
-    .join("\n");
-    assert!(
-        plan.contains("USING COVERING INDEX http_access_logs_retention_idx"),
-        "{plan}"
-    );
 }
 
 async fn insert_access_log(

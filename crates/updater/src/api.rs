@@ -3,8 +3,8 @@ use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub use crate::github_release_updater::GitHubReleaseUpdater;
 pub use crate::recovery::{StartupUpdateRecovery, UpdateRecoveryError, recover_pending_update};
-pub use crate::service::GitHubReleaseUpdater;
 
 pub const APPLICATION_VERSION: &str = crate::BUILD_VERSION;
 

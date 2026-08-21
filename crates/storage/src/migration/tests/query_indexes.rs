@@ -1,11 +1,9 @@
-use sqlx::{AssertSqlSafe, Connection, SqliteConnection};
-
-use crate::http_access_log::{HIDE_ADMIN_OPERATIONS_PREDICATE, SYSTEM_LOG_RETENTION_PREDICATE};
+use sqlx::{Connection, SqliteConnection};
 
 use super::{DIRECT_PROXY_ID, foreign_key_violations, migrate_through, migration_versions};
 
 #[tokio::test]
-async fn query_index_migration_preserves_rows_and_covers_fk_deletes_and_log_filters() {
+async fn query_index_migration_preserves_rows_and_index_definitions() {
     let mut connection = SqliteConnection::connect(":memory:")
         .await
         .expect("SQLite connection");
@@ -21,7 +19,6 @@ async fn query_index_migration_preserves_rows_and_covers_fk_deletes_and_log_filt
     assert!(foreign_key_violations(&mut connection).await.is_empty());
     assert_representative_rows(&mut connection).await;
     assert_index_columns(&mut connection).await;
-    assert_covering_query_plans(&mut connection).await;
 }
 
 async fn insert_representative_rows(connection: &mut SqliteConnection) {
@@ -164,80 +161,4 @@ async fn assert_index_columns(connection: &mut SqliteConnection) {
                 .expect("index columns");
         assert_eq!(actual, columns, "{index}");
     }
-}
-
-async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
-    let count_statement = format!(
-        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM http_access_logs \
-         INDEXED BY http_access_logs_summary_filter_idx \
-         WHERE started_at_ms >= 0 AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
-         AND ({HIDE_ADMIN_OPERATIONS_PREDICATE}) \
-         AND (started_at_ms, request_id) <= (1000, 'ffffffff-ffff-ffff-ffff-ffffffffffff')"
-    );
-    let count_plan = query_plan(connection, &count_statement).await;
-    assert!(count_plan.contains("USING COVERING INDEX http_access_logs_summary_filter_idx"));
-
-    let page_statement = format!(
-        "EXPLAIN QUERY PLAN SELECT request_id, started_at_ms, config_revision, client_ip, \
-         method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
-         exchange_captured FROM http_access_logs \
-         INDEXED BY http_access_logs_summary_filter_idx WHERE started_at_ms >= 0 AND (\
-         {SYSTEM_LOG_RETENTION_PREDICATE}) \
-         AND (started_at_ms, request_id) <= (1000, 'ffffffff-ffff-ffff-ffff-ffffffffffff') \
-         AND (started_at_ms, request_id) < (500, 'ffffffff-ffff-ffff-ffff-ffffffffffff') \
-         ORDER BY started_at_ms DESC, request_id DESC LIMIT 21"
-    );
-    let page_plan = query_plan(connection, &page_statement).await;
-    assert!(
-        page_plan.contains("USING INDEX http_access_logs_summary_filter_idx"),
-        "{page_plan}"
-    );
-
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&mut *connection)
-        .await
-        .expect("foreign keys");
-    let delete_plan = query_plan(
-        connection,
-        "EXPLAIN QUERY PLAN DELETE FROM route_targets \
-         WHERE id = '40000000-0000-4000-8000-000000000001'",
-    )
-    .await;
-    assert!(delete_plan.contains("request_attempts_route_target_idx"));
-
-    let delete_plan = query_plan(
-        connection,
-        "EXPLAIN QUERY PLAN DELETE FROM provider_credentials \
-         WHERE id = '20000000-0000-4000-8000-000000000001'",
-    )
-    .await;
-    assert!(delete_plan.contains("request_attempts_credential_idx"));
-
-    let delete_plan = query_plan(
-        connection,
-        "EXPLAIN QUERY PLAN DELETE FROM provider_endpoints \
-         WHERE id = '10000000-0000-4000-8000-000000000001'",
-    )
-    .await;
-    assert!(delete_plan.contains("request_logs_provider_endpoint_idx"));
-
-    let delete_plan = query_plan(
-        connection,
-        "EXPLAIN QUERY PLAN DELETE FROM proxy_profiles \
-         WHERE id = '00000000-0000-0000-0000-000000000000'",
-    )
-    .await;
-    assert!(delete_plan.contains("request_attempts_proxy_profile_idx"));
-    assert!(delete_plan.contains("request_logs_proxy_profile_idx"));
-}
-
-async fn query_plan(connection: &mut SqliteConnection, sql: &str) -> String {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(sql))
-        .fetch_all(connection)
-        .await
-        .expect("query plan")
-        .into_iter()
-        .map(|(_, _, _, detail)| detail)
-        .collect::<Vec<_>>()
-        .join("\n")
 }

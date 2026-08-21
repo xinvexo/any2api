@@ -1,12 +1,10 @@
 mod auth;
+mod connectivity_probe;
 mod password_secret;
-mod test;
-#[cfg(test)]
-mod test_tests;
 
 pub(crate) use auth::{ProxyAuthMaterialError, ProxyAuthMaterials};
-pub use password_secret::ProxyPasswordSecret;
-pub use test::{
+pub use connectivity_probe::{
     ProxyTestError, ProxyTestFailureScope, ProxyTestFailureStage, ProxyTestOutcome,
     ProxyTestResult, ProxyTestService,
 };
+pub use password_secret::ProxyPasswordSecret;

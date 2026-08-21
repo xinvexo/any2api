@@ -48,17 +48,6 @@ async fn duplicate_attempt_index_migration_preserves_data_and_primary_key_lookup
         [("sqlite_autoindex_request_attempts_1".into(), "pk".into())]
     );
 
-    let plan = query_plan(
-        &mut connection,
-        "EXPLAIN QUERY PLAN SELECT attempt_no FROM request_attempts \
-         WHERE request_id = '50000000-0000-4000-8000-000000000001' ORDER BY attempt_no",
-    )
-    .await;
-    assert!(
-        plan.contains("COVERING INDEX sqlite_autoindex_request_attempts_1"),
-        "{plan}"
-    );
-
     let duplicate = sqlx::query(
         "INSERT INTO request_attempts \
          (request_id, attempt_no, started_at_ms, duration_ms, outcome) \
@@ -100,15 +89,4 @@ async fn index_columns(connection: &mut SqliteConnection, index: &str) -> Vec<St
         .fetch_all(connection)
         .await
         .expect("index columns")
-}
-
-async fn query_plan(connection: &mut SqliteConnection, statement: &'static str) -> String {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(statement)
-        .fetch_all(connection)
-        .await
-        .expect("query plan")
-        .into_iter()
-        .map(|(_, _, _, detail)| detail)
-        .collect::<Vec<_>>()
-        .join("\n")
 }

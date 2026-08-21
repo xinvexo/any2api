@@ -14,7 +14,7 @@ use crate::{
         UpdateBlockingFuture, UpdateBlockingTask, UpdateCommitTask, UpdateError, UpdateErrorKind,
         UpdateStatus, UpdateTask, UpdateTaskExecutor,
     },
-    service::GitHubReleaseUpdater,
+    github_release_updater::GitHubReleaseUpdater,
 };
 
 const TARGET_VERSION: &str = "1.2.3";

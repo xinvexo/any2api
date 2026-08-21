@@ -1,4 +1,4 @@
-use sqlx::{AssertSqlSafe, Connection, SqliteConnection};
+use sqlx::{Connection, SqliteConnection};
 
 use crate::gateway_api_key::GATEWAY_API_KEY_USAGE_SUMMARY_SQL;
 
@@ -8,12 +8,6 @@ const GATEWAY_ID: &str = "10000000-0000-4000-8000-000000000001";
 const ENDPOINT_ID: &str = "20000000-0000-4000-8000-000000000001";
 const CREDENTIAL_ID: &str = "30000000-0000-4000-8000-000000000001";
 const OAUTH_ACCOUNT_ID: &str = "40000000-0000-4000-8000-000000000001";
-const LEGACY_GATEWAY_USAGE_SUMMARY_SQL: &str = "SELECT gateway_api_key_id, COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
-     AS successful_requests \
-     FROM request_logs \
-     WHERE gateway_api_key_id IS NOT NULL \
-     GROUP BY gateway_api_key_id";
 const LEGACY_UPSTREAM_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
      COUNT(*) AS total_requests, \
      SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
@@ -38,7 +32,7 @@ const LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credenti
      FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
 
 #[tokio::test]
-async fn request_usage_index_migration_preserves_rows_and_covers_aggregate_queries() {
+async fn request_usage_index_migration_preserves_rows_and_aggregate_results() {
     let mut connection = SqliteConnection::connect(":memory:")
         .await
         .expect("SQLite connection");
@@ -71,16 +65,10 @@ async fn request_usage_index_migration_preserves_rows_and_covers_aggregate_queri
     assert!(foreign_key_violations(&mut connection).await.is_empty());
     assert_index_columns(&mut connection).await;
     assert_aggregate_results(&mut connection, LEGACY_UPSTREAM_USAGE_SUMMARY_SQL).await;
-    assert_covering_query_plans(
-        &mut connection,
-        LEGACY_UPSTREAM_USAGE_SUMMARY_SQL,
-        LEGACY_GATEWAY_USAGE_SUMMARY_SQL,
-    )
-    .await;
 }
 
 #[tokio::test]
-async fn final_outcome_index_migration_keeps_stream_failures_covering_and_failed() {
+async fn final_outcome_index_migration_preserves_stream_failure_outcomes() {
     let mut connection = SqliteConnection::connect(":memory:")
         .await
         .expect("SQLite connection");
@@ -111,12 +99,6 @@ async fn final_outcome_index_migration_keeps_stream_failures_covering_and_failed
     assert_final_outcome_aggregate_results(
         &mut connection,
         LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL,
-    )
-    .await;
-    assert_covering_query_plans(
-        &mut connection,
-        LEGACY_FINAL_UPSTREAM_USAGE_SUMMARY_SQL,
-        GATEWAY_API_KEY_USAGE_SUMMARY_SQL,
     )
     .await;
 }
@@ -296,54 +278,10 @@ async fn assert_final_outcome_aggregate_results(
     assert_eq!(gateway, [(GATEWAY_ID.into(), 5, 2)]);
 }
 
-async fn assert_covering_query_plans(
-    connection: &mut SqliteConnection,
-    upstream_sql: &'static str,
-    gateway_sql: &'static str,
-) {
-    let upstream = query_plan(connection, upstream_sql).await;
-    assert!(
-        upstream.contains("COVERING INDEX request_logs_provider_credential_started_idx"),
-        "{upstream}"
-    );
-    assert!(
-        upstream.contains("COVERING INDEX request_logs_oauth_account_idx"),
-        "{upstream}"
-    );
-    assert_request_log_access_is_covering(&upstream);
-
-    let gateway = query_plan(connection, gateway_sql).await;
-    assert!(
-        gateway.contains("COVERING INDEX request_logs_gateway_key_started_idx"),
-        "{gateway}"
-    );
-    assert_request_log_access_is_covering(&gateway);
-}
-
-fn assert_request_log_access_is_covering(plan: &str) {
-    assert!(!plan.contains("USE TEMP B-TREE"), "{plan}");
-    for line in plan.lines().filter(|line| line.contains("request_logs")) {
-        assert!(line.contains("COVERING INDEX"), "{plan}");
-    }
-}
-
 async fn index_columns(connection: &mut SqliteConnection, index: &str) -> Vec<String> {
     sqlx::query_scalar("SELECT name FROM pragma_index_info(?) ORDER BY seqno")
         .bind(index)
         .fetch_all(connection)
         .await
         .expect("index columns")
-}
-
-async fn query_plan(connection: &mut SqliteConnection, statement: &'static str) -> String {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(format!(
-        "EXPLAIN QUERY PLAN {statement}"
-    )))
-    .fetch_all(connection)
-    .await
-    .expect("query plan")
-    .into_iter()
-    .map(|(_, _, _, detail)| detail)
-    .collect::<Vec<_>>()
-    .join("\n")
 }

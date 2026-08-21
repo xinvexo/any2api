@@ -273,5 +273,4 @@ impl From<OAuthQuotaResetCredits> for OAuthQuotaResetCreditsResponse {
 }
 
 #[cfg(test)]
-#[path = "response_tests.rs"]
 mod tests;

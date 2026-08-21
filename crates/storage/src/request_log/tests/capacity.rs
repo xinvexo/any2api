@@ -70,44 +70,10 @@ async fn a_lower_row_cap_converges_across_bounded_cleanup_transactions() {
     assert_eq!(retained, 8);
 }
 
-#[tokio::test]
-async fn capacity_eviction_uses_the_narrow_retention_index() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("capacity-plan.sqlite3"))
-        .await
-        .expect("storage");
-
-    let eviction_plan = explain(
-        &store,
-        "EXPLAIN QUERY PLAN \
-         DELETE FROM request_logs WHERE request_id IN (\
-             SELECT request_id FROM request_logs INDEXED BY request_logs_started_idx \
-             ORDER BY started_at_ms ASC, request_id ASC LIMIT 10000\
-         )",
-    )
-    .await;
-    assert!(
-        eviction_plan
-            .iter()
-            .any(|detail| detail.contains("COVERING INDEX request_logs_started_idx")),
-        "{eviction_plan:?}"
-    );
-}
-
 async fn stored_count(store: &SqliteStore) -> u64 {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_logs")
         .fetch_one(store.pool())
         .await
         .expect("request log count");
     u64::try_from(count).expect("non-negative request log count")
-}
-
-async fn explain(store: &SqliteStore, statement: &'static str) -> Vec<String> {
-    sqlx::query_as::<_, (i64, i64, i64, String)>(statement)
-        .fetch_all(store.pool())
-        .await
-        .expect("query plan")
-        .into_iter()
-        .map(|(_, _, _, detail)| detail)
-        .collect()
 }

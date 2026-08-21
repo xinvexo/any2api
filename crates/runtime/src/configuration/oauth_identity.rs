@@ -93,5 +93,4 @@ fn secret_digest(provider: ProviderKind, kind: &[u8], secret: &str) -> [u8; 32] 
 }
 
 #[cfg(test)]
-#[path = "oauth_identity_tests.rs"]
 mod tests;

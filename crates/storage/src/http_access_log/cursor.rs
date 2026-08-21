@@ -17,7 +17,7 @@ pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str = "\
         '/favicon-32x32.png', '/apple-touch-icon.png', '/index.html'\
     )";
 
-const SYSTEM_LOG_BATCH_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
+pub(super) const SYSTEM_LOG_BATCH_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
     method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
     exchange_captured";
 
