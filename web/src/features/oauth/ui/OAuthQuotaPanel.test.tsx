@@ -66,10 +66,13 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   expect(await screen.findByText("已刷新「Primary Codex」的额度")).toBeInTheDocument();
   const resetCount = within(panel).getByText("可重置");
   expect(resetCount).toHaveTextContent("可重置 1");
-  expect(resetCount).toHaveAttribute(
-    "title",
+  expect(resetCount).not.toHaveAttribute("title");
+  fireEvent.mouseEnter(resetCount);
+  const resetExpiryTooltip = screen.getByRole("tooltip");
+  expect(resetExpiryTooltip).toHaveTextContent(
     `最早到期：${new Date("2026-07-30T00:00:00Z").toLocaleString()}`,
   );
+  expect(resetCount).toHaveAttribute("aria-describedby", resetExpiryTooltip.id);
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
   expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
     "title",

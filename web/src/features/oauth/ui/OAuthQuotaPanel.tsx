@@ -5,7 +5,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { RefreshCw, RotateCcw } from "lucide-react";
-import { useRef, useState } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type MouseEvent,
+} from "react";
 
 import type { OAuthProvider } from "../api/oauth-contracts";
 import { resetOAuthAccountQuota } from "../api/oauth-api";
@@ -18,8 +24,20 @@ import {
 } from "../model/oauth-quota-query";
 import { OAuthQuotaDetails } from "./OAuthQuotaDetails";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import {
+  FloatingPopover,
+  anchorFromElement,
+  resolveFloatingBounds,
+  type FloatingPopoverAnchor,
+} from "@/shared/ui/FloatingPopover";
 import { IconButton } from "@/shared/ui/IconButton";
+import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
+
+interface ResetCreditHover {
+  anchor: FloatingPopoverAnchor;
+  bounds: DOMRect;
+}
 
 export function OAuthQuotaPanel({
   accountId,
@@ -45,6 +63,8 @@ export function OAuthQuotaPanel({
   const quotaOptions = oauthQuotaQueryOptions(accountId);
   const quotaQuery = useQuery({ ...quotaOptions, enabled: !queryDisabled });
   const resetRequested = useRef(false);
+  const resetCreditTooltipId = useId();
+  const [resetCreditHover, setResetCreditHover] = useState<ResetCreditHover | null>(null);
   const [resetRefreshFailed, setResetRefreshFailed] = useState(false);
   const [modelCatalogRefreshFailed, setModelCatalogRefreshFailed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -122,6 +142,22 @@ export function OAuthQuotaPanel({
     ? formatEarliestResetCreditExpiry(quota?.resetCredits?.expiresAt ?? [])
     : undefined;
 
+  function openResetCreditTooltip(target: HTMLElement) {
+    if (!resetCreditExpiry) return;
+    setResetCreditHover({
+      anchor: anchorFromElement(target, "top"),
+      bounds: resolveFloatingBounds(target),
+    });
+  }
+
+  function onResetCreditMouseEnter(event: MouseEvent<HTMLButtonElement>) {
+    openResetCreditTooltip(event.currentTarget);
+  }
+
+  function onResetCreditFocus(event: FocusEvent<HTMLButtonElement>) {
+    openResetCreditTooltip(event.currentTarget);
+  }
+
   async function refreshQuota() {
     setResetRefreshFailed(false);
     setModelCatalogRefreshFailed(false);
@@ -166,12 +202,36 @@ export function OAuthQuotaPanel({
         <p className="text-[11px] font-medium text-secondary">{providerName} 额度</p>
         <div className="flex items-center gap-0.5">
           {canReset && quota ? (
-            <span
-              className="mr-1 text-[10px] tabular-nums text-tertiary"
-              title={resetCreditExpiry}
-            >
-              可重置 <span className="font-medium text-secondary">{availableCount}</span>
-            </span>
+            <>
+              <button
+                type="button"
+                className={cn(
+                  "mr-1 appearance-none bg-transparent p-0 text-[10px] tabular-nums text-tertiary",
+                  resetCreditExpiry
+                    && "focus-ring cursor-help rounded-[3px] border-b border-dotted border-current outline-none",
+                )}
+                disabled={!resetCreditExpiry}
+                aria-describedby={
+                  resetCreditExpiry && resetCreditHover ? resetCreditTooltipId : undefined
+                }
+                onMouseEnter={onResetCreditMouseEnter}
+                onMouseLeave={() => setResetCreditHover(null)}
+                onFocus={onResetCreditFocus}
+                onBlur={() => setResetCreditHover(null)}
+              >
+                可重置 <span className="font-medium text-secondary">{availableCount}</span>
+              </button>
+              <FloatingPopover
+                open={resetCreditExpiry !== undefined && resetCreditHover !== null}
+                anchor={resetCreditHover?.anchor ?? null}
+                bounds={resetCreditHover?.bounds ?? null}
+                id={resetCreditTooltipId}
+              >
+                <p className="whitespace-nowrap tabular-nums text-secondary">
+                  {resetCreditExpiry}
+                </p>
+              </FloatingPopover>
+            </>
           ) : null}
           <IconButton
             quiet
