@@ -1,146 +1,84 @@
-# ADR-0170: 当前架构决策登记册
+# ADR-0170: 合并当前决策理由
 
-- 状态：Accepted
-- 适用范围：当前架构基线及其维护方式
-- 当前事实：[`ARCHITECTURE.md`](../../ARCHITECTURE.md)
+- 状态：Superseded
+- 日期：2026-08-19
+- 被替代日期：2026-08-22
+- 被替代：[ADR-0171](0171-modular-single-node.md)、[ADR-0172](0172-provider-protocol-capabilities.md)、
+  [ADR-0173](0173-runtime-admission-and-stream-commit.md)、[ADR-0174](0174-sqlite-security-and-metadata-telemetry.md)、
+  [ADR-0175](0175-measured-memory-isolation.md)、[ADR-0176](0176-build-release-and-platform-support.md)、
+  [ADR-0177](0177-semantic-engineering-governance.md)、
+  [ADR-0178](0178-evidence-bound-oauth-quota-estimates.md)
 
 ## 背景
 
-仓库早期为每个小范围修复和审查意见创建独立 ADR。随着实现收敛，这些文件开始重复当前架构、互相修订，
-导致一次行为变更需要同时修改架构正文、多个 ADR、索引和整改台账。已经淘汰的方案也继续占据文档入口，
-后来者容易把历史方案误读为当前约束。
+仓库早期存在许多重复当前实现的小型决策文档。为了快速收敛，它们曾被合并成一个持续维护的登记册，并以一份
+大型架构基线描述所有当前事实。该方式减少了当时的重复文件，但随后让无关主题共享生命周期，也使小型实现
+变化频繁改动同一个文档。
 
-## 决策
+## 当时的决定
 
-1. `ARCHITECTURE.md` 是当前行为、边界、不变量、模块职责、协议范围、默认值和部署语义的唯一规范来源。
-   代码实现细节以代码为准，但文档中需要维护的架构事实只在这里记录。
-2. 本登记册只记录形成当前架构的理由、取舍和少量历史方向；不复制字段表、默认值、接口清单、状态机或
-   测试矩阵。需要知道“现在是什么”时只读架构基线，需要知道“为什么这样”时再读本登记册。
-3. `docs/adr/README.md` 只做入口、文档所有权说明和当前登记册索引，不维护另一份决策正文。
-4. `README.md` 只服务使用者，记录安装、运行、部署和公开入口；`docs/baselines/` 只保存可复核的外部证据。
-   `AGENTS.md` 只记录协作、编辑、依赖边界和验证规则，不复制产品架构。
-5. 整改台账只保留仍未完成的工作。已经完成的审查过程、基准数字和“不采纳”清单不作为长期架构文档；仍有
-   价值的方向收敛到本登记册的“已舍弃方向”。
+- 当前事实集中维护，理由和舍弃方向进入一个登记册；
+- README 面向使用者，官方客户端 baseline 保存外部证据；
+- 已完成的整改过程不作为长期完成日志；
+- 个人单节点定位、模块化单体和 SQLite 作为总体边界；
+- Provider、Protocol、Transport 分离，显式能力优先于兼容猜测；
+- RPM、粘性、类型化重试和流式提交边界共享一套 Runtime；
+- 配置通过完整候选和 PublishedSnapshot 原子发布；
+- Secret 受本地数据目录和最窄使用边界保护；
+- 管理 Web 使用服务端事实、响应式浏览器布局和统一实时连接；
+- 完整应用由同一构建生命周期组合 Rust 与 Web，发布为单一二进制。
 
-## 当前取舍的理由摘要
+## 保留的取舍理由
 
-### 产品和数据边界
+### 产品和模块
 
-- 个人、单节点、自托管定位使 SQLite、进程内 Runtime 和单一二进制成为足够且可审计的基础；不引入多租户、
-  计费、分布式调度、Redis、PostgreSQL 或消息队列。
-- `GatewayApiKey`、`ProviderCredential` 和 `OAuthAccount` 的生命周期与权限不同。它们只在运行时的通用
-  `RoutingCredential` 投影处合流，避免复制两套调度、健康和重试实现。
-- SQLite 是管理员配置和必要凭据的持久化真相；运行态不恢复。明文 Secret 是明确的本地部署边界，不再
-  引入第二套主密钥、加密 Schema 或 Secret 导出系统。
+个人、自托管、单节点使 SQLite、进程内 Runtime 与单一二进制足够且易审计。Gateway Key、Provider API Key
+和 OAuthAccount 生命周期不同，只在运行时 `RoutingCredential` 投影处合流，从而复用调度、健康与重试。
+分层 Provider/Protocol/Transport 避免把供应商认证、线协议和网络失败混进中央执行器。
 
-### Provider、协议和网络
+### 路由和流式
 
-- Provider、Protocol 和 Transport 分层，Provider 只描述供应商契约，Protocol 只负责线协议，Transport
-  只负责出口和连接；这样新增 Provider 不需要改中央调度器，也避免把网络错误和业务错误混在一起。
-- 标准 OpenAI 与 Codex 即使共享 Responses、Chat 和 Images 线协议，也具有不同的认证、请求身份和操作面；
-  因此保留独立 Provider，由管理员显式选择当前官方 OpenAI 契约，不按 URL 或模型名把已有 Codex Endpoint
-  自动改类。也不设置宽松的 `OpenAICompatible` 总类，兼容差异继续由明确 Provider 与 target profile 表达。
-- Responses → Chat 的供应商差异收敛为 Driver 声明的正交 target profile，而不复制 Provider 专用 Bridge
-  或按 URL/模型名猜测能力；这样协议映射只有一份，可逆的客户端工具能够共享实现，没有通用 Chat 等价的
-  上游托管工具则明确拒绝，避免把有损降级伪装成兼容。
-- 同方言请求优先保留原始 wire bytes，跨协议才物化桥接结构；这同时保留未知字段并限制大请求的复制成本。
-- SSE 的网络 chunk 与协议帧没有一一对应关系，因此按协议增量分帧，并把 Guard、解码状态和未消费字节交给
-  响应 Body 持有。首个可接受事件前使用有界预算，可以在提交下游前识别损坏或空流；提交后则保持单一路径，
-  避免拼接两条上游流或伪造协议终止。
-- 上游认证、请求 Header、Content-Encoding 和重定向由明确的边界拥有者处理。客户端凭据永不直接成为上游
-  凭据，专属代理失败不回退，Provider URL 是管理员明确授权的目标。
-- Provider identity 和官方客户端观测作为可版本化证据维护，但没有证据时不模拟 TLS/HTTP 特征或随机伪装。
+RPM 是面向管理员的本地准入限制；`in_flight` 表示资源生命周期。会话绑定完整候选，只有尚未向下游提交且
+存在明确安全证据时才能重试或换路。网络 chunk 与 SSE 帧不同，因此协议必须增量解析；提交后保持单一路径，
+不拼接不同上游响应。
 
-### 调度、会话和流式请求
+### 存储和配置
 
-- RPM 是唯一用户可配置的本地准入限制；`in_flight` 只表达运行态资源生命周期。选择与 RPM 预留原子化，
-  QueueTicket 和统一 epoch 负责有限等待，避免隐藏并发限制和丢失唤醒。
-- 会话一旦绑定，就固定 Credential、Route Target、模型和协议方言。只有尚未向下游提交且有明确安全证据
-  时才允许重试或换路；提交任何响应字节后永久禁止切换。
-- SSE 使用预提交预算和一次性 Guard，提交前失败与提交后失败分开处理。未知失败不伪装成成功，也不为了
-  计费而继续 Drain 上游。
-- 大块短命连续数据不适合与长期小对象共同依赖通用堆的回收时机，但过低的 mmap 阈值会让中型对象承担
-  额外映射与迁移成本。现网主路径抽样的 zstd 压缩正文约 0.3–0.6 MiB、解压后 P99 约 1.5 MiB，旧 `256 KiB`
-  payload 阈值会为一次普通请求连续建立约 0.5/1/1.5 MiB 映射；HTTP 捕获本身又被限制在 `1 MiB`。
-  因此 payload 只在需要的新容量达到 `2 MiB` 后使用匿名映射，已经足够的 mimalloc capacity 不做无收益迁移。
-  zstd 另按真实 allocation tier 决策：约 `95,984 B` 交给 mimalloc，streaming `2 MiB` window 对应的
-  `2,490,432 B` workspace 继续 direct mmap；两者当前边界虽同为 `2 MiB`，但不共享策略常量。Rust
-  通用堆固定使用 mimalloc，不保留系统分配器构建分支，也不启用全局 C allocator override，避免把 SQLite 等
-  原生依赖纳入未经验证的替换范围。Linux 现网验证表明，默认透明大页会把 mimalloc 稀疏使用的 arena 以大粒度
-  驻留并形成与存活对象无关的稳定 RSS；因此构建统一启用 `no_thp`，以普通页和默认 purge 换取单节点部署更可控
-  的常驻内存。当前 mimalloc v3 的该 feature 只移除主动大页建议，不能覆盖宿主机 `always` 策略，因此 Linux
-  二进制在 mimalloc 构造器之前同时固定 `allow_thp=false` 并执行 `PR_SET_THP_DISABLE`，Composition Root 再验证
-  内核调用；拒绝只在某台机器注入 allocator 环境变量，也拒绝把 supervisor 变成正确性的组成部分。该取舍接受
-  极端内存密集负载可能失去部分 TLB 收益，但不把未受控吞吐假设凌驾于已观测的驻留内存问题。Tokio 调度与 Blocking Pool 线程显式声明为
-  mimalloc thread-pool thread；页由 mimalloc 的跨线程回收、默认 purge 和线程退出生命周期管理；应用不调用 `mi_collect`，避免把没有全局
-  完成语义的线程局部操作包装成进程级回收。拒绝后台强制收集、`force=true`、唤醒空闲线程和按服务器设置
-  allocator 参数。总览不展示分配器内部分类；payload 不维护堆/映射/HTTP 捕获当前与峰值原子指标，遥测
-  Writer 也只保留字节准入需要的私有总预留，不维护 queued/in-flight/reserved 三项 owned-byte 快照。
-  现有空闲期平台压力释放只覆盖原生系统堆；OAuth Token/额度等后台 Worker 与公共请求共用活动 epoch。该策略
-  只改善确定性归还，不恢复全局内存准入，也不承诺 RSS 回到冷启动值。停机跟踪与内存回收阻塞使用独立 Guard，
-  使长期管理通知流仍参与优雅停机，却不会永久阻塞空闲回收。
+SQLite 保存配置和必要凭据，运行态不恢复。配置候选在事务中编译，提交后以完整 revision 发布。Schema 通过
+不可改写的前向 Migration 演进，兼容转换停留在 Migration 或外部导入边界。
 
-### 配置、存储和安全
+### 内存与运维
 
-- 发布采用“事务内构造和校验候选配置，Commit 后 reconcile，再一次性切换 PublishedSnapshot”的顺序，
-  保证鉴权、路由和设置使用同一 revision。
-- Schema 只追加不可改写的前向 Migration；历史格式转换只在 SQL Migration 或外部导入边界完成，运行时只
-  接受当前模型。
-- 管理面使用单管理员认证，允许 HTTP 但明确提示风险；公开 Gateway Key 不能登录管理面。日志、DTO、Debug
-  和浏览器持久化不得泄露 Provider Secret、OAuth Token、代理密码或原始 Session ID；经认证的 HttpAccessLog
-  详情是唯一允许按操作员选择读取原始客户端交换的例外。
+大块短命 payload、zstd workspace 与长期小对象具有不同回收特征，因此底层分配策略以观测到的 RSS 和尾延迟
+为依据，并隔离 unsafe 平台实现。Node tooling 组合完整 Web/Rust 应用，Cargo 保持 Rust-only；Linux AMD64
+是正式发布边界，更新器不替代外部 supervisor 或数据库恢复。
 
-### 可观测性、Web 和发布
+### 可观测性和 Web
 
-- RequestLog、HttpAccessLog、活动请求投影和统一管理员 SSE 分别承担历史事实、原始交换、当前进度和失效通知；
-  不把实时状态伪装成持久化日志，也不让日志通知承载 Secret 或正文。
-- 在购买 Credits 接管窗口前，Codex 本机额度的“已用”选择官方周期内仍保留的 RequestLog 直接求和，而不再由相邻刷新的小百分比反推。
-  这样在周期记录完整时，接管前的已用值随本地事实单调增加，且进程重启与漏刷不会产生新的小样本；总量推算保留
-  `2%` 门槛，以避免零值和最早期样本直接参与推算；接受较小分母会放大上游百分比量化与异步记账，不引入 EMA、限幅或异常值删除去隐藏
-  真实偏差。
-- RequestLog 没有 Provider 最终从 included-window 还是购买 Credits 扣款的逐请求证据；官方窗口达到
-  `100%` 且真实 Credits 可用后，继续累加整周期本地成本必然把两种资源混在一起。当前选择在首次接管时
-  优先冻结同周期接管前的可信容量估算；缺少该基线时冻结首次接管 observation fence 的正数本地周期总和，
-  使耗尽窗口继续可见且后续 Credits 不再抬高它。该回退无法追溯剔除 fence 前已发生的 Credits 消耗，但也不
-  根据余额差、自然语言或请求时间猜测逐请求扣款来源。旧 estimator 无法恢复接管边界，因此前向 Migration
-  保留官方 usage、清空派生状态，并由下一次权威刷新建立冻结值。
-- 额度容量是否能够跨刷新比较，应由 Provider 稳定主体而不是路由健康代际决定。账号重新启用、代理切换和
-  Token 换代不会把同一个上游主体变成另一份额度；只有 Provider 无法提供稳定主体时，才使用账号与 Token
-  代际作保守回退。旧指纹无法在不读取 Secret 的 SQL Migration 中可靠转换，因此升级时只清除可由整周期
-  RequestLog 重算的 estimator state，并保留官方额度观测。
-- Codex 本机成本先由实际上游模型选择对应费率，再仅以上游最终响应明确确认的 Fast 事实选择 Fast 档；
-  请求声明只能证明执行意图，不能证明 Provider 实际按快速档处理。非 Fast 返回和缺失返回均按 Standard，
-  避免把未经上游确认的请求意图乘进本机已用额度。
-- 管理员实时状态采用单一共享 sampler 和“最新快照”广播，而不是每个页面独立轮询或持久化事件回放；这样
-  采样成本不随打开视图增长，断线后仍可由当前快照和 HTTP 事实查询恢复。
-- 逻辑请求与上游尝试采用分层统计：Gateway API Key、总览和 Token/请求趋势按一条最终 RequestLog 计数，
-  Provider API Key/OAuthAccount 统计按每条 RequestAttempt 归属计数。这样重试后的最终结果不会掩盖中间凭据
-  的失败，同时不会把一次客户端请求在总览和网关统计中放大成多条请求。
-- 本地 Web 构建选择由同一次 Node→Cargo 生命周期直接传递临时资源目录，避免维护持久化产物索引和重复
-  校验；网络发布边界仍单独校验 Release 归档 checksum，以覆盖跨机器传输的完整性风险。
-- Web 面向重复操作和响应式浏览器使用，页面状态、API 调用和 feature 组件按功能归属；架构约束不再复制到
-  每个页面或测试说明中。
-- Node/pnpm 统筹完整应用的开发、构建和打包，Cargo 保持 Rust-only；正式包是内嵌 Web 的单一二进制，更新器
-  只做经校验的固定 Linux AMD64 Release 替换，不替代外部 supervisor。
+逻辑请求和上游 Attempt 分层统计，实时快照不伪装成持久化历史。浏览器使用后端能力与配置 revision，不自行
+推断路由。实时状态通过共享管理员连接分发，历史列表通过 SQLite Cursor 恢复。
 
-## 已舍弃方向
+### OAuth 额度估计
 
-以下内容只保留方向性结论，具体旧实现、旧字段和旧测试不再作为文档资产：
+本地额度估计以官方周期边界和持久化 RequestLog 成本为依据，不从相邻刷新差值、余额自然语言或短暂小百分比
+猜测消耗。容量外推需要最低官方使用率；购买 Credits 接管耗尽窗口后冻结 included-window 估计，避免混入后续
+付费消耗。稳定 Provider 主体用于跨 token 刷新保持同一容量身份，Fast 成本只使用上游最终确认的执行档位。
 
-| 舍弃方向 | 当前结论 |
+## 当时舍弃的方向
+
+| 方向 | 结论 |
 |---|---|
-| 多租户、余额、计费、支付、Key 销售和分布式调度 | 永久不属于产品边界 |
-| 通用 YAML/Secret/数据库导入导出或服务器 OAuth 文件下载 | 只保留 SQLite 当前模型和受支持的 Provider 专用导入边界 |
-| 公开请求的全局内存准入、按 TPM/并发/权重的第二套调度限制 | 删除；只保留 RPM、QueueTicket 和明确的单对象容量上限 |
-| Responses WebSocket 入口、上游/下游 WebSocket 和跨 Provider 双向桥 | 首版不提供；Responses 走 HTTP JSON/SSE，GET 入口返回 426 |
-| 按 Credential 做 prompt-cache 软路由、修改同方言请求面以区分账号 | 删除；请求面保持缓存连续性，粘性只承担固定会话语义 |
-| 用一个 `OpenAICompatible` Provider 覆盖官方 OpenAI、Codex 和第三方兼容端点 | 拒绝宽松猜测；官方 OpenAI 独立成明确契约，其他供应商继续使用各自 Driver/profile |
-| 运行态恢复、请求回放、队列/会话/健康恢复、复杂备份容灾 | 进程重启后从空 Runtime 启动，备份属于部署操作 |
-| 旧 OAuth JSON、旧浏览器字段别名、启动期兼容读取和代码内迁移 | 在迁移或导入边界一次性收敛，生产路径只接受当前 Schema |
-| 逐条日志事件入口、页码/随机跳页和常驻客户端轮询 | 统一 `/api/admin/events`，用 epoch + Keyset Cursor + 短时合并追赶 |
-| 把官方观测当作通用伪装、按自然语言猜额度/账号状态 | 只有可审计字段和固定证据才能影响分类或健康 |
+| 多租户、计费、支付、Key 销售与分布式调度 | 不属于产品边界 |
+| Redis、PostgreSQL、消息队列与微服务 | 不用于解决单节点问题 |
+| 通用配置、Secret、数据库导入导出 | 只保留当前 SQLite 模型和受支持 Provider 导入 |
+| TPM、并发、权重等第二套公开准入策略 | 只保留 RPM 与明确的对象容量上限 |
+| WebSocket 或跨 Provider 双向万能桥 | 当前公开入口使用 HTTP JSON/SSE 与显式 Bridge |
+| 用 URL、模型名或自然语言猜测 Provider 能力 | 只有注册契约和可审计证据可影响能力 |
+| prompt-cache 软路由或修改同方言请求区分账号 | 请求面保持连续，粘性只承担显式会话语义 |
+| 请求、队列、会话、健康和事件回放 | 进程启动后从空 Runtime 建立 |
+| 长期兼容读取旧 Schema/浏览器格式 | 在 Migration 或导入边界一次性收敛 |
 
-## 维护规则
+## 被替代原因
 
-修改当前行为时只更新 `ARCHITECTURE.md`；若取舍理由或舍弃方向发生变化，再同步本登记册。新增 ADR 只有在
-出现新的、独立且尚未能归入本登记册的架构取舍时才必要，不能为每个实现修复或测试补充单独文档。
+一个登记册无法给不同决策独立状态，也会把当前事实、理由和维护规则重新耦合。后继 ADR 将以上理由按决策拆分，
+当前事实移入少量主题文档。本文件停止维护，仅作为 2026-08-19 合并阶段的历史索引。

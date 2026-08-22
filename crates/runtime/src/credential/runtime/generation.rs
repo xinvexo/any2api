@@ -50,7 +50,14 @@ impl CredentialAuthentication {
     ) -> Result<CredentialHeaders, ProviderError> {
         match self {
             Self::ProviderApiKey(secret) => driver.credential_headers(base_url, secret),
-            Self::OAuth(token) => driver.oauth_credential_headers(token, forwarded),
+            Self::OAuth(token) => driver
+                .oauth_routing()
+                .ok_or_else(|| {
+                    ProviderError::InvalidCredential(
+                        "provider does not support OAuth credentials".into(),
+                    )
+                })?
+                .oauth_credential_headers(token, forwarded),
         }
     }
 

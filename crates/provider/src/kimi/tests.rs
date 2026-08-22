@@ -1,7 +1,10 @@
 use any2api_domain::{
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, TransportMode,
+    UpstreamErrorKind, UpstreamFailureAttribution,
+};
+use any2api_protocol::api::{
     OpenAiChatCachedTokensField, OpenAiChatReasoningRequest, OpenAiChatTokenLimitField,
-    ProtocolDialect, ProtocolOperation, ProtocolTargetProfile, ProviderBaseUrl, ProviderKind,
-    RetrySafety, TransportMode, UpstreamErrorKind, UpstreamFailureAttribution,
+    ProtocolTargetProfile,
 };
 use http::{HeaderMap, HeaderValue, StatusCode, header::AUTHORIZATION};
 
@@ -53,16 +56,12 @@ fn exposes_only_chat_completions_and_builds_moonshot_paths() {
 
     assert_eq!(driver.kind(), ProviderKind::Kimi);
     assert_eq!(
-        driver.capabilities().protocols,
-        [ProtocolDialect::OpenAiChatCompletions]
-            .into_iter()
-            .collect()
+        driver.descriptor().protocols().collect::<Vec<_>>(),
+        vec![ProtocolDialect::OpenAiChatCompletions]
     );
     assert_eq!(
-        driver.capabilities().transport_modes,
-        [TransportMode::Json, TransportMode::Sse]
-            .into_iter()
-            .collect()
+        driver.descriptor().transport_modes(),
+        &[TransportMode::Json, TransportMode::Sse]
     );
     assert_eq!(
         driver
@@ -88,7 +87,8 @@ fn exposes_only_chat_completions_and_builds_moonshot_paths() {
     ] {
         assert!(driver.endpoint_plan(&base, unsupported).is_err());
     }
-    assert!(driver.oauth_login_flow().is_none());
+    assert!(driver.descriptor().oauth().is_none());
+    assert!(driver.oauth_token().is_none());
 
     let headers = driver
         .credential_headers(&base, &ProviderSecret::new("sk-kimi"))

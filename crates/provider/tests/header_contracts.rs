@@ -27,7 +27,7 @@ fn registered_provider_operation_header_contracts_match_the_golden_profiles() {
         assert!(!operations.is_empty(), "{kind:?} has no operation contract");
         for operation in operations {
             assert_projection_contract(driver.as_ref(), operation, false);
-            if driver.oauth_supports_operation(operation) {
+            if driver.descriptor().supports_oauth_operation(operation) {
                 assert_projection_contract(driver.as_ref(), operation, true);
             }
         }

@@ -1,7 +1,7 @@
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
+import type { RequestAttempt } from "../api/request-log-contracts";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
   attemptErrorMessage,
@@ -17,6 +17,7 @@ import {
   upstreamCredentialDisplay,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
+import { protocolDialectLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { Button } from "@/shared/ui/Button";
 import { buttonClassName } from "@/shared/ui/button-class-name";
 import { Surface } from "@/shared/ui/Surface";
@@ -105,7 +106,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
         </div>
 
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-          <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
+          <Detail label="协议" value={protocolDialectLabel(request.ingressProtocol)} />
           <Detail label="接口" value={operationLabel(request.operation)} />
           <Detail label="客户端 IP" value={request.clientIp} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
@@ -219,19 +220,6 @@ function Detail({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 break-all font-medium">{value}</dd>
     </div>
   );
-}
-
-function protocolLabel(value: RequestLogProtocol) {
-  switch (value) {
-    case "openai_chat_completions":
-      return "OpenAI Chat Completions";
-    case "openai_images":
-      return "OpenAI Images";
-    case "anthropic_messages":
-      return "Claude Messages";
-    case "openai_responses":
-      return "OpenAI Responses";
-  }
 }
 
 function formatMetric(value: number | null, suffix = "") {

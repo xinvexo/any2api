@@ -6,7 +6,7 @@ use secrecy::ExposeSecret;
 
 use crate::{
     error::StorageError,
-    gateway_api_key::{token::display_prefix, verifier::GatewayApiKeyVerifier},
+    gateway_api_key::{GatewayApiKeyVerifier, token::display_prefix},
     secret::SecretBytes,
 };
 

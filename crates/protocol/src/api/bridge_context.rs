@@ -1,4 +1,4 @@
-use any2api_domain::ProtocolTargetProfile;
+use super::ProtocolTargetProfile;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ProtocolBridgeContext<'a> {

@@ -1,16 +1,12 @@
 import { SearchX, Server } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
 import type {
   ProviderEndpoint,
   ProviderKind,
 } from "../api/provider-contracts";
-import {
-  isProviderKind,
-  providerKindLabel,
-  PROVIDER_KIND_OPTIONS,
-} from "../model/provider-kind-catalog";
+import { PROVIDER_KIND_OPTIONS } from "../model/provider-kind-catalog";
+import { useProviderRouteState } from "../model/provider-route-state";
 import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
 import { ProviderEndpointChrome } from "./ProviderEndpointChrome";
 import {
@@ -22,6 +18,7 @@ import {
   ProviderEndpointTableRow,
 } from "./ProviderEndpointTableRow";
 import { cn } from "@/shared/lib/cn";
+import { providerKindLabel } from "@/shared/api/provider-protocol-vocabulary";
 
 interface ProviderEndpointListProps {
   items: readonly ProviderEndpoint[];
@@ -46,9 +43,9 @@ export function ProviderEndpointList({
   onToggleEnabled,
   onDelete,
 }: ProviderEndpointListProps) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeKeysEndpoint = searchParams.get("keys");
-  const selectedKind = resolveSelectedKind(searchParams.get("kind"));
+  const routeState = useProviderRouteState();
+  const activeKeysEndpoint = routeState.credentialEndpointId;
+  const selectedKind = routeState.selectedKind;
   const [query, setQuery] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -88,18 +85,7 @@ export function ProviderEndpointList({
   function selectKind(kind: ProviderKind) {
     setQuery("");
     setExpandedIds(new Set());
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set("kind", kind);
-        next.delete("keys");
-        next.delete("credential");
-        next.delete("action");
-        next.delete("editor");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.selectKind(kind);
   }
 
   function isExpanded(id: string) {
@@ -107,35 +93,12 @@ export function ProviderEndpointList({
   }
 
   function clearCredentialParams(endpointId: string) {
-    setSearchParams(
-      (current) => {
-        if (current.get("keys") !== endpointId) {
-          return current;
-        }
-        const next = new URLSearchParams(current);
-        next.delete("keys");
-        next.delete("credential");
-        next.delete("action");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.closeCredential(endpointId);
   }
 
   function openCreateCredential(endpointId: string) {
     // Open the drawer only — do not force accordion expansion.
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("editor");
-        next.delete("action");
-        next.set("kind", selectedKind);
-        next.set("keys", endpointId);
-        next.set("credential", "new");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.openCredentialEditor(endpointId, "new", selectedKind);
   }
 
   function ensureExpanded(endpointId: string) {
@@ -277,11 +240,4 @@ export function ProviderEndpointList({
       )}
     </ProviderEndpointChrome>
   );
-}
-
-function resolveSelectedKind(value: string | null): ProviderKind {
-  if (isProviderKind(value)) {
-    return value;
-  }
-  return PROVIDER_KIND_OPTIONS[0]?.kind ?? "codex";
 }

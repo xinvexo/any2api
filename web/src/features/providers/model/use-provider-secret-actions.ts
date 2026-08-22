@@ -28,7 +28,10 @@ export function useProviderSecretActions(endpointId: string) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  async function run(action: () => Promise<ProviderCredentialMutationResponse>) {
+  async function run(
+    action: () => Promise<ProviderCredentialMutationResponse>,
+    waitForAuthoritativeConfiguration = false,
+  ) {
     setPending(true);
     setError(null);
     try {
@@ -43,6 +46,12 @@ export function useProviderSecretActions(endpointId: string) {
         void queryClient.invalidateQueries({ queryKey: providerQueryKeys.list() });
         void queryClient.invalidateQueries({ queryKey: cacheKey, exact: true });
       }
+      if (waitForAuthoritativeConfiguration) {
+        await queryClient.refetchQueries(
+          { queryKey: cacheKey, exact: true, type: "active" },
+          { throwOnError: true },
+        );
+      }
       return acknowledgement;
     } catch (nextError) {
       setError(nextError);
@@ -55,7 +64,7 @@ export function useProviderSecretActions(endpointId: string) {
 
   return {
     create: (input: ProviderCredentialCreateInput) =>
-      run(() => createProviderCredential(endpointId, input)),
+      run(() => createProviderCredential(endpointId, input), true),
     rotate: (id: string, input: ProviderCredentialRotateInput) =>
       run(() => rotateProviderCredential(id, input)),
     pending,

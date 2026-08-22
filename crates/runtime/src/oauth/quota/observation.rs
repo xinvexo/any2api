@@ -12,7 +12,7 @@ pub(super) async fn resolve_usage(
         headers: response.headers.clone(),
     };
     let mut usage = context
-        .driver()
+        .quota()
         .parse_oauth_quota_usage(&response_meta, &response.body)
         .map_err(OAuthQuotaError::Provider)?;
     let Some(plan) = supplement_plan else {
@@ -23,7 +23,9 @@ pub(super) async fn resolve_usage(
         return Err(context.rejection(&response));
     }
     let supplement = context
-        .driver()
+        .quota()
+        .supplement()
+        .ok_or(OAuthQuotaError::UnsupportedProvider)?
         .parse_oauth_quota_supplement(&response.body)
         .map_err(OAuthQuotaError::Provider)?;
     usage.apply_supplement(supplement);

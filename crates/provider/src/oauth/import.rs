@@ -114,7 +114,10 @@ fn parse_account(
 ) -> Result<OAuthImportedAccount, OAuthImportParseError> {
     let mut matched = None;
     for (_, driver) in providers.iter() {
-        let parsed = driver
+        let Some(token_provider) = driver.oauth_token() else {
+            continue;
+        };
+        let parsed = token_provider
             .parse_oauth_import(object)
             .map_err(|_| OAuthImportParseError::InvalidAccount { account_index })?;
         if let Some(account) = parsed {

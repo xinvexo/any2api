@@ -4,7 +4,7 @@ use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
     SnapshotStore,
 };
-use any2api_server::api::{AdminAuthService, AppState, WebAssets, build_router};
+use any2api_server::api::{AdminAuthService, AppServices, AppState, WebAssets, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_updater::api::{GitHubReleaseUpdater, StartupUpdateRecovery};
 use anyhow::Context;
@@ -100,7 +100,6 @@ pub(super) async fn run(
         .context("loaded configuration is incompatible with registered providers or protocols")?
         .with_snapshot_reconciler(snapshot_reconciler),
     );
-    let public_requests = request_components.service();
     let oauth = Arc::new(OAuthService::new(
         request_components.provider_registry_handle(),
         request_components.transport_manager(),
@@ -108,10 +107,9 @@ pub(super) async fn run(
         Arc::clone(&storage),
         Arc::clone(&telemetry),
     ));
-    anyhow::ensure!(
-        public_requests.install_oauth(oauth.as_ref()),
-        "OAuth request services were already installed"
-    );
+    let public_requests = request_components
+        .service_with_oauth(oauth.as_ref())
+        .context("failed to initialize OAuth-aware public request service")?;
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();
     let embedded_web = settings.web_root.is_none();
@@ -132,19 +130,21 @@ pub(super) async fn run(
         .map(WebAssets::external)
         .unwrap_or_else(web_assets::assets);
     let app = build_router(
-        AppState::new(
+        AppState::production(
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
             Arc::clone(&publisher),
             public_requests,
             admin_auth,
-        )
-        .with_oauth(Arc::clone(&oauth))
-        .with_proxy_tests(proxy_tests)
-        .with_provider_credential_tests(provider_credential_tests)
-        .with_request_telemetry(Arc::clone(&telemetry))
-        .with_application_updates(application_updates)
-        .with_restart_requester(Arc::new(restart.clone())),
+            AppServices::new(
+                Arc::clone(&oauth),
+                proxy_tests,
+                provider_credential_tests,
+                Arc::clone(&telemetry),
+                application_updates,
+                Arc::new(restart.clone()),
+            ),
+        ),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)

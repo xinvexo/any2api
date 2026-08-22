@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation};
+use any2api_domain::{ProtocolDialect, ProtocolOperation};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -8,8 +8,8 @@ use crate::{
     ProtocolError,
     api::{
         AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedResponsePayload,
-        DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge,
-        ProtocolBridgeCapabilities, ProtocolBridgeContext, ProtocolBridgeSession,
+        DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, OpenAiChatCompletionsProfile,
+        ProtocolBridge, ProtocolBridgeCapabilities, ProtocolBridgeContext, ProtocolBridgeSession,
         ProtocolContinuationState, StartedProtocolBridge,
     },
     json_codec,

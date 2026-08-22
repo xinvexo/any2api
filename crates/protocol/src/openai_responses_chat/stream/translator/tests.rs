@@ -3,11 +3,13 @@ use serde_json::json;
 
 use super::super::wire::{encoding_count, reset_encoding_count};
 use super::ChatToResponsesStream;
-use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData};
+use crate::api::{
+    AdapterEvent, OpenAiChatCompletionsProfile, ProtocolEventTelemetry, SseEventPayload,
+    SseJsonData,
+};
 use crate::openai_responses_chat::{
     response_projection::ResponseProjection, tool_projection::ToolProjection,
 };
-use any2api_domain::OpenAiChatCompletionsProfile;
 
 #[test]
 fn synthesized_events_are_encoded_once_after_sequence_injection() {

@@ -1,7 +1,7 @@
 use std::{str::FromStr, time::Duration};
 
 use any2api_domain::ProviderKind;
-use any2api_provider::api::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, ProviderRegistry};
+use any2api_provider::api::{OAuthRequestPlan, OAuthTokenMaterial, ProviderRegistry};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportIsolationKey, TransportRequest, TransportTrafficClass,
 };
@@ -19,18 +19,20 @@ pub(super) fn append_control_plane_cases(
         let driver = providers.get(*kind).expect("OAuth Provider driver");
         match kind {
             ProviderKind::Codex | ProviderKind::Claude => {
+                let authorization = driver
+                    .oauth_authorization_code()
+                    .expect("authorization-code facet");
                 push_plan(
                     cases,
                     format!("token.{}.authorization_code", kind.as_str()),
                     *kind,
                     Surface::OAuthToken,
                     "oauth_client_grant",
-                    driver
-                        .oauth_token_request(
-                            OAuthGrant::AuthorizationCode,
+                    authorization
+                        .oauth_authorization_code_token_request(
                             "fixture-authorization-code",
-                            Some("fixture-state"),
-                            Some("fixture-code-verifier"),
+                            "fixture-state",
+                            "fixture-code-verifier",
                         )
                         .expect("authorization-code plan"),
                 );
@@ -41,23 +43,21 @@ pub(super) fn append_control_plane_cases(
                     Surface::OAuthToken,
                     "oauth_client_grant",
                     driver
-                        .oauth_token_request(
-                            OAuthGrant::RefreshToken,
-                            "fixture-refresh-token",
-                            None,
-                            None,
-                        )
+                        .oauth_token()
+                        .expect("OAuth token facet")
+                        .oauth_refresh_token_request("fixture-refresh-token")
                         .expect("refresh-token plan"),
                 );
             }
             ProviderKind::Grok => {
+                let device = driver.oauth_device_code().expect("device-code facet");
                 push_plan(
                     cases,
                     "token.grok.device_authorization".into(),
                     *kind,
                     Surface::OAuthToken,
                     "oauth_client_grant",
-                    driver
+                    device
                         .oauth_device_authorization_request()
                         .expect("device authorization plan"),
                 );
@@ -67,7 +67,7 @@ pub(super) fn append_control_plane_cases(
                     *kind,
                     Surface::OAuthToken,
                     "oauth_client_grant",
-                    driver
+                    device
                         .oauth_device_token_request("fixture-device-code")
                         .expect("device token plan"),
                 );
@@ -78,12 +78,9 @@ pub(super) fn append_control_plane_cases(
                     Surface::OAuthToken,
                     "oauth_client_grant",
                     driver
-                        .oauth_token_request(
-                            OAuthGrant::RefreshToken,
-                            "fixture-refresh-token",
-                            None,
-                            None,
-                        )
+                        .oauth_token()
+                        .expect("OAuth token facet")
+                        .oauth_refresh_token_request("fixture-refresh-token")
                         .expect("Grok refresh plan"),
                 );
             }
@@ -92,7 +89,8 @@ pub(super) fn append_control_plane_cases(
             }
         }
 
-        let query = driver
+        let quota = driver.oauth_quota().expect("OAuth quota facet");
+        let query = quota
             .oauth_quota_query_plan(token)
             .expect("quota plan")
             .expect("OAuth Provider quota support");
@@ -125,9 +123,10 @@ pub(super) fn append_control_plane_cases(
                 plan,
             );
         }
-        if let Some(plan) = driver
-            .oauth_quota_reset_plan(token, "fixture-redeem-request-id")
-            .expect("quota reset plan")
+        if let Some(reset) = quota.reset()
+            && let Some(plan) = reset
+                .oauth_quota_reset_plan(token, "fixture-redeem-request-id")
+                .expect("quota reset plan")
         {
             push_plan(
                 cases,

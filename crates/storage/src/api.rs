@@ -7,7 +7,6 @@ pub use crate::configuration::{
 pub use crate::error::{ConfigurationWriteComponent, StorageError};
 pub use crate::gateway_api_key::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
-    GatewayApiKeyVerifier,
 };
 pub use crate::http_access_log::{HttpAccessLogCapacity, HttpAccessLogRepository};
 pub use crate::local_data::{ensure_private_directory, ensure_private_file, protect_private_file};

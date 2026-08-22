@@ -1,12 +1,13 @@
-use std::{sync::Arc, time::Duration};
+use std::{io::ErrorKind, sync::Arc, time::Duration};
 
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use any2api_runtime::api::{ProcessLifecycle, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES};
-use any2api_zstd_workspace::{DecodeError as WorkspaceDecodeError, Decoder as WorkspaceDecoder};
 use axum::body::Bytes;
 use tokio::sync::Semaphore;
 
 const MIN_CONCURRENT_ZSTD_DECODES: usize = 2;
 const ZSTD_QUEUE_TIMEOUT: Duration = Duration::from_secs(10);
+const ZSTD_MAX_WINDOW_LOG: u32 = 25;
 
 fn default_decode_limit() -> usize {
     std::thread::available_parallelism().map_or(MIN_CONCURRENT_ZSTD_DECODES, |parallelism| {
@@ -67,17 +68,31 @@ impl ZstdDecoder {
 }
 
 fn decode(bytes: Bytes) -> Result<Bytes, ZstdDecodeError> {
-    let mut decoder = WorkspaceDecoder::try_new().ok_or(ZstdDecodeError::AllocationFailed)?;
+    let mut output = PayloadBuffer::with_capacity_hint(
+        Some(bytes.len()),
+        STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+    )
+    .map_err(map_buffer_error)?;
+    let mut decoder = zstd::stream::Decoder::new(bytes.as_ref()).map_err(map_decode_error)?;
     decoder
-        .decode(bytes.as_ref(), STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES)
-        .map_err(map_workspace_error)
+        .window_log_max(ZSTD_MAX_WINDOW_LOG)
+        .map_err(map_decode_error)?;
+    std::io::copy(&mut decoder, &mut output).map_err(map_decode_error)?;
+    Ok(output.freeze().into_bytes())
 }
 
-fn map_workspace_error(error: WorkspaceDecodeError) -> ZstdDecodeError {
+fn map_buffer_error(error: PayloadBufferError) -> ZstdDecodeError {
     match error {
-        WorkspaceDecodeError::Invalid => ZstdDecodeError::Invalid,
-        WorkspaceDecodeError::TooLarge => ZstdDecodeError::TooLarge,
-        WorkspaceDecodeError::AllocationFailed => ZstdDecodeError::AllocationFailed,
+        PayloadBufferError::TooLarge => ZstdDecodeError::TooLarge,
+        PayloadBufferError::AllocationFailed => ZstdDecodeError::AllocationFailed,
+    }
+}
+
+fn map_decode_error(error: std::io::Error) -> ZstdDecodeError {
+    match error.kind() {
+        ErrorKind::WriteZero => ZstdDecodeError::TooLarge,
+        ErrorKind::OutOfMemory => ZstdDecodeError::AllocationFailed,
+        _ => ZstdDecodeError::Invalid,
     }
 }
 

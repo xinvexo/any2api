@@ -1,18 +1,18 @@
-export type ProviderKind = "openai" | "codex" | "claude" | "grok" | "kimi";
-export type ProtocolDialect =
-  | "openai_responses"
-  | "openai_chat_completions"
-  | "openai_images"
-  | "anthropic_messages";
-export type ProtocolOperation =
-  | "responses"
-  | "responses_compact"
-  | "alpha_search"
-  | "chat_completions"
-  | "images_generations"
-  | "images_edits"
-  | "messages"
-  | "messages_count_tokens";
+import {
+  isProtocolDialect,
+  isProtocolOperation,
+  isProviderKind,
+  protocolDialectForOperation,
+  type ProtocolDialect,
+  type ProtocolOperation,
+  type ProviderKind,
+} from "@/shared/api/provider-protocol-vocabulary";
+
+export type {
+  ProtocolDialect,
+  ProtocolOperation,
+  ProviderKind,
+} from "@/shared/api/provider-protocol-vocabulary";
 export type ProtocolFidelity = "direct" | "translated";
 export type BridgeRequestFieldBehavior =
   | "forwarded"
@@ -80,7 +80,7 @@ function parseUpstreamOption(
   if (
     operations.length === 0 ||
     new Set(operations).size !== operations.length ||
-    operations.some((operation) => operationDialect(operation) !== acceptedProtocol) ||
+    operations.some((operation) => protocolDialectForOperation(operation) !== acceptedProtocol) ||
     (fidelity === "direct" && (protocol !== acceptedProtocol || bridge !== null)) ||
     (fidelity === "translated" && (protocol === acceptedProtocol || bridge === null))
   ) {
@@ -126,41 +126,21 @@ function parseBridgeCapability(value: unknown): ProtocolBridgeCapability {
 }
 
 export function readProviderKind(value: unknown): ProviderKind {
-  if (
-    value !== "openai" &&
-    value !== "codex" &&
-    value !== "claude" &&
-    value !== "grok" &&
-    value !== "kimi"
-  ) {
+  if (!isProviderKind(value)) {
     throw invalid();
   }
   return value;
 }
 
 export function readProtocolDialect(value: unknown): ProtocolDialect {
-  if (
-    value !== "openai_responses" &&
-    value !== "openai_chat_completions" &&
-    value !== "openai_images" &&
-    value !== "anthropic_messages"
-  ) {
+  if (!isProtocolDialect(value)) {
     throw invalid();
   }
   return value;
 }
 
 function readProtocolOperation(value: unknown): ProtocolOperation {
-  if (
-    value !== "responses" &&
-    value !== "responses_compact" &&
-    value !== "alpha_search" &&
-    value !== "chat_completions" &&
-    value !== "images_generations" &&
-    value !== "images_edits" &&
-    value !== "messages" &&
-    value !== "messages_count_tokens"
-  ) {
+  if (!isProtocolOperation(value)) {
     throw invalid();
   }
   return value;
@@ -181,21 +161,6 @@ function readFieldBehavior(value: unknown): BridgeRequestFieldBehavior {
     throw invalid();
   }
   return value;
-}
-
-function operationDialect(operation: ProtocolOperation): ProtocolDialect {
-  if (
-    operation === "responses" ||
-    operation === "responses_compact" ||
-    operation === "alpha_search"
-  ) {
-    return "openai_responses";
-  }
-  if (operation === "chat_completions") return "openai_chat_completions";
-  if (operation === "images_generations" || operation === "images_edits") {
-    return "openai_images";
-  }
-  return "anthropic_messages";
 }
 
 function readString(value: unknown): string {

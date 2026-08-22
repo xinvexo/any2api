@@ -16,6 +16,7 @@ mod gateway_api_key_prefix;
 mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
+mod http_access_log_metadata_only;
 mod legacy_upgrades;
 mod oauth_account_documents;
 mod oauth_account_proxy_selection;
@@ -125,6 +126,8 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (40, "freeze codex quota before purchased credits".to_owned()),
             (41, "optimize request attempt usage aggregates".to_owned()),
             (42, "add openai provider kind".to_owned()),
+            (43, "remove raw http access capture".to_owned()),
+            (44, "open provider endpoint kind".to_owned()),
         ]
     );
 
@@ -166,11 +169,9 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!gateway_schema.contains("revoked_at"));
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;
-    assert!(endpoint_schema.contains("'grok'"));
-    assert!(endpoint_schema.contains("'kimi'"));
-    assert!(endpoint_schema.contains("'openai'"));
     assert!(endpoint_schema.contains("'openai_images'"));
-    assert!(!endpoint_schema.contains("'codex_backend'"));
+    assert!(!endpoint_schema.contains("provider_kind IN"));
+    assert!(endpoint_schema.contains("length(provider_kind) BETWEEN 1 AND 64"));
     let model_route_schema = table_schema(&pool, "model_routes").await;
     assert!(model_route_schema.contains("'openai_images'"));
     let route_target_schema = table_schema(&pool, "route_targets").await;
@@ -217,21 +218,26 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;
     assert!(proxy_password_schema.contains("password BLOB NOT NULL"));
     let access_log_schema = table_schema(&pool, "http_access_logs").await;
-    assert!(access_log_schema.contains("exchange_captured INTEGER NOT NULL"));
-    assert!(access_log_schema.contains("request_headers BLOB NOT NULL"));
-    assert!(access_log_schema.contains("response_body BLOB NOT NULL"));
-    assert!(access_log_schema.contains("exchange_bytes INTEGER NOT NULL"));
     assert!(access_log_schema.contains("gateway_auth_rejected INTEGER NOT NULL"));
-    assert!(access_log_schema.contains("response_body_bytes INTEGER NOT NULL"));
-    let capacity_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
-        "SELECT request_log_rows, http_access_log_rows, http_access_log_exchange_bytes, \
-         gateway_auth_rejected_rows, gateway_auth_rejected_exchange_bytes \
+    for removed in [
+        "uri TEXT",
+        "exchange_captured",
+        "request_headers",
+        "request_body",
+        "response_headers",
+        "response_body",
+        "exchange_bytes",
+    ] {
+        assert!(!access_log_schema.contains(removed));
+    }
+    let capacity_stats = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT request_log_rows, http_access_log_rows, gateway_auth_rejected_rows \
          FROM telemetry_capacity_stats WHERE singleton_id = 1",
     )
     .fetch_one(&pool)
     .await
     .expect("telemetry capacity stats singleton");
-    assert_eq!(capacity_stats, (0, 0, 0, 0, 0));
+    assert_eq!(capacity_stats, (0, 0, 0));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\

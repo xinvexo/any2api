@@ -142,7 +142,7 @@ fn source_identity(
 }
 
 fn custom_input(projection: &ToolProjection, payload: &str) -> Result<String, ProtocolError> {
-    if projection.profile.custom_tools == any2api_domain::OpenAiChatCustomToolMode::Native {
+    if projection.profile.custom_tools == crate::api::OpenAiChatCustomToolMode::Native {
         return Ok(payload.to_owned());
     }
     let envelope: Value = serde_json::from_str(payload)

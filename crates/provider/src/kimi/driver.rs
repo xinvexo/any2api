@@ -1,9 +1,11 @@
 use any2api_domain::{
-    CredentialKind, OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile,
-    OpenAiChatCustomToolMode, OpenAiChatInstructionRole, OpenAiChatReasoningRequest,
-    OpenAiChatReasoningResponse, OpenAiChatRequestField, OpenAiChatRequestFields,
-    OpenAiChatTokenLimitField, OpenAiChatToolNamePolicy, ProtocolDialect, ProtocolOperation,
-    ProtocolTargetProfile, ProviderBaseUrl, ProviderKind, TransportMode,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
+};
+use any2api_protocol::api::{
+    OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile, OpenAiChatCustomToolMode,
+    OpenAiChatInstructionRole, OpenAiChatReasoningRequest, OpenAiChatReasoningResponse,
+    OpenAiChatRequestField, OpenAiChatRequestFields, OpenAiChatTokenLimitField,
+    OpenAiChatToolNamePolicy, ProtocolTargetProfile,
 };
 use http::HeaderMap;
 
@@ -11,16 +13,21 @@ use super::{headers as kimi_headers, upstream_error as kimi_error};
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
+        CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDescriptor, ProviderDriver,
         UpstreamResponseMeta,
     },
     credential::api_key,
 };
 
+const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Kimi,
+    &[ProtocolOperation::ChatCompletions],
+    None,
+    &[TransportMode::Json, TransportMode::Sse],
+);
+
 #[derive(Debug)]
-pub struct KimiDriver {
-    capabilities: CapabilitySet,
-}
+pub struct KimiDriver;
 
 impl Default for KimiDriver {
     fn default() -> Self {
@@ -30,28 +37,14 @@ impl Default for KimiDriver {
 
 impl KimiDriver {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            capabilities: CapabilitySet {
-                protocols: [ProtocolDialect::OpenAiChatCompletions]
-                    .into_iter()
-                    .collect(),
-                transport_modes: [TransportMode::Json, TransportMode::Sse]
-                    .into_iter()
-                    .collect(),
-                credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
-            },
-        }
+    pub const fn new() -> Self {
+        Self
     }
 }
 
 impl ProviderDriver for KimiDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Kimi
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
     }
 
     fn protocol_target_profile(

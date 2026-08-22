@@ -1,8 +1,10 @@
-use any2api_domain::OpenAiChatReasoningResponse;
 use serde_json::Value;
 
 use super::{super::wire::SynthesizedEvent, ChatToResponsesStream};
-use crate::{ProtocolError, openai_responses_chat::response::validate_finish_reason};
+use crate::{
+    ProtocolError, api::OpenAiChatReasoningResponse,
+    openai_responses_chat::response::validate_finish_reason,
+};
 
 pub(super) fn observe_metadata(
     stream: &mut ChatToResponsesStream,

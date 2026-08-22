@@ -3,7 +3,7 @@ mod definition;
 mod name;
 mod state;
 
-use any2api_domain::{OpenAiChatCompletionsProfile, OpenAiChatCustomToolMode};
+use crate::api::{OpenAiChatCompletionsProfile, OpenAiChatCustomToolMode};
 
 pub(super) use call::{ProjectedSourceCall, RestoredToolCall};
 pub(super) use state::ToolProjection;

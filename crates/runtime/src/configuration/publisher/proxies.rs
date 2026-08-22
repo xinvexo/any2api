@@ -59,7 +59,7 @@ impl ConfigPublisher {
             ConfigCommand::SetProxyAuthentication {
                 id,
                 username,
-                password,
+                password: password.into_storage_secret(),
             },
         )
         .await

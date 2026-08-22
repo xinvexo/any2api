@@ -2,8 +2,8 @@ import { Plus, RefreshCw, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ProviderKind } from "../api/provider-contracts";
-import { providerKindLabel } from "../model/provider-kind-catalog";
 import { ProviderKindNav } from "./ProviderKindNav";
+import { providerKindLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 

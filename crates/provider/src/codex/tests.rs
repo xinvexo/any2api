@@ -1,13 +1,15 @@
 use any2api_domain::{
-    OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation, ProtocolTargetProfile,
-    ProviderBaseUrl, ProviderKind, QuotaCostUnit, RequestSpeedTier, TransportMode,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, QuotaCostUnit,
+    RequestSpeedTier, TransportMode,
 };
+use any2api_protocol::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile};
 use base64::Engine as _;
 use http::{HeaderMap, StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
 use crate::api::{
-    OAuthGrant, OAuthTokenMaterial, ProviderDriver, ProviderRequestContext, ProviderSecret,
+    OAuthAuthorizationCodeProvider, OAuthQuotaProvider, OAuthRoutingProvider, OAuthTokenMaterial,
+    OAuthTokenProvider, ProviderDriver, ProviderRequestContext, ProviderSecret,
 };
 
 fn request_context(
@@ -128,18 +130,24 @@ fn builds_responses_paths_and_bearer_authentication() {
     assert!(!format!("{headers:?}").contains("sk-codex"));
     assert!(
         driver
-            .capabilities()
-            .transport_modes
-            .contains(&TransportMode::Sse)
+            .descriptor()
+            .supports_transport_mode(TransportMode::Sse)
     );
     assert!(
         driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
+            .descriptor()
+            .supports_protocol(ProtocolDialect::OpenAiImages)
     );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesGenerations)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesEdits)
+    );
 }
 
 #[test]
@@ -160,11 +168,10 @@ fn builds_pkce_authorization_and_token_requests() {
     );
 
     let plan = driver
-        .oauth_token_request(
-            OAuthGrant::AuthorizationCode,
+        .oauth_authorization_code_token_request(
             "authorization-code",
-            None,
-            Some("verifier-value"),
+            "state-value",
+            "verifier-value",
         )
         .expect("token request");
     assert_eq!(
@@ -185,7 +192,7 @@ fn builds_pkce_authorization_and_token_requests() {
     assert!(!format!("{plan:?}").contains("verifier-value"));
 
     let refresh = driver
-        .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
+        .oauth_refresh_token_request("refresh-secret")
         .expect("refresh request");
     assert_eq!(refresh.headers[CONTENT_TYPE], "application/json");
     let body = serde_json::from_slice::<serde_json::Value>(&refresh.body).expect("refresh JSON");

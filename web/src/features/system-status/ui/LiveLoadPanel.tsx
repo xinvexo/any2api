@@ -1,6 +1,6 @@
 import { Activity, CircleAlert, KeyRound, ListFilter, Radio } from "lucide-react";
 
-import type { BalancingRuntime } from "@/features/balancing";
+import type { BalancingRuntime } from "../api/balancing-contracts";
 
 import { OverviewMetricTile, ProgressBar } from "./OverviewMetricTile";
 

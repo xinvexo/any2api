@@ -54,12 +54,10 @@ function systemLog(index: number): SystemLog {
     clientIp: "2600:1900:4030:9fdd::",
     method: "GET",
     path: `/system/${index}`,
-    uri: `/system/${index}`,
     httpVersion: "HTTP/1.1",
     statusCode: 200,
     durationMs: 2,
     responseBytes: 128,
     outcome: "completed",
-    exchangeCaptured: true,
   };
 }

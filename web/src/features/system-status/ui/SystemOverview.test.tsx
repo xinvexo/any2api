@@ -5,17 +5,11 @@ import { afterEach, expect, test, vi } from "vitest";
 const probes = vi.hoisted(() => ({
   runtime: undefined as RuntimeQuery | undefined,
   resources: undefined as ResourcesQuery | undefined,
-  usage: undefined as UsageQuery | undefined,
   realtime: { connected: true, stale: false },
 }));
 
-vi.mock("@/features/balancing", () => ({
+vi.mock("../model/use-balancing-runtime", () => ({
   useBalancingRuntime: () => probes.runtime,
-}));
-vi.mock("@/features/overview-usage", () => ({
-  isOverviewUsageRange: (value: string | null): value is "1h" | "24h" | "7d" | "30d" =>
-    value === "1h" || value === "24h" || value === "7d" || value === "30d",
-  useOverviewUsage: () => probes.usage,
 }));
 vi.mock("../model/use-overview-resources", () => ({
   useOverviewResources: () => probes.resources,
@@ -31,11 +25,10 @@ afterEach(() => {
   probes.realtime = { connected: true, stale: false };
 });
 
-test("shows resource and request load bands, then refreshes all overview queries", async () => {
+test("shows resource and request load bands, then refreshes the system queries", async () => {
   const refetch = vi.fn(async () => ({ isSuccess: true }));
   probes.runtime = runtimeQuery(refetch);
   probes.resources = resourcesQuery(refetch);
-  probes.usage = usageQuery(refetch);
 
   const { container } = render(
     <MemoryRouter initialEntries={["/overview?range=24h"]}>
@@ -73,7 +66,7 @@ test("shows resource and request load bands, then refreshes all overview queries
   expect(container.querySelector("time")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新系统总览" }));
-  await waitFor(() => expect(refetch).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(refetch).toHaveBeenCalledTimes(2));
 });
 
 test("keeps the last resource values visible when a refresh fails", () => {
@@ -82,7 +75,6 @@ test("keeps the last resource values visible when a refresh fails", () => {
     ...resourcesQuery(vi.fn()),
     isError: true,
   };
-  probes.usage = usageQuery(vi.fn());
 
   render(
     <MemoryRouter>
@@ -100,7 +92,6 @@ test("does not show an account limit warning when no limited credential is exhau
   probes.runtime = runtimeQuery(refetch);
   probes.runtime.data.totals.rateLimitedCredentialCount = 0;
   probes.resources = resourcesQuery(refetch);
-  probes.usage = usageQuery(refetch);
 
   render(
     <MemoryRouter>
@@ -115,7 +106,6 @@ test("keeps the last snapshot visible and marks a disconnected stream stale", ()
   const refetch = vi.fn(async () => ({ isSuccess: true }));
   probes.runtime = runtimeQuery(refetch);
   probes.resources = resourcesQuery(refetch);
-  probes.usage = usageQuery(refetch);
   probes.realtime = { connected: false, stale: true };
 
   render(
@@ -167,10 +157,6 @@ interface ResourcesQuery {
   refetch: () => Promise<{ isSuccess: boolean }>;
 }
 
-interface UsageQuery {
-  refetch: () => Promise<{ isSuccess: boolean }>;
-}
-
 function runtimeQuery(refetch: () => Promise<{ isSuccess: boolean }>): RuntimeQuery {
   return {
     data: {
@@ -216,8 +202,4 @@ function resourcesQuery(refetch: () => Promise<{ isSuccess: boolean }>): Resourc
     isFetching: false,
     refetch,
   };
-}
-
-function usageQuery(refetch: () => Promise<{ isSuccess: boolean }>): UsageQuery {
-  return { refetch };
 }

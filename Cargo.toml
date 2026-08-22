@@ -4,7 +4,6 @@ members = [
     "crates/domain",
     "crates/payload-buffer",
     "crates/memory-reclaimer",
-    "crates/zstd-workspace",
     "crates/protocol",
     "crates/provider",
     "crates/transport",
@@ -71,7 +70,6 @@ tempfile = "3.23.0"
 tar = "0.4"
 thiserror = "2.0.20"
 time = { version = "0.3.55", features = ["formatting", "parsing"] }
-tokei = { version = "14.0.0", default-features = false }
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "parking_lot", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7.19", features = ["io", "rt"] }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
@@ -87,10 +85,6 @@ url = "2.5.8"
 uuid = { version = "1.24.1", features = ["serde", "v4", "v5"] }
 windows-sys = "0.61.2"
 zstd = "0.13.3"
-zstd-sys = { version = "2.0.16", default-features = false, features = [
-    "experimental",
-    "legacy",
-] }
 
 [profile.dev]
 debug = "line-tables-only"

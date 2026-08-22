@@ -1,3 +1,3 @@
 export type { ProxyConfiguration, ProxyProfile } from "./api/proxy-contracts";
-export { useProxyConfiguration } from "./model/use-proxy-configuration";
+export { useProxies as useProxyConfiguration } from "./model/use-proxies";
 export { ProxyManagement } from "./ui/ProxyManagement";

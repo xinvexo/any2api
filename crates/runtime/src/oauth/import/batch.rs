@@ -98,10 +98,13 @@ pub(in crate::oauth) async fn publish(
         let driver = providers
             .get(provider)
             .ok_or_else(|| invalid_account(file_index, account_index))?;
-        driver
+        let routing = driver
+            .oauth_routing()
+            .ok_or_else(|| invalid_account(file_index, account_index))?;
+        routing
             .oauth_credential_headers(&token, &http::HeaderMap::new())
             .map_err(|_| invalid_account(file_index, account_index))?;
-        driver
+        routing
             .oauth_routing_profile(&token)
             .map_err(|_| invalid_account(file_index, account_index))?;
         let models = Vec::new();

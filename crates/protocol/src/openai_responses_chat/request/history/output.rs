@@ -1,7 +1,10 @@
-use any2api_domain::{OpenAiChatCompletionsProfile, OpenAiChatReasoningResponse};
 use serde_json::{Map, Value, json};
 
-use crate::{ProtocolError, openai_responses_chat::tool_projection::ToolIdentity};
+use crate::{
+    ProtocolError,
+    api::{OpenAiChatCompletionsProfile, OpenAiChatReasoningResponse},
+    openai_responses_chat::tool_projection::ToolIdentity,
+};
 
 use super::{invalid, required_string};
 

@@ -1,6 +1,5 @@
 use any2api_domain::{
-    ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome, HttpBodyCapture,
-    HttpHeader, HttpProtocolVersion, RequestId,
+    ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, RequestId,
 };
 use tempfile::tempdir;
 
@@ -12,8 +11,7 @@ use crate::{
 mod capacity;
 mod query_plan;
 
-const GENEROUS_CAPACITY: HttpAccessLogCapacity =
-    HttpAccessLogCapacity::new(10_000, 64 * 1024 * 1024);
+const GENEROUS_CAPACITY: HttpAccessLogCapacity = HttpAccessLogCapacity::new(10_000);
 
 #[tokio::test]
 async fn stores_exact_paths_prunes_and_clears_history() {
@@ -43,15 +41,6 @@ async fn stores_exact_paths_prunes_and_clears_history() {
         .expect("access log detail")
         .expect("stored detail");
     assert_eq!(detail.summary(), second_summary);
-    assert_eq!(
-        detail
-            .exchange
-            .as_ref()
-            .expect("captured exchange")
-            .request_body
-            .content(),
-        b"request body"
-    );
 
     assert_eq!(
         store
@@ -316,31 +305,11 @@ fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
         client_ip: Some("203.0.113.8".parse().expect("client IP")),
         method: "GET".to_owned(),
         path: path.to_owned(),
-        uri: format!("{path}?raw=query"),
         http_version: HttpProtocolVersion::Http11,
         status_code: Some(200),
         duration_ms: 12,
         response_bytes: 42,
         outcome: HttpAccessLogOutcome::Completed,
         gateway_auth_rejected: false,
-        exchange: Some(HttpAccessLogExchange {
-            request_headers: vec![HttpHeader {
-                name: "x-raw".to_owned(),
-                value: vec![0xff, 0x00, b'a'],
-            }],
-            request_body: HttpBodyCapture::from_vec(b"request body".to_vec(), 12, true, false),
-            response_headers: vec![HttpHeader {
-                name: "set-cookie".to_owned(),
-                value: b"session=raw".to_vec(),
-            }],
-            response_body: HttpBodyCapture::from_vec(
-                b"response body prefix".to_vec(),
-                // Deliberately differs from the summary response_bytes so the
-                // detail round trip proves the dedicated column is used.
-                77,
-                true,
-                true,
-            ),
-        }),
     }
 }

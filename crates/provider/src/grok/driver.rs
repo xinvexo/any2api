@@ -2,27 +2,40 @@ use super::{
     headers as grok_headers, import as grok_import, model_catalog as grok_model_catalog,
     oauth as grok_oauth, quota as grok_quota, upstream_error as grok_error,
 };
-use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
-};
+use any2api_domain::{ProtocolOperation, ProviderKind, TransportMode};
+use http::HeaderMap;
 
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan,
-        OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaQueryPlan, OAuthQuotaRejection,
-        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        ProviderRequestContext, UpstreamResponseMeta,
+        CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthCapabilities,
+        OAuthDeviceAuthorization, OAuthDeviceCodeProvider, OAuthDeviceTokenPoll,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaProvider,
+        OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaSupplement,
+        OAuthQuotaSupplementProvider, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthRoutingProvider, OAuthTokenMaterial, OAuthTokenProvider, ProviderDescriptor,
+        ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
-use http::HeaderMap;
+
+const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Grok,
+    &[
+        ProtocolOperation::Responses,
+        ProtocolOperation::ResponsesCompact,
+        ProtocolOperation::ChatCompletions,
+    ],
+    Some(
+        OAuthCapabilities::new(&[ProtocolOperation::Responses], OAuthLoginFlow::DeviceCode)
+            .with_quota()
+            .with_quota_supplement(),
+    ),
+    &[TransportMode::Json, TransportMode::Sse],
+);
 
 #[derive(Debug)]
-pub struct GrokDriver {
-    capabilities: CapabilitySet,
-}
+pub struct GrokDriver;
 
 impl Default for GrokDriver {
     fn default() -> Self {
@@ -32,40 +45,14 @@ impl Default for GrokDriver {
 
 impl GrokDriver {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            capabilities: CapabilitySet {
-                protocols: [
-                    ProtocolDialect::OpenAiResponses,
-                    ProtocolDialect::OpenAiChatCompletions,
-                ]
-                .into_iter()
-                .collect(),
-                transport_modes: [TransportMode::Json, TransportMode::Sse]
-                    .into_iter()
-                    .collect(),
-                credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
-            },
-        }
+    pub const fn new() -> Self {
+        Self
     }
 }
 
 impl ProviderDriver for GrokDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Grok
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
-    }
-
-    fn supports_api_key_operation(&self, operation: ProtocolOperation) -> bool {
-        matches!(
-            operation,
-            ProtocolOperation::Responses
-                | ProtocolOperation::ResponsesCompact
-                | ProtocolOperation::ChatCompletions
-        )
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
     }
 
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError> {
@@ -77,7 +64,7 @@ impl ProviderDriver for GrokDriver {
         base_url: &any2api_domain::ProviderBaseUrl,
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError> {
-        if !self.supports_api_key_operation(operation) {
+        if !self.descriptor().supports_api_key_operation(operation) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Grok".into(),
             ));
@@ -120,10 +107,33 @@ impl ProviderDriver for GrokDriver {
         grok_headers::response(upstream)
     }
 
-    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
-        Some(OAuthLoginFlow::DeviceCode)
+    fn oauth_device_code(&self) -> Option<&dyn OAuthDeviceCodeProvider> {
+        Some(self)
     }
 
+    fn oauth_token(&self) -> Option<&dyn OAuthTokenProvider> {
+        Some(self)
+    }
+
+    fn oauth_routing(&self) -> Option<&dyn OAuthRoutingProvider> {
+        Some(self)
+    }
+
+    fn oauth_quota(&self) -> Option<&dyn OAuthQuotaProvider> {
+        Some(self)
+    }
+
+    fn classify_error(
+        &self,
+        _operation: ProtocolOperation,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> any2api_domain::UpstreamError {
+        grok_error::classify(meta, bounded_body)
+    }
+}
+
+impl OAuthDeviceCodeProvider for GrokDriver {
     fn oauth_device_authorization_request(&self) -> Result<OAuthRequestPlan, ProviderError> {
         grok_oauth::device_authorization_request()
     }
@@ -149,20 +159,14 @@ impl ProviderDriver for GrokDriver {
     ) -> Result<OAuthDeviceTokenPoll, ProviderError> {
         grok_oauth::parse_device_token(status, body)
     }
+}
 
-    fn oauth_token_request(
+impl OAuthTokenProvider for GrokDriver {
+    fn oauth_refresh_token_request(
         &self,
-        grant: OAuthGrant,
-        code: &str,
-        _state: Option<&str>,
-        _code_verifier: Option<&str>,
+        refresh_token: &str,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        if grant != OAuthGrant::RefreshToken {
-            return Err(ProviderError::InvalidCredential(
-                "Grok uses OAuth device authorization".into(),
-            ));
-        }
-        grok_oauth::refresh_request(code)
+        grok_oauth::refresh_request(refresh_token)
     }
 
     fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
@@ -175,7 +179,9 @@ impl ProviderDriver for GrokDriver {
     ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
         grok_import::parse(object)
     }
+}
 
+impl OAuthRoutingProvider for GrokDriver {
     fn oauth_routing_profile(
         &self,
         _token: &OAuthTokenMaterial,
@@ -201,10 +207,6 @@ impl ProviderDriver for GrokDriver {
         grok_model_catalog::parse(bounded_body)
     }
 
-    fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {
-        operation == ProtocolOperation::Responses
-    }
-
     fn oauth_credential_headers(
         &self,
         token: &OAuthTokenMaterial,
@@ -212,7 +214,9 @@ impl ProviderDriver for GrokDriver {
     ) -> Result<CredentialHeaders, ProviderError> {
         grok_oauth::credential_headers(token)
     }
+}
 
+impl OAuthQuotaProvider for GrokDriver {
     fn oauth_quota_query_plan(
         &self,
         token: &OAuthTokenMaterial,
@@ -236,19 +240,16 @@ impl ProviderDriver for GrokDriver {
         grok_quota::parse_usage(body)
     }
 
+    fn supplement(&self) -> Option<&dyn OAuthQuotaSupplementProvider> {
+        Some(self)
+    }
+}
+
+impl OAuthQuotaSupplementProvider for GrokDriver {
     fn parse_oauth_quota_supplement(
         &self,
         body: &[u8],
-    ) -> Result<crate::api::OAuthQuotaSupplement, ProviderError> {
+    ) -> Result<OAuthQuotaSupplement, ProviderError> {
         grok_quota::parse_subscription(body)
-    }
-
-    fn classify_error(
-        &self,
-        _operation: ProtocolOperation,
-        meta: &UpstreamResponseMeta,
-        bounded_body: &[u8],
-    ) -> any2api_domain::UpstreamError {
-        grok_error::classify(meta, bounded_body)
     }
 }

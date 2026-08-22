@@ -5,6 +5,7 @@ mod contracts;
 mod exchange;
 mod execution_profile;
 mod response;
+mod target_profile;
 mod upstream_failure;
 
 pub use crate::sse::SseDecoder;
@@ -18,4 +19,5 @@ pub use contracts::*;
 pub use exchange::{PreparedProtocolRequest, ProtocolExchange, StartedProtocolBridge};
 pub use execution_profile::RequestExecutionProfile;
 pub use response::*;
+pub use target_profile::*;
 pub use upstream_failure::*;

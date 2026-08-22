@@ -3,8 +3,7 @@ use super::{
     model_catalog as claude_model_catalog, oauth as claude_oauth, quota as claude_quota,
 };
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    RequestSpeedTier, TransportMode,
+    ProtocolOperation, ProviderBaseUrl, ProviderKind, RequestSpeedTier, TransportMode,
 };
 use http::{HeaderMap, HeaderValue};
 use url::Url;
@@ -12,18 +11,37 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaQueryPlan,
-        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        ProviderRequestContext, UpstreamResponseMeta,
+        CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthAuthorizationCodeProvider,
+        OAuthCapabilities, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
+        OAuthModelCatalogScope, OAuthQuotaProvider, OAuthQuotaQueryPlan, OAuthQuotaUsage,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthRoutingProvider, OAuthTokenMaterial,
+        OAuthTokenProvider, ProviderDescriptor, ProviderDriver, ProviderRequestContext,
+        UpstreamResponseMeta,
     },
     credential::api_key,
 };
 
+const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Claude,
+    &[
+        ProtocolOperation::Messages,
+        ProtocolOperation::MessagesCountTokens,
+    ],
+    Some(
+        OAuthCapabilities::new(
+            &[
+                ProtocolOperation::Messages,
+                ProtocolOperation::MessagesCountTokens,
+            ],
+            OAuthLoginFlow::AuthorizationCodePkce,
+        )
+        .with_quota(),
+    ),
+    &[TransportMode::Json, TransportMode::Sse],
+);
+
 #[derive(Debug)]
-pub struct ClaudeDriver {
-    capabilities: CapabilitySet,
-}
+pub struct ClaudeDriver;
 
 impl Default for ClaudeDriver {
     fn default() -> Self {
@@ -33,26 +51,14 @@ impl Default for ClaudeDriver {
 
 impl ClaudeDriver {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            capabilities: CapabilitySet {
-                protocols: [ProtocolDialect::AnthropicMessages].into_iter().collect(),
-                transport_modes: [TransportMode::Json, TransportMode::Sse]
-                    .into_iter()
-                    .collect(),
-                credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
-            },
-        }
+    pub const fn new() -> Self {
+        Self
     }
 }
 
 impl ProviderDriver for ClaudeDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Claude
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
     }
 
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError> {
@@ -126,10 +132,6 @@ impl ProviderDriver for ClaudeDriver {
         claude_headers::response(upstream)
     }
 
-    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
-        Some(OAuthLoginFlow::AuthorizationCodePkce)
-    }
-
     fn credential_test_plan(
         &self,
         base_url: &ProviderBaseUrl,
@@ -146,8 +148,35 @@ impl ProviderDriver for ClaudeDriver {
         api_key::parse_model_catalog(bounded_body)
     }
 
-    fn oauth_redirect_uri(&self) -> Option<&'static str> {
-        Some(claude_oauth::redirect_uri())
+    fn oauth_authorization_code(&self) -> Option<&dyn OAuthAuthorizationCodeProvider> {
+        Some(self)
+    }
+
+    fn oauth_token(&self) -> Option<&dyn OAuthTokenProvider> {
+        Some(self)
+    }
+
+    fn oauth_routing(&self) -> Option<&dyn OAuthRoutingProvider> {
+        Some(self)
+    }
+
+    fn oauth_quota(&self) -> Option<&dyn OAuthQuotaProvider> {
+        Some(self)
+    }
+
+    fn classify_error(
+        &self,
+        operation: ProtocolOperation,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> any2api_domain::UpstreamError {
+        claude_error::classify(operation, meta, bounded_body)
+    }
+}
+
+impl OAuthAuthorizationCodeProvider for ClaudeDriver {
+    fn oauth_redirect_uri(&self) -> &'static str {
+        claude_oauth::redirect_uri()
     }
 
     fn oauth_authorization_url(
@@ -158,14 +187,27 @@ impl ProviderDriver for ClaudeDriver {
         claude_oauth::authorization_url(state, code_challenge)
     }
 
-    fn oauth_token_request(
+    fn oauth_authorization_code_token_request(
         &self,
-        grant: OAuthGrant,
         code: &str,
-        state: Option<&str>,
-        code_verifier: Option<&str>,
+        state: &str,
+        code_verifier: &str,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        claude_oauth::token_request(grant, code, state, code_verifier)
+        claude_oauth::token_request(
+            OAuthGrant::AuthorizationCode,
+            code,
+            Some(state),
+            Some(code_verifier),
+        )
+    }
+}
+
+impl OAuthTokenProvider for ClaudeDriver {
+    fn oauth_refresh_token_request(
+        &self,
+        refresh_token: &str,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        claude_oauth::token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
     }
 
     fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
@@ -178,7 +220,9 @@ impl ProviderDriver for ClaudeDriver {
     ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
         claude_import::parse(object)
     }
+}
 
+impl OAuthRoutingProvider for ClaudeDriver {
     fn oauth_routing_profile(
         &self,
         _token: &OAuthTokenMaterial,
@@ -204,13 +248,6 @@ impl ProviderDriver for ClaudeDriver {
         claude_model_catalog::parse(bounded_body)
     }
 
-    fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {
-        matches!(
-            operation,
-            ProtocolOperation::Messages | ProtocolOperation::MessagesCountTokens
-        )
-    }
-
     fn oauth_credential_headers(
         &self,
         token: &OAuthTokenMaterial,
@@ -218,7 +255,9 @@ impl ProviderDriver for ClaudeDriver {
     ) -> Result<CredentialHeaders, ProviderError> {
         claude_oauth::credential_headers(token, forwarded)
     }
+}
 
+impl OAuthQuotaProvider for ClaudeDriver {
     fn oauth_quota_query_plan(
         &self,
         token: &OAuthTokenMaterial,
@@ -232,14 +271,5 @@ impl ProviderDriver for ClaudeDriver {
         body: &[u8],
     ) -> Result<OAuthQuotaUsage, ProviderError> {
         claude_quota::parse_usage(body)
-    }
-
-    fn classify_error(
-        &self,
-        operation: ProtocolOperation,
-        meta: &UpstreamResponseMeta,
-        bounded_body: &[u8],
-    ) -> any2api_domain::UpstreamError {
-        claude_error::classify(operation, meta, bounded_body)
     }
 }

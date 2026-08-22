@@ -1,8 +1,8 @@
-use any2api_domain::{OpenAiChatCompletionsProfile, ProtocolOperation, ProtocolTargetProfile};
+use any2api_domain::ProtocolOperation;
 use bytes::Bytes;
 use serde_json::{Value, json};
 
-use crate::api::{SseEventPayload, SseFrame};
+use crate::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile, SseEventPayload, SseFrame};
 
 use super::{bridged_exchange, chat_frame, decoded, registry};
 

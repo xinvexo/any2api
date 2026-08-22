@@ -3,11 +3,11 @@ use std::sync::Arc;
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProtocolOperation,
     ProviderBaseUrl, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyProfileId, RequestsPerMinute, RetrySafety, UpstreamError,
+    ProviderKind, ProxyProfileId, RequestsPerMinute, RetrySafety, TransportMode, UpstreamError,
     UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_provider::api::{
-    CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
+    CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDescriptor, ProviderDriver,
     ProviderError, ProviderSecret, UpstreamResponseMeta,
 };
 use any2api_runtime::api::{
@@ -42,7 +42,7 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
     .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
-    let driver = HeaderEchoDriver::default();
+    let driver = HeaderEchoDriver;
 
     let endpoint = publisher
         .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft(true))
@@ -275,17 +275,18 @@ fn assert_bearer(permit: &RoutingPermit, driver: &HeaderEchoDriver, api_key: &st
 }
 
 #[derive(Default)]
-struct HeaderEchoDriver {
-    capabilities: CapabilitySet,
-}
+struct HeaderEchoDriver;
+
+const HEADER_ECHO_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Codex,
+    &[ProtocolOperation::Responses],
+    None,
+    &[TransportMode::Json, TransportMode::Sse],
+);
 
 impl ProviderDriver for HeaderEchoDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Codex
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &HEADER_ECHO_DESCRIPTOR
     }
 
     fn validate_credential(&self, _secret: &ProviderSecret) -> Result<(), ProviderError> {

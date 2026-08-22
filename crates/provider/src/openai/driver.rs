@@ -1,24 +1,35 @@
 use any2api_domain::{
-    CredentialKind, OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation,
-    ProtocolTargetProfile, ProviderBaseUrl, ProviderKind, TransportMode,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
 };
+use any2api_protocol::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile};
 use http::HeaderMap;
 
 use super::headers as openai_headers;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
+        CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDescriptor, ProviderDriver,
         UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
 };
 
+const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::OpenAi,
+    &[
+        ProtocolOperation::Responses,
+        ProtocolOperation::ResponsesCompact,
+        ProtocolOperation::ChatCompletions,
+        ProtocolOperation::ImagesGenerations,
+        ProtocolOperation::ImagesEdits,
+    ],
+    None,
+    &[TransportMode::Json, TransportMode::Sse],
+);
+
 #[derive(Debug)]
-pub struct OpenAiDriver {
-    capabilities: CapabilitySet,
-}
+pub struct OpenAiDriver;
 
 impl Default for OpenAiDriver {
     fn default() -> Self {
@@ -28,43 +39,14 @@ impl Default for OpenAiDriver {
 
 impl OpenAiDriver {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            capabilities: CapabilitySet {
-                protocols: [
-                    ProtocolDialect::OpenAiResponses,
-                    ProtocolDialect::OpenAiChatCompletions,
-                    ProtocolDialect::OpenAiImages,
-                ]
-                .into_iter()
-                .collect(),
-                transport_modes: [TransportMode::Json, TransportMode::Sse]
-                    .into_iter()
-                    .collect(),
-                credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
-            },
-        }
+    pub const fn new() -> Self {
+        Self
     }
 }
 
 impl ProviderDriver for OpenAiDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::OpenAi
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
-    }
-
-    fn supports_api_key_operation(&self, operation: ProtocolOperation) -> bool {
-        matches!(
-            operation,
-            ProtocolOperation::Responses
-                | ProtocolOperation::ResponsesCompact
-                | ProtocolOperation::ChatCompletions
-                | ProtocolOperation::ImagesGenerations
-                | ProtocolOperation::ImagesEdits
-        )
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
     }
 
     fn protocol_target_profile(
@@ -88,7 +70,7 @@ impl ProviderDriver for OpenAiDriver {
         base_url: &ProviderBaseUrl,
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError> {
-        if !self.supports_api_key_operation(operation) {
+        if !self.descriptor().supports_api_key_operation(operation) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by OpenAI".into(),
             ));

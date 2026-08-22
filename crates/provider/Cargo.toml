@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 any2api-domain = { path = "../domain" }
 any2api-payload-buffer = { path = "../payload-buffer" }
+any2api-protocol = { path = "../protocol" }
 base64.workspace = true
 bytes.workspace = true
 http.workspace = true

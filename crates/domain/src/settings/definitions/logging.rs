@@ -3,9 +3,8 @@ use crate::settings::{
     definition::{definition as setting_definition, duration_definition},
     logging_settings::{
         DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
-        MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
-        MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
-        MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES,
+        MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS,
+        MAX_TELEMETRY_QUEUE_CAPACITY, MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES,
     },
 };
 
@@ -47,14 +46,6 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             MAX_HTTP_ACCESS_LOG_ROWS,
             "HTTP 系统日志",
             "SQLite 中最多保留的 HTTP 系统日志行数；与 RequestLog 行数上限相互独立。",
-        ),
-        SettingKey::LogsHttpAccessMaxExchangeBytes => integer(
-            key,
-            256 * 1024 * 1024,
-            1024 * 1024,
-            MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES,
-            "HTTP 系统日志",
-            "原始请求/响应 Header 与 Body 捕获的总字节预算；超出后删除完整的最旧记录。",
         ),
         SettingKey::LogsFileLevel => setting_definition(
             key,

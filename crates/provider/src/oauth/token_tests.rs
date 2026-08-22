@@ -18,20 +18,21 @@ fn registered_oauth_drivers_require_a_positive_bounded_expires_in() {
         .expect("Grok");
 
     for (kind, driver) in registry.iter() {
+        let token_provider = driver.oauth_token().expect("OAuth token facet");
         for expires_in in [None, Some(0), Some(-1), Some(i64::MAX)] {
             let mut response = json!({"access_token":"access-secret"});
             if let Some(expires_in) = expires_in {
                 response["expires_in"] = expires_in.into();
             }
             assert!(
-                driver
+                token_provider
                     .parse_oauth_token_response(response.to_string().as_bytes())
                     .is_err(),
                 "{kind:?} accepted expires_in {expires_in:?}"
             );
         }
         assert!(
-            driver
+            token_provider
                 .parse_oauth_token_response(
                     br#"{"access_token":"access-secret","expires_in":3600}"#,
                 )

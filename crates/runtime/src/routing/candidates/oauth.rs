@@ -92,16 +92,12 @@ pub(super) fn add_oauth_candidates(
         let Some(driver) = providers.get(credential.provider_kind()) else {
             continue;
         };
-        if !driver.oauth_supports_operation(requirements.operation()) {
+        let descriptor = driver.descriptor();
+        if !descriptor.supports_oauth_operation(requirements.operation()) {
             continue;
         }
-        let capabilities = driver.capabilities();
-        if !capabilities
-            .protocols
-            .contains(&credential.upstream_protocol())
-            || !capabilities
-                .transport_modes
-                .contains(&requirements.transport_mode())
+        if !descriptor.supports_protocol(credential.upstream_protocol())
+            || !descriptor.supports_transport_mode(requirements.transport_mode())
         {
             continue;
         }

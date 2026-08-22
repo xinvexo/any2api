@@ -1,14 +1,7 @@
 import type { RequestLogOutcome } from "./request-attempt-contracts";
+import type { ProtocolOperation } from "@/shared/api/provider-protocol-vocabulary";
 
-export type RequestLogOperation =
-  | "responses"
-  | "responses_compact"
-  | "alpha_search"
-  | "chat_completions"
-  | "images_generations"
-  | "images_edits"
-  | "messages"
-  | "messages_count_tokens";
+export type RequestLogOperation = ProtocolOperation;
 
 export interface RequestLogFilters {
   outcome?: RequestLogOutcome;

@@ -1,7 +1,10 @@
-use any2api_domain::{OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile, TokenUsage};
+use any2api_domain::TokenUsage;
 use serde_json::{Value, json};
 
-use crate::ProtocolError;
+use crate::{
+    ProtocolError,
+    api::{OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile},
+};
 
 pub(in crate::openai_responses_chat) fn responses_usage(
     value: Option<&Value>,

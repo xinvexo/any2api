@@ -5,8 +5,7 @@ import {
   OpenAiIcon,
   type BrandIcon,
 } from "@/shared/icons/brand-icons";
-
-import type { ProviderKind } from "../api/provider-contracts";
+import { providerKindLabel, type ProviderKind } from "@/shared/api/provider-protocol-vocabulary";
 
 export interface ProviderKindOption {
   kind: ProviderKind;
@@ -16,17 +15,9 @@ export interface ProviderKindOption {
 
 /** Supported provider kinds shown in the admin UI. Extend when new kinds ship. */
 export const PROVIDER_KIND_OPTIONS: readonly ProviderKindOption[] = [
-  { kind: "codex", label: "Codex", icon: OpenAiIcon },
-  { kind: "claude", label: "Claude", icon: ClaudeIcon },
-  { kind: "grok", label: "Grok", icon: GrokIcon },
-  { kind: "kimi", label: "Kimi", icon: KimiIcon },
-  { kind: "openai", label: "OpenAI", icon: OpenAiIcon },
+  { kind: "codex", label: providerKindLabel("codex"), icon: OpenAiIcon },
+  { kind: "claude", label: providerKindLabel("claude"), icon: ClaudeIcon },
+  { kind: "grok", label: providerKindLabel("grok"), icon: GrokIcon },
+  { kind: "kimi", label: providerKindLabel("kimi"), icon: KimiIcon },
+  { kind: "openai", label: providerKindLabel("openai"), icon: OpenAiIcon },
 ] as const;
-
-export function isProviderKind(value: string | null | undefined): value is ProviderKind {
-  return PROVIDER_KIND_OPTIONS.some((option) => option.kind === value);
-}
-
-export function providerKindLabel(kind: ProviderKind): string {
-  return PROVIDER_KIND_OPTIONS.find((option) => option.kind === kind)?.label ?? kind;
-}

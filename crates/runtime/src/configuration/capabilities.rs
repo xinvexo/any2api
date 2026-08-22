@@ -84,7 +84,7 @@ impl ConfigurationCapabilities {
         let driver = self.providers.get(provider).ok_or(
             ConfigurationCapabilityError::MissingProviderDriver(provider),
         )?;
-        if !driver.capabilities().protocols.contains(&upstream) {
+        if !driver.descriptor().supports_protocol(upstream) {
             return Err(ConfigurationCapabilityError::UnsupportedProviderProtocol {
                 provider,
                 protocol: upstream,
@@ -101,7 +101,7 @@ impl ConfigurationCapabilities {
         let driver = self.providers.get(provider).ok_or(
             ConfigurationCapabilityError::MissingProviderDriver(provider),
         )?;
-        if !driver.capabilities().credential_kinds.contains(&credential) {
+        if !driver.descriptor().supports_credential_kind(credential) {
             return Err(ConfigurationCapabilityError::UnsupportedCredentialKind {
                 provider,
                 credential,
@@ -167,10 +167,8 @@ impl ConfigurationCapabilities {
             .into_iter()
             .filter_map(|accepted_protocol| {
                 let mut upstream_options = driver
-                    .capabilities()
-                    .protocols
-                    .iter()
-                    .copied()
+                    .descriptor()
+                    .protocols()
                     .filter_map(|upstream| {
                         let capabilities = self
                             .protocols
@@ -180,7 +178,7 @@ impl ConfigurationCapabilities {
                             .into_iter()
                             .filter(|operation| {
                                 accepted_protocol != upstream
-                                    || driver.supports_api_key_operation(*operation)
+                                    || driver.descriptor().supports_api_key_operation(*operation)
                             })
                             .collect::<Vec<_>>();
                         (!operations.is_empty()).then_some(ProviderUpstreamProtocolOption {

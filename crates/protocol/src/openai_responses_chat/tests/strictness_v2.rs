@@ -1,7 +1,8 @@
-use any2api_domain::{
+use crate::api::{
     OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile, OpenAiChatReasoningRequest,
-    OpenAiChatRequestField, ProtocolOperation, ProtocolTargetProfile,
+    OpenAiChatRequestField, ProtocolTargetProfile,
 };
+use any2api_domain::ProtocolOperation;
 use serde_json::{Value, json};
 
 use crate::ProtocolError;

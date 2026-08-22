@@ -210,7 +210,8 @@ fn build_request<'a>(
     let requested_speed_tier =
         driver.request_speed_tier(request_context, encoded.requested_speed_tier);
     let quota_cost_rates = driver
-        .oauth_request_quota_cost_unit(request_context)
+        .oauth_quota()
+        .and_then(|quota| quota.oauth_request_quota_cost_unit(request_context))
         .filter(|unit| *unit == QuotaCostUnit::CodexCredits)
         .and_then(|_| {
             policy

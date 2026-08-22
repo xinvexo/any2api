@@ -101,6 +101,8 @@ pub(super) async fn data_case(
         DataCredential::OAuth(token) => (
             "oauth_access_token",
             driver
+                .oauth_routing()
+                .expect("surface OAuth routing facet")
                 .oauth_credential_headers(token, &headers)
                 .expect("surface OAuth headers"),
         ),

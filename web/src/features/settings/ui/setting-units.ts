@@ -23,7 +23,6 @@ const BYTE_UNITS: readonly SettingUnitOption[] = [
 ];
 
 const BYTE_SETTING_KEYS = new Set([
-  "logs.http_access.max_exchange_bytes",
   "logs.file.max_total_size",
   "logs.telemetry_queue_max_bytes",
   "stream.precommit.max_bytes",

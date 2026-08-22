@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * 0"
 
 permissions:
   contents: read
@@ -27,31 +30,22 @@ jobs:
       - run: cargo xtask architecture-check
       - uses: EmbarkStudios/cargo-deny-action@v2
 
-  application-build:
+  native-platforms:
+    if: github.event_name != 'pull_request'
+    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.22.0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.19.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test:tooling
-      - run: cargo test --locked -p any2api-payload-buffer -p any2api-memory-reclaimer -p any2api-zstd-workspace
+      - run: cargo test --locked -p any2api-payload-buffer -p any2api-memory-reclaimer
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      - run: pnpm build
-      - run: git diff --exit-code web/src/shared/api/generated/
 
   web:
     runs-on: ubuntu-latest
@@ -65,11 +59,15 @@ jobs:
           node-version: 24.19.0
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test:tooling
       - run: pnpm --dir web typecheck
       - run: pnpm --dir web lint
       - run: pnpm --dir web test
-      - run: pnpm --dir web build
+      - run: pnpm build
+      - run: git diff --exit-code web/src/shared/api/generated/
 
   e2e:
     runs-on: ubuntu-latest

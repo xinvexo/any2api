@@ -24,7 +24,10 @@ pub(super) async fn build(
         .providers
         .get(account.provider_kind())
         .ok_or(OAuthQuotaError::ProviderUnavailable)?;
-    let (estimator_state, estimates) = if let Some(unit) = driver.oauth_quota_cost_unit() {
+    let quota = driver
+        .oauth_quota()
+        .ok_or(OAuthQuotaError::UnsupportedProvider)?;
+    let (estimator_state, estimates) = if let Some(unit) = quota.oauth_quota_cost_unit() {
         let result = service
             .estimator
             .observe(
@@ -41,7 +44,7 @@ pub(super) async fn build(
     } else {
         (None, Vec::new())
     };
-    let rate_card = (driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
+    let rate_card = (quota.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
         .then(|| current_rate_card(&published));
     let stored = StoredQuotaSnapshot {
         usage: observation.usage.clone(),

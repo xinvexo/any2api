@@ -18,7 +18,6 @@ const labels: Record<string, string> = {
   "logs.request.retention": "请求日志保留时间",
   "logs.request.max_rows": "请求日志最大行数",
   "logs.http_access.max_rows": "系统日志最大行数",
-  "logs.http_access.max_exchange_bytes": "系统日志原始交换容量",
   "logs.file.level": "文件日志级别",
   "logs.file.retention": "文件日志保留时间",
   "logs.file.max_total_size": "文件日志最大容量",
@@ -41,8 +40,6 @@ const labels: Record<string, string> = {
 };
 
 const descriptions: Record<string, string> = {
-  "logs.http_access.max_exchange_bytes":
-    "原始请求/响应 Header 与 Body 捕获的总容量预算；超出后删除最旧的完整记录。",
   "logs.file.max_total_size":
     "本地 JSONL 日志目录允许占用的最大总容量。",
   "logs.telemetry_queue_max_bytes":

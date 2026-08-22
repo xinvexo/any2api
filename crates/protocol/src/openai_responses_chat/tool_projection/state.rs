@@ -1,9 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use any2api_domain::OpenAiChatCompletionsProfile;
 use serde_json::{Map, Value};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::OpenAiChatCompletionsProfile};
 
 use super::{
     ChatToolKind, SourceCallKind, ToolIdentity,

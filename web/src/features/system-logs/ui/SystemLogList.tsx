@@ -101,7 +101,7 @@ function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: 
         role="button"
         tabIndex={0}
         aria-pressed={selected}
-        aria-label={`查看完整请求 ${log.uri}`}
+        aria-label={`查看完整请求 ${log.path}`}
         title="双击查看详情"
         className={cn(
           "focus-ring block min-h-[4.5rem] w-full min-w-0 cursor-pointer select-text rounded-[8px] bg-surface-muted/45 px-3 py-2.5 text-left outline-none transition-colors",
@@ -120,7 +120,7 @@ function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: 
           {formatSystemLogTime(log.startedAtMs)}
         </time>
         <span className="shrink-0 rounded-[5px] bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-secondary">{log.method}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-primary" title={log.uri}>{log.uri}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-primary" title={log.path}>{log.path}</span>
         <span className={cn("shrink-0 font-mono text-[11px] font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</span>
       </div>
       <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">

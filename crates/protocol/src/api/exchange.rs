@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use any2api_domain::{
-    OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation, ProtocolTargetProfile,
-};
+use any2api_domain::{ProtocolDialect, ProtocolOperation};
 
 use super::{
     AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-    EncodedUpstreamRequest, ProtocolAdapter, ProtocolBridge, ProtocolBridgeContext,
-    ProtocolBridgeSession, ProtocolContinuationState, ProtocolUpstreamFailureEvidence, SseFrame,
-    StreamCompletionPolicy, UpstreamResponse,
+    EncodedUpstreamRequest, OpenAiChatCompletionsProfile, ProtocolAdapter, ProtocolBridge,
+    ProtocolBridgeContext, ProtocolBridgeSession, ProtocolContinuationState, ProtocolTargetProfile,
+    ProtocolUpstreamFailureEvidence, SseFrame, StreamCompletionPolicy, UpstreamResponse,
 };
 use crate::ProtocolError;
 

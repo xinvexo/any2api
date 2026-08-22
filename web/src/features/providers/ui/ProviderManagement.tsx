@@ -1,17 +1,14 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
-import type { ProviderEndpoint, ProviderEndpointWriteInput, ProviderKind } from "../api/provider-contracts";
-import {
-  isProviderKind,
-  providerKindLabel,
-} from "../model/provider-kind-catalog";
+import type { ProviderEndpoint, ProviderEndpointWriteInput } from "../api/provider-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
+import { useProviderRouteState } from "../model/provider-route-state";
 import { useProviderEndpointMutations } from "../model/use-provider-mutations";
 import { useProviderEndpoints } from "../model/use-providers";
 import { ProviderEditorSlot } from "./ProviderEditorSlot";
 import { ProviderEndpointList } from "./ProviderEndpointList";
 import { notify } from "@/shared/notifications";
+import { providerKindLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -20,11 +17,10 @@ import { Surface } from "@/shared/ui/Surface";
 export function ProviderManagement() {
   const endpoints = useProviderEndpoints();
   const mutations = useProviderEndpointMutations();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const routeState = useProviderRouteState();
   const [deleteTarget, setDeleteTarget] = useState<ProviderEndpoint | null>(null);
-  const editorId = searchParams.get("editor");
-  const kindParam = searchParams.get("kind");
-  const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
+  const editorId = routeState.endpointEditorId;
+  const selectedKind = routeState.selectedKind;
 
   async function refreshEndpoints() {
     const result = await endpoints.refetch();
@@ -33,39 +29,16 @@ export function ProviderManagement() {
     }
   }
 
-  function openEditor(id: string, kind?: ProviderKind) {
+  function openEditor(id: string, kind = selectedKind) {
     mutations.create.reset();
     mutations.update.reset();
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("keys");
-        next.delete("credential");
-        next.delete("action");
-        next.set("editor", id);
-        if (kind) {
-          next.set("kind", kind);
-        }
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.openEndpointEditor(id, kind);
   }
 
   function closeEditor(expectedId: string | null = editorId) {
     mutations.create.reset();
     mutations.update.reset();
-    setSearchParams(
-      (current) => {
-        if (expectedId && current.get("editor") !== expectedId) {
-          return current;
-        }
-        const next = new URLSearchParams(current);
-        next.delete("editor");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.closeEndpointEditor(expectedId);
   }
 
   const configuration = endpoints.data;

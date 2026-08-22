@@ -2,7 +2,6 @@ mod wire;
 
 use std::collections::HashSet;
 
-use any2api_domain::OpenAiChatReasoningResponse;
 use serde_json::{Value, json};
 
 use super::{
@@ -11,6 +10,7 @@ use super::{
 };
 use crate::{
     ProtocolError,
+    api::OpenAiChatReasoningResponse,
     openai_responses_chat::{
         response::restored_call_item,
         tool_projection::{ChatToolKind, RestoredToolCall, ToolIdentity},

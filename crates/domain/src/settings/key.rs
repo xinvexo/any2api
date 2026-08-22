@@ -19,7 +19,6 @@ pub enum SettingKey {
     LogsRequestRetention,
     LogsRequestMaxRows,
     LogsHttpAccessMaxRows,
-    LogsHttpAccessMaxExchangeBytes,
     LogsFileLevel,
     LogsFileRetention,
     LogsFileMaxTotalSize,
@@ -43,7 +42,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 37] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -61,7 +60,6 @@ impl SettingKey {
         Self::LogsRequestRetention,
         Self::LogsRequestMaxRows,
         Self::LogsHttpAccessMaxRows,
-        Self::LogsHttpAccessMaxExchangeBytes,
         Self::LogsFileLevel,
         Self::LogsFileRetention,
         Self::LogsFileMaxTotalSize,
@@ -103,7 +101,6 @@ impl SettingKey {
             Self::LogsRequestRetention => "logs.request.retention",
             Self::LogsRequestMaxRows => "logs.request.max_rows",
             Self::LogsHttpAccessMaxRows => "logs.http_access.max_rows",
-            Self::LogsHttpAccessMaxExchangeBytes => "logs.http_access.max_exchange_bytes",
             Self::LogsFileLevel => "logs.file.level",
             Self::LogsFileRetention => "logs.file.retention",
             Self::LogsFileMaxTotalSize => "logs.file.max_total_size",

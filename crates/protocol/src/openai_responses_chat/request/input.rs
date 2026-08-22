@@ -1,7 +1,6 @@
-use any2api_domain::OpenAiChatCompletionsProfile;
 use serde_json::{Value, json};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::OpenAiChatCompletionsProfile};
 
 use super::{history, invalid, required_string};
 use crate::openai_responses_chat::tool_projection::ToolProjection;

@@ -1,3 +1,5 @@
+use std::{error::Error, fmt, str::FromStr};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -30,10 +32,31 @@ impl ProviderKind {
             Self::Kimi => "kimi",
         }
     }
+}
 
-    #[must_use]
-    pub const fn supports_oauth(self) -> bool {
-        matches!(self, Self::Codex | Self::Claude | Self::Grok)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParseProviderKindError;
+
+impl fmt::Display for ParseProviderKindError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("unknown provider kind")
+    }
+}
+
+impl Error for ParseProviderKindError {}
+
+impl FromStr for ProviderKind {
+    type Err = ParseProviderKindError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "openai" => Ok(Self::OpenAi),
+            "codex" => Ok(Self::Codex),
+            "claude" => Ok(Self::Claude),
+            "grok" => Ok(Self::Grok),
+            "kimi" => Ok(Self::Kimi),
+            _ => Err(ParseProviderKindError),
+        }
     }
 }
 
@@ -47,6 +70,15 @@ pub enum ProtocolDialect {
     #[serde(rename = "openai_images")]
     OpenAiImages,
     AnthropicMessages,
+}
+
+impl ProtocolDialect {
+    pub const ALL: [Self; 4] = [
+        Self::OpenAiResponses,
+        Self::OpenAiChatCompletions,
+        Self::OpenAiImages,
+        Self::AnthropicMessages,
+    ];
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -184,10 +216,10 @@ mod tests {
     use super::{ProtocolDialect, ProtocolOperation, ProviderKind};
 
     #[test]
-    fn provider_values_and_oauth_support_are_stable() {
+    fn provider_values_and_parsing_are_stable() {
         assert_eq!(ProviderKind::ALL.len(), 5);
         assert_eq!(ProviderKind::OpenAi.as_str(), "openai");
-        assert!(!ProviderKind::OpenAi.supports_oauth());
+        assert_eq!("openai".parse(), Ok(ProviderKind::OpenAi));
         assert_eq!(
             serde_json::to_string(&ProviderKind::OpenAi).expect("serialize OpenAI provider"),
             r#""openai""#
@@ -198,7 +230,7 @@ mod tests {
             ProviderKind::OpenAi
         );
         assert_eq!(ProviderKind::Kimi.as_str(), "kimi");
-        assert!(!ProviderKind::Kimi.supports_oauth());
+        assert_eq!("kimi".parse(), Ok(ProviderKind::Kimi));
         assert_eq!(
             serde_json::to_string(&ProviderKind::Kimi).expect("serialize provider"),
             r#""kimi""#
@@ -207,6 +239,7 @@ mod tests {
             serde_json::from_str::<ProviderKind>(r#""kimi""#).expect("deserialize provider"),
             ProviderKind::Kimi
         );
+        assert!("unknown".parse::<ProviderKind>().is_err());
     }
 
     #[test]

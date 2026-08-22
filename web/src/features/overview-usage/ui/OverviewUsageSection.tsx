@@ -20,7 +20,6 @@ import {
   isOverviewUsageRange,
   type OverviewUsageRange,
 } from "../api/overview-usage-contracts";
-import { getOverviewUsageErrorMessage } from "../model/overview-usage-error";
 import {
   calculateOverviewAverageRpm,
   calculateOverviewCacheHitRate,
@@ -292,4 +291,8 @@ function calculateSuccessRate(successful: number, total: number) {
 
 function formatOverviewPercent(value: number) {
   return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function getOverviewUsageErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "调用统计读取失败";
 }

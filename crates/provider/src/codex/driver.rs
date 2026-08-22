@@ -3,9 +3,10 @@ use super::{
     oauth as codex_oauth, quota as codex_quota, request as codex_request,
 };
 use any2api_domain::{
-    CredentialKind, OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation,
-    ProtocolTargetProfile, ProviderKind, RequestBodyEncoding, RequestSpeedTier, TransportMode,
+    ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding, RequestSpeedTier,
+    TransportMode,
 };
+use any2api_protocol::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use url::Url;
@@ -13,20 +14,44 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthPrincipalIdentity,
-        OAuthQuotaRejection, OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestContext,
-        UpstreamResponseMeta,
+        CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthAuthorizationCodeProvider,
+        OAuthCapabilities, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
+        OAuthModelCatalogScope, OAuthPrincipalIdentity, OAuthQuotaProvider, OAuthQuotaRejection,
+        OAuthQuotaResetProvider, OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthRoutingProvider, OAuthTokenMaterial, OAuthTokenProvider,
+        ProviderDescriptor, ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
 };
 
+const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+    ProviderKind::Codex,
+    &[
+        ProtocolOperation::Responses,
+        ProtocolOperation::ResponsesCompact,
+        ProtocolOperation::AlphaSearch,
+        ProtocolOperation::ChatCompletions,
+        ProtocolOperation::ImagesGenerations,
+        ProtocolOperation::ImagesEdits,
+    ],
+    Some(
+        OAuthCapabilities::new(
+            &[
+                ProtocolOperation::Responses,
+                ProtocolOperation::ResponsesCompact,
+                ProtocolOperation::AlphaSearch,
+            ],
+            OAuthLoginFlow::AuthorizationCodePkce,
+        )
+        .with_quota()
+        .with_quota_reset(),
+    ),
+    &[TransportMode::Json, TransportMode::Sse],
+);
+
 #[derive(Debug)]
-pub struct CodexDriver {
-    capabilities: CapabilitySet,
-}
+pub struct CodexDriver;
 
 impl Default for CodexDriver {
     fn default() -> Self {
@@ -36,32 +61,14 @@ impl Default for CodexDriver {
 
 impl CodexDriver {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            capabilities: CapabilitySet {
-                protocols: [
-                    ProtocolDialect::OpenAiResponses,
-                    ProtocolDialect::OpenAiChatCompletions,
-                    ProtocolDialect::OpenAiImages,
-                ]
-                .into_iter()
-                .collect(),
-                transport_modes: [TransportMode::Json, TransportMode::Sse]
-                    .into_iter()
-                    .collect(),
-                credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
-            },
-        }
+    pub const fn new() -> Self {
+        Self
     }
 }
 
 impl ProviderDriver for CodexDriver {
-    fn kind(&self) -> ProviderKind {
-        ProviderKind::Codex
-    }
-
-    fn capabilities(&self) -> &CapabilitySet {
-        &self.capabilities
+    fn descriptor(&self) -> &'static ProviderDescriptor {
+        &DESCRIPTOR
     }
 
     fn protocol_target_profile(
@@ -85,15 +92,7 @@ impl ProviderDriver for CodexDriver {
         base_url: &any2api_domain::ProviderBaseUrl,
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError> {
-        if !matches!(
-            operation,
-            ProtocolOperation::Responses
-                | ProtocolOperation::ResponsesCompact
-                | ProtocolOperation::AlphaSearch
-                | ProtocolOperation::ChatCompletions
-                | ProtocolOperation::ImagesGenerations
-                | ProtocolOperation::ImagesEdits
-        ) {
+        if !self.descriptor().supports_api_key_operation(operation) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Codex".into(),
             ));
@@ -158,10 +157,6 @@ impl ProviderDriver for CodexDriver {
         codex_headers::supports_encoding(context, encoding)
     }
 
-    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
-        Some(OAuthLoginFlow::AuthorizationCodePkce)
-    }
-
     fn credential_test_plan(
         &self,
         base_url: &any2api_domain::ProviderBaseUrl,
@@ -176,8 +171,35 @@ impl ProviderDriver for CodexDriver {
         api_key::parse_model_catalog(bounded_body)
     }
 
-    fn oauth_redirect_uri(&self) -> Option<&'static str> {
-        Some(codex_oauth::redirect_uri())
+    fn oauth_authorization_code(&self) -> Option<&dyn OAuthAuthorizationCodeProvider> {
+        Some(self)
+    }
+
+    fn oauth_token(&self) -> Option<&dyn OAuthTokenProvider> {
+        Some(self)
+    }
+
+    fn oauth_routing(&self) -> Option<&dyn OAuthRoutingProvider> {
+        Some(self)
+    }
+
+    fn oauth_quota(&self) -> Option<&dyn OAuthQuotaProvider> {
+        Some(self)
+    }
+
+    fn classify_error(
+        &self,
+        _operation: ProtocolOperation,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> any2api_domain::UpstreamError {
+        openai_error::classify(meta, bounded_body)
+    }
+}
+
+impl OAuthAuthorizationCodeProvider for CodexDriver {
+    fn oauth_redirect_uri(&self) -> &'static str {
+        codex_oauth::redirect_uri()
     }
 
     fn oauth_authorization_url(
@@ -188,18 +210,33 @@ impl ProviderDriver for CodexDriver {
         codex_oauth::authorization_url(state, code_challenge)
     }
 
-    fn oauth_token_request(
+    fn oauth_authorization_code_token_request(
         &self,
-        grant: OAuthGrant,
         code: &str,
-        _state: Option<&str>,
-        code_verifier: Option<&str>,
+        _state: &str,
+        code_verifier: &str,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        codex_oauth::token_request(grant, code, code_verifier)
+        codex_oauth::token_request(OAuthGrant::AuthorizationCode, code, Some(code_verifier))
+    }
+}
+
+impl OAuthTokenProvider for CodexDriver {
+    fn oauth_refresh_token_request(
+        &self,
+        refresh_token: &str,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        codex_oauth::token_request(OAuthGrant::RefreshToken, refresh_token, None)
     }
 
     fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         codex_oauth::parse_token(body)
+    }
+
+    fn parse_oauth_import(
+        &self,
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
+        codex_import::parse(object)
     }
 
     fn oauth_principal_identity(
@@ -216,14 +253,9 @@ impl ProviderDriver for CodexDriver {
     ) -> OAuthRefreshRejection {
         codex_oauth::classify_refresh_rejection(status, bounded_body)
     }
+}
 
-    fn parse_oauth_import(
-        &self,
-        object: &serde_json::Map<String, serde_json::Value>,
-    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
-        codex_import::parse(object)
-    }
-
+impl OAuthRoutingProvider for CodexDriver {
     fn oauth_routing_profile(
         &self,
         token: &OAuthTokenMaterial,
@@ -249,15 +281,6 @@ impl ProviderDriver for CodexDriver {
         codex_model_catalog::parse(bounded_body)
     }
 
-    fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {
-        matches!(
-            operation,
-            ProtocolOperation::Responses
-                | ProtocolOperation::ResponsesCompact
-                | ProtocolOperation::AlphaSearch
-        )
-    }
-
     fn oauth_credential_headers(
         &self,
         token: &OAuthTokenMaterial,
@@ -265,7 +288,9 @@ impl ProviderDriver for CodexDriver {
     ) -> Result<CredentialHeaders, ProviderError> {
         codex_oauth::credential_headers(token)
     }
+}
 
+impl OAuthQuotaProvider for CodexDriver {
     fn oauth_quota_query_plan(
         &self,
         token: &OAuthTokenMaterial,
@@ -301,6 +326,12 @@ impl ProviderDriver for CodexDriver {
         codex_quota::parse_usage(body)
     }
 
+    fn reset(&self) -> Option<&dyn OAuthQuotaResetProvider> {
+        Some(self)
+    }
+}
+
+impl OAuthQuotaResetProvider for CodexDriver {
     fn parse_oauth_quota_reset_credits(
         &self,
         body: &[u8],
@@ -321,14 +352,5 @@ impl ProviderDriver for CodexDriver {
         body: &[u8],
     ) -> Result<crate::api::OAuthQuotaResetResult, ProviderError> {
         codex_quota::parse_reset_result(body)
-    }
-
-    fn classify_error(
-        &self,
-        _operation: ProtocolOperation,
-        meta: &UpstreamResponseMeta,
-        bounded_body: &[u8],
-    ) -> any2api_domain::UpstreamError {
-        openai_error::classify(meta, bounded_body)
     }
 }

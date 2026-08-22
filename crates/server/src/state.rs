@@ -27,7 +27,56 @@ pub struct AppState {
     zstd_decoder: ZstdDecoder,
 }
 
+pub struct AppServices {
+    oauth: Arc<OAuthService>,
+    proxy_tests: Arc<ProxyTestService>,
+    provider_credential_tests: Arc<ProviderCredentialTestService>,
+    request_telemetry: Arc<RequestTelemetry>,
+    application_updates: Arc<dyn ApplicationUpdateService>,
+    restart_requester: Arc<dyn RestartRequester>,
+}
+
+impl AppServices {
+    #[must_use]
+    pub fn new(
+        oauth: Arc<OAuthService>,
+        proxy_tests: Arc<ProxyTestService>,
+        provider_credential_tests: Arc<ProviderCredentialTestService>,
+        request_telemetry: Arc<RequestTelemetry>,
+        application_updates: Arc<dyn ApplicationUpdateService>,
+        restart_requester: Arc<dyn RestartRequester>,
+    ) -> Self {
+        Self {
+            oauth,
+            proxy_tests,
+            provider_credential_tests,
+            request_telemetry,
+            application_updates,
+            restart_requester,
+        }
+    }
+}
+
 impl AppState {
+    #[must_use]
+    pub fn production(
+        snapshots: Arc<SnapshotStore>,
+        runtime: Arc<RuntimeRegistry>,
+        publisher: Arc<ConfigPublisher>,
+        public_requests: Arc<PublicRequestService>,
+        admin_auth: Arc<AdminAuthService>,
+        services: AppServices,
+    ) -> Self {
+        Self::new(snapshots, runtime, publisher, public_requests, admin_auth)
+            .with_oauth(services.oauth)
+            .with_proxy_tests(services.proxy_tests)
+            .with_provider_credential_tests(services.provider_credential_tests)
+            .with_request_telemetry(services.request_telemetry)
+            .with_application_updates(services.application_updates)
+            .with_restart_requester(services.restart_requester)
+    }
+
+    /// Constructs the intentionally minimal state used by focused tests.
     #[must_use]
     pub fn new(
         snapshots: Arc<SnapshotStore>,

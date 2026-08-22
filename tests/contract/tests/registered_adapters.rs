@@ -216,16 +216,20 @@ fn composition_root_provider_registry_runs_every_contract() {
 
 fn provider_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
     let fixture = ProviderFixture::for_kind(kind);
-    let capabilities = driver.capabilities();
-    assert_eq!(capabilities.protocols, fixture.protocols);
+    let descriptor = driver.descriptor();
     assert_eq!(
-        capabilities.transport_modes,
+        descriptor.protocols().collect::<BTreeSet<_>>(),
+        fixture.protocols
+    );
+    assert_eq!(
+        descriptor
+            .transport_modes()
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>(),
         BTreeSet::from([TransportMode::Json, TransportMode::Sse])
     );
-    assert_eq!(
-        capabilities.credential_kinds,
-        BTreeSet::from([CredentialKind::ApiKey])
-    );
+    assert!(descriptor.supports_credential_kind(CredentialKind::ApiKey));
 
     let plan = driver
         .endpoint_plan(&fixture.base_url, fixture.operation)

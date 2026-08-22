@@ -2,11 +2,11 @@ mod output;
 
 use std::collections::HashMap;
 
-use any2api_domain::OpenAiChatCompletionsProfile;
 use serde_json::{Map, Value, json};
 
 use crate::{
     ProtocolError,
+    api::OpenAiChatCompletionsProfile,
     openai_responses_chat::tool_projection::{ProjectedSourceCall, SourceCallKind, ToolProjection},
 };
 

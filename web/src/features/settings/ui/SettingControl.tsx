@@ -88,7 +88,6 @@ export function SettingControl({
   }
 
   if (item.valueType === "duration_secs"
-    || item.key === "logs.http_access.max_exchange_bytes"
     || item.key === "logs.file.max_total_size"
     || item.key === "logs.telemetry_queue_max_bytes"
     || item.key === "stream.precommit.max_bytes") {

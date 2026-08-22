@@ -75,6 +75,8 @@ Before upgrading, take an offline copy of the data directory.
 
 The data directory contains configuration, credentials, request history, and local logs. Provider API keys, proxy passwords, Gateway API keys, and OAuth Provider JSON are stored as plaintext in SQLite by product decision. Provider and OAuth secrets are not exposed by ordinary read/download/export endpoints; Gateway API keys remain visible to an authenticated administrator.
 
+HTTP system logs are metadata-only: they retain the request ID, canonical client IP, method, path, status, duration, and response byte count needed to diagnose scans and failures. They never retain query strings, request or response headers, or request or response bodies. Migration 0043 rebuilds the log table and copies only safe metadata from older versions.
+
 The data directory is the local protection boundary. On Unix any2api enforces `0700` on the data and log directories and `0600` on the SQLite database, WAL/SHM sidecars, instance lock, and application log files. On Windows, restrict the data directory to the service account with the host ACL.
 
 There is no built-in backup or restore workflow. For an offline filesystem backup, stop any2api first and copy the data directory as one consistent set.
@@ -147,6 +149,7 @@ pnpm dev
 `pnpm dev` supervises the Vite development server and the automatically rebuilding Rust backend as one session. Use
 `pnpm --dir web dev` only when intentionally running the frontend by itself.
 
-Before submitting changes, run the relevant checks from [AGENTS.md](AGENTS.md). Current architecture lives in
-[ARCHITECTURE.md](ARCHITECTURE.md); rationale and discarded directions live in the single register indexed by
-[docs/adr/README.md](docs/adr/README.md).
+Before submitting changes, run the relevant checks from [AGENTS.md](AGENTS.md). Start with the system map in
+[ARCHITECTURE.md](ARCHITECTURE.md), follow the relevant current topic in
+[docs/architecture](docs/architecture/README.md), and use the [ADR index](docs/adr/README.md) for design rationale and
+superseded decisions.

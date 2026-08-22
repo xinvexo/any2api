@@ -66,14 +66,6 @@ async fn settings_publish_updates_request_telemetry_policy() {
     let published = publisher
         .set_setting_override(
             published.revision(),
-            SettingKey::LogsHttpAccessMaxExchangeBytes,
-            SettingValue::Integer(1024 * 1024),
-        )
-        .await
-        .expect("publish HTTP access log exchange limit");
-    let published = publisher
-        .set_setting_override(
-            published.revision(),
             SettingKey::LogsTelemetryQueueMaxBytes,
             SettingValue::Integer(8 * 1024 * 1024),
         )
@@ -84,7 +76,6 @@ async fn settings_publish_updates_request_telemetry_policy() {
     assert_eq!(policy.revision, published.revision());
     assert_eq!(policy.request_max_rows, 42);
     assert_eq!(policy.http_access_max_rows, 7);
-    assert_eq!(policy.http_access_max_exchange_bytes, 1024 * 1024);
     assert_eq!(policy.queue_max_bytes, 8 * 1024 * 1024);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }

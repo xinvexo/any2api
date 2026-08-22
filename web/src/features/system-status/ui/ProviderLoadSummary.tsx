@@ -1,4 +1,5 @@
-import { useBalancingRuntime, type BalancingRuntime } from "@/features/balancing";
+import { useBalancingRuntime } from "../model/use-balancing-runtime";
+import { providerKindLabel } from "@/shared/api/provider-protocol-vocabulary";
 
 export function ProviderLoadSummary() {
   const runtime = useBalancingRuntime().data;
@@ -20,7 +21,9 @@ export function ProviderLoadSummary() {
             key={provider.providerKind}
             className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] bg-surface-muted/45 px-3.5 py-3"
           >
-            <span className="truncate text-sm font-medium">{providerLabel(provider.providerKind)}</span>
+            <span className="truncate text-sm font-medium">
+              {providerKindLabel(provider.providerKind)}
+            </span>
             <span className="shrink-0 text-right text-[11px] tabular-nums text-secondary">
               {formatCount(provider.requestsInWindow)} 次 · {formatCount(provider.inFlight)} 进行中
               {provider.limitedCredentialCount > 0
@@ -36,10 +39,4 @@ export function ProviderLoadSummary() {
 
 function formatCount(value: number) {
   return value.toLocaleString("zh-CN");
-}
-
-function providerLabel(provider: BalancingRuntime["providers"][number]["providerKind"]) {
-  return { openai: "OpenAI", codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
-    provider
-  ];
 }

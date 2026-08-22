@@ -55,11 +55,6 @@ impl OAuthTokenMaterial {
         account_id: Option<String>,
         email: Option<String>,
     ) -> Result<Self, ProviderError> {
-        if !provider.supports_oauth() {
-            return Err(ProviderError::InvalidResponse(
-                "OAuth2 is not supported by this provider".into(),
-            ));
-        }
         if access_token.trim().is_empty() {
             return Err(ProviderError::InvalidResponse(
                 "OAuth response did not contain an access token".into(),

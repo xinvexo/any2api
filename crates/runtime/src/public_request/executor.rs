@@ -1,10 +1,6 @@
 //! Public request execution and response lifecycle entry point.
 
-use std::{
-    net::IpAddr,
-    pin::Pin,
-    sync::{Arc, OnceLock},
-};
+use std::{net::IpAddr, pin::Pin, sync::Arc};
 
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
@@ -57,7 +53,7 @@ pub struct PublicRequestService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     telemetry: Arc<RequestTelemetry>,
-    oauth: OnceLock<OAuthRequestServices>,
+    oauth: Option<OAuthRequestServices>,
 }
 
 struct OAuthRequestServices {
@@ -71,6 +67,24 @@ impl PublicRequestService {
         providers: Arc<ProviderRegistry>,
         transport: Arc<dyn TransportManager>,
     ) -> Result<Self, PublicRequestServiceError> {
+        Self::build(protocols, providers, transport, None)
+    }
+
+    pub fn new_with_oauth(
+        protocols: Arc<ProtocolRegistry>,
+        providers: Arc<ProviderRegistry>,
+        transport: Arc<dyn TransportManager>,
+        oauth: &OAuthService,
+    ) -> Result<Self, PublicRequestServiceError> {
+        Self::build(protocols, providers, transport, Some(oauth))
+    }
+
+    fn build(
+        protocols: Arc<ProtocolRegistry>,
+        providers: Arc<ProviderRegistry>,
+        transport: Arc<dyn TransportManager>,
+        oauth: Option<&OAuthService>,
+    ) -> Result<Self, PublicRequestServiceError> {
         for dialect in ProtocolOperation::ALL.map(ProtocolOperation::dialect) {
             if protocols.get(dialect).is_none() {
                 return Err(PublicRequestServiceError::MissingProtocol(dialect));
@@ -81,7 +95,10 @@ impl PublicRequestService {
             providers,
             transport,
             telemetry: Arc::new(RequestTelemetry::disabled()),
-            oauth: OnceLock::new(),
+            oauth: oauth.map(|oauth| OAuthRequestServices {
+                refresher: oauth.refresher(),
+                quota_activity: oauth.quota_activity(),
+            }),
         })
     }
 
@@ -89,15 +106,6 @@ impl PublicRequestService {
     pub fn with_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
         self.telemetry = telemetry;
         self
-    }
-
-    pub fn install_oauth(&self, oauth: &OAuthService) -> bool {
-        self.oauth
-            .set(OAuthRequestServices {
-                refresher: oauth.refresher(),
-                quota_activity: oauth.quota_activity(),
-            })
-            .is_ok()
     }
 
     pub async fn execute(
@@ -220,7 +228,7 @@ impl PublicRequestService {
             providers: self.providers.as_ref(),
             transport: self.transport.as_ref(),
             live,
-            oauth: self.oauth.get().map(|oauth| {
+            oauth: self.oauth.as_ref().map(|oauth| {
                 retry::OAuthRetryServices::new(oauth.refresher.as_ref(), &oauth.quota_activity)
             }),
             recorder,

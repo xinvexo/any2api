@@ -1,9 +1,7 @@
 import { CheckCircle2, LoaderCircle, RefreshCw, ServerCrash } from "lucide-react";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
-import { useBalancingRuntime } from "@/features/balancing";
-import { isOverviewUsageRange, useOverviewUsage } from "@/features/overview-usage";
+import { useBalancingRuntime } from "../model/use-balancing-runtime";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
 import { useAdminRealtimeStatus } from "@/shared/realtime";
@@ -16,12 +14,8 @@ import { LiveResourceGrid } from "./LiveResourceGrid";
 type SystemStatus = "pending" | "error" | "ok" | "stale" | "draining" | "forced";
 
 export function SystemOverview() {
-  const [searchParams] = useSearchParams();
-  const rangeParam = searchParams.get("range");
-  const range = isOverviewUsageRange(rangeParam) ? rangeParam : "24h";
   const runtime = useBalancingRuntime();
   const resources = useOverviewResources();
-  const usage = useOverviewUsage(range);
   const realtime = useAdminRealtimeStatus();
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const status = resolveSystemStatus(
@@ -38,7 +32,6 @@ export function SystemOverview() {
       const results = await Promise.all([
         runtime.refetch(),
         resources.refetch(),
-        usage.refetch(),
       ]);
       if (results.every((result) => result.isSuccess)) {
         notify.success("系统总览已刷新");
@@ -51,7 +44,7 @@ export function SystemOverview() {
   return (
     <section
       className="min-w-0"
-      aria-busy={runtime.isFetching || resources.isFetching || usage.isFetching}
+      aria-busy={runtime.isFetching || resources.isFetching}
     >
       <header className="flex min-h-8 items-center justify-between gap-4">
         <StatusBadge status={status} />

@@ -19,7 +19,7 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub fn oauth_token_material(&self, id: OAuthAccountId) -> Option<Arc<OAuthTokenMaterial>> {
-        let account = self.oauth_accounts.get(id)?;
+        let account = self.oauth_accounts().get(id)?;
         let credential = self
             .routing_credentials
             .get(RoutingCredentialId::oauth_account(id))?;
@@ -33,7 +33,7 @@ impl PublishedSnapshot {
     /// Official Codex `chatgpt_plan_type` from the ID Token. Claude has none.
     #[must_use]
     pub fn oauth_plan_label(&self, id: OAuthAccountId) -> Option<String> {
-        let account = self.oauth_accounts.get(id)?;
+        let account = self.oauth_accounts().get(id)?;
         if account.provider_kind() != any2api_domain::ProviderKind::Codex {
             return None;
         }
@@ -44,7 +44,7 @@ impl PublishedSnapshot {
     /// Safe Grok Build risk flag derived from the current access token.
     #[must_use]
     pub fn oauth_grok_bot_flag(&self, id: OAuthAccountId) -> Option<bool> {
-        let account = self.oauth_accounts.get(id)?;
+        let account = self.oauth_accounts().get(id)?;
         if account.provider_kind() != any2api_domain::ProviderKind::Grok {
             return None;
         }
@@ -55,7 +55,7 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn published_public_model_names(&self) -> BTreeSet<String> {
         let mut names = self
-            .model_routes
+            .model_routes()
             .routes()
             .iter()
             .filter(|route| route.enabled())

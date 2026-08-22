@@ -22,7 +22,10 @@ pub(crate) struct OAuthImportIdentityIndex {
 impl OAuthImportIdentity {
     pub(crate) fn from_token(driver: &dyn ProviderDriver, token: &OAuthTokenMaterial) -> Self {
         let mut keys = Vec::with_capacity(4);
-        if let Some(identity) = driver.oauth_principal_identity(token) {
+        if let Some(identity) = driver
+            .oauth_token()
+            .and_then(|provider| provider.oauth_principal_identity(token))
+        {
             keys.push(OAuthImportIdentityKey::Stable(identity));
         }
         keys.push(OAuthImportIdentityKey::Secret(secret_digest(

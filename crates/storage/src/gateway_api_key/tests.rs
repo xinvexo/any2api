@@ -1,4 +1,4 @@
-use any2api_domain::{ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId};
+use any2api_domain::{ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId, GatewayApiKeyVerifier};
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
@@ -31,12 +31,9 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     .expect("create");
     assert_eq!(created.revision().get(), 2);
     let key = created.gateway_api_keys().get(id).expect("created key");
+    let verifier = GatewayApiKeyVerifier::new();
     assert_eq!(key.token(), first);
-    assert!(
-        created
-            .gateway_api_key_verifier()
-            .verify(first.as_bytes(), key.token_hash())
-    );
+    assert!(verifier.verify(first.as_bytes(), key.token_hash()));
     assert_ne!(key.token_prefix(), first);
     let stored: (String, String, i64) = sqlx::query_as(
         "SELECT token, token_prefix, length(token_hash) FROM gateway_api_keys WHERE id = ?",
@@ -78,16 +75,8 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let rotated_key = rotated.gateway_api_keys().get(id).expect("rotated key");
     assert_eq!(rotated_key.token_version(), 2);
     assert_eq!(rotated_key.token(), second);
-    assert!(
-        !rotated
-            .gateway_api_key_verifier()
-            .verify(first.as_bytes(), rotated_key.token_hash())
-    );
-    assert!(
-        rotated
-            .gateway_api_key_verifier()
-            .verify(second.as_bytes(), rotated_key.token_hash())
-    );
+    assert!(!verifier.verify(first.as_bytes(), rotated_key.token_hash()));
+    assert!(verifier.verify(second.as_bytes(), rotated_key.token_hash()));
 
     let deleted = commit_configuration(
         &store,

@@ -9,6 +9,11 @@ import {
   type RequestLogFilterOptions,
   type RequestLogOperation,
 } from "./request-log-filter-contracts";
+import {
+  isProtocolDialect,
+  isProtocolOperation,
+  type ProtocolDialect,
+} from "@/shared/api/provider-protocol-vocabulary";
 
 export type {
   RequestAttempt,
@@ -28,11 +33,7 @@ export type {
   StableRequestLogFilterOption,
 } from "./request-log-filter-contracts";
 
-export type RequestLogProtocol =
-  | "openai_responses"
-  | "openai_chat_completions"
-  | "openai_images"
-  | "anthropic_messages";
+export type RequestLogProtocol = ProtocolDialect;
 export type RequestSpeedTier = "standard" | "fast";
 export interface RequestLog {
   requestId: string;
@@ -233,28 +234,14 @@ function parseTelemetry(value: unknown): RequestTelemetryMetrics {
 }
 
 function readProtocol(value: unknown): RequestLogProtocol {
-  if (
-    value === "openai_responses" ||
-    value === "openai_chat_completions" ||
-    value === "openai_images" ||
-    value === "anthropic_messages"
-  ) {
+  if (isProtocolDialect(value)) {
     return value;
   }
   throw invalidResponse();
 }
 
 function readOperation(value: unknown): RequestLogOperation {
-  if (
-    value === "responses" ||
-    value === "responses_compact" ||
-    value === "alpha_search" ||
-    value === "chat_completions" ||
-    value === "images_generations" ||
-    value === "images_edits" ||
-    value === "messages" ||
-    value === "messages_count_tokens"
-  ) {
+  if (isProtocolOperation(value)) {
     return value;
   }
   throw invalidResponse();

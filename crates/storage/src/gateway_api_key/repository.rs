@@ -1,4 +1,4 @@
-use any2api_domain::ConfigRevision;
+use any2api_domain::{ConfigRevision, GatewayApiKeyVerifier};
 use sqlx::SqliteConnection;
 
 use crate::{
@@ -25,12 +25,8 @@ pub(crate) async fn mutate_connection(
             actual: current.revision(),
         });
     }
-    let Some(prepared) = prepare(
-        current.gateway_api_keys(),
-        current.gateway_api_key_verifier(),
-        mutation,
-    )?
-    else {
+    let verifier = GatewayApiKeyVerifier::new();
+    let Some(prepared) = prepare(current.gateway_api_keys(), &verifier, mutation)? else {
         return Ok((current, false));
     };
     execute_change(connection, prepared.change()).await?;

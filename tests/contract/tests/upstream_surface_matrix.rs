@@ -30,10 +30,7 @@ async fn registered_upstream_surfaces_match_the_raw_http1_matrix() {
         let driver = providers.get(kind).expect("registered Provider driver");
         let base_url = api_key_base_url(kind);
         for operation in ProtocolOperation::ALL {
-            if driver
-                .capabilities()
-                .protocols
-                .contains(&operation.dialect())
+            if driver.descriptor().supports_api_key_operation(operation)
                 && driver.endpoint_plan(&base_url, operation).is_ok()
             {
                 cases.push(
@@ -57,11 +54,12 @@ async fn registered_upstream_surfaces_match_the_raw_http1_matrix() {
 
     for (kind, token) in &tokens {
         let driver = providers.get(*kind).expect("OAuth Provider driver");
-        let profile = driver
+        let routing = driver.oauth_routing().expect("OAuth routing facet");
+        let profile = routing
             .oauth_routing_profile(token)
             .expect("OAuth routing profile");
         for operation in ProtocolOperation::ALL {
-            if driver.oauth_supports_operation(operation) {
+            if driver.descriptor().supports_oauth_operation(operation) {
                 assert_eq!(operation.dialect(), profile.protocol_dialect());
                 cases.push(
                     data_case(
@@ -94,7 +92,7 @@ async fn registered_upstream_surfaces_match_the_raw_http1_matrix() {
         for operation in capabilities.operations {
             for kind in ProviderKind::ALL {
                 let driver = providers.get(kind).expect("registered Provider driver");
-                if !driver.capabilities().protocols.contains(&upstream) {
+                if !driver.descriptor().supports_protocol(upstream) {
                     continue;
                 }
                 let base_url = api_key_base_url(kind);

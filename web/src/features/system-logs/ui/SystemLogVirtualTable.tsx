@@ -1,8 +1,4 @@
-import {
-  observeElementRect as observeVirtualElementRect,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type { SystemLog } from "../api/system-log-contracts";
 import {
@@ -13,6 +9,7 @@ import {
   statusTone,
 } from "../model/system-log-presentation";
 import { cn } from "@/shared/lib/cn";
+import { AnchoredVirtualRows } from "@/shared/ui/AnchoredVirtualRows";
 import {
   listEntrySurfaceAnimationClass,
   type ListEntryAnimation,
@@ -45,54 +42,7 @@ export function SystemLogVirtualTable({
   onLoadMore,
   entryAnimations,
 }: SystemLogVirtualTableProps) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef({ ids: [] as string[], scrollTop: 0 });
-  const rowCount = items.length + (hasMore ? 1 : 0);
-  // TanStack Virtual exposes a mutable controller that React Compiler must not memoize.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: rowCount,
-    getScrollElement: () => viewportRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    getItemKey: (index) => items[index]?.requestId ?? "system-log-history-loader",
-    overscan: 10,
-    useFlushSync: false,
-    initialRect: { width: 980, height: 640 },
-    observeElementRect: (instance, callback) =>
-      observeVirtualElementRect(instance, (rect) =>
-        callback({ width: rect.width, height: rect.height > 0 ? rect.height : 640 }),
-      ),
-  });
-
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const previous = anchorRef.current;
-    const nextIds = items.map((item) => item.requestId);
-    if (followingLatest) {
-      viewport.scrollTop = 0;
-    } else if (previous.ids.length > 0 && nextIds.length > 0) {
-      const oldFirstInNext = nextIds.indexOf(previous.ids[0]);
-      const nextFirstInOld = previous.ids.indexOf(nextIds[0]);
-      if (previous.scrollTop <= ROW_HEIGHT) {
-        viewport.scrollTop = 0;
-      } else if (oldFirstInNext > 0) {
-        viewport.scrollTop = previous.scrollTop + oldFirstInNext * ROW_HEIGHT;
-      } else if (nextFirstInOld > 0) {
-        viewport.scrollTop = Math.max(0, previous.scrollTop - nextFirstInOld * ROW_HEIGHT);
-      }
-    }
-    anchorRef.current = { ids: nextIds, scrollTop: viewport.scrollTop };
-  }, [followingLatest, items]);
-
-  const handleScroll = () => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    anchorRef.current.scrollTop = viewport.scrollTop;
-    onFollowingLatestChange(viewport.scrollTop <= ROW_HEIGHT);
-    const remaining = virtualizer.getTotalSize() - viewport.scrollTop - viewport.clientHeight;
-    if (hasMore && !loadingMore && remaining <= ROW_HEIGHT * 10) onLoadMore();
-  };
+  const itemIds = useMemo(() => items.map((item) => item.requestId), [items]);
 
   return (
     <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
@@ -102,39 +52,34 @@ export function SystemLogVirtualTable({
             <Header>时间</Header><Header>客户端 IP</Header><Header>方法</Header><Header>请求 URI</Header><Header>状态</Header><Header>协议</Header><Header>耗时</Header><Header>响应</Header><Header>结果</Header>
           </div>
         </div>
-        <div
-          ref={viewportRef}
-          role="rowgroup"
-          aria-label="系统日志表格数据"
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-          tabIndex={0}
-          className="focus-ring min-h-0 flex-1 overflow-y-scroll outline-none [scrollbar-gutter:stable]"
-          onScroll={handleScroll}
-        >
-          <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const log = items[virtualRow.index];
-              return (
-                <div
-                  key={virtualRow.key}
-                  className="absolute left-0 top-0 w-full"
-                  style={{ height: ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {log ? (
-                    <SystemLogRow
-                      log={log}
-                      selected={selectedId === log.requestId}
-                      animation={entryAnimations?.get(log.requestId)}
-                      onSelect={onSelect}
-                    />
-                  ) : (
-                    <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">{loadingMore ? "正在加载更早记录" : "继续滚动加载更早记录"}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <AnchoredVirtualRows
+          itemIds={itemIds}
+          rowHeight={ROW_HEIGHT}
+          followingLatest={followingLatest}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          historyLoaderKey="system-log-history-loader"
+          initialWidth={980}
+          ariaLabel="系统日志表格数据"
+          onFollowingLatestChange={onFollowingLatestChange}
+          onLoadMore={onLoadMore}
+          renderRow={(index) => {
+            const log = items[index]!;
+            return (
+              <SystemLogRow
+                log={log}
+                selected={selectedId === log.requestId}
+                animation={entryAnimations?.get(log.requestId)}
+                onSelect={onSelect}
+              />
+            );
+          }}
+          renderHistoryLoader={(loading) => (
+            <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">
+              {loading ? "正在加载更早记录" : "继续滚动加载更早记录"}
+            </div>
+          )}
+        />
       </div>
     </div>
   );
@@ -175,7 +120,7 @@ function SystemLogRow({
         {log.clientIp ?? "未知"}
       </Cell>
       <Cell className="font-mono font-semibold">{log.method}</Cell>
-      <Cell className="font-mono" title={log.uri}>{log.uri}</Cell>
+      <Cell className="font-mono" title={log.path}>{log.path}</Cell>
       <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</Cell>
       <Cell className="font-mono text-secondary">{log.httpVersion}</Cell>
       <Cell className="tabular-nums text-secondary">{formatDuration(log.durationMs)}</Cell>

@@ -153,14 +153,9 @@ fn parse_endpoint(row: ProviderEndpointRow) -> Result<ProviderEndpoint, StorageE
 }
 
 fn parse_provider_kind(value: &str) -> Result<ProviderKind, StorageError> {
-    match value {
-        "openai" => Ok(ProviderKind::OpenAi),
-        "codex" => Ok(ProviderKind::Codex),
-        "claude" => Ok(ProviderKind::Claude),
-        "grok" => Ok(ProviderKind::Grok),
-        "kimi" => Ok(ProviderKind::Kimi),
-        _ => Err(StorageError::CorruptConfiguration),
-    }
+    value
+        .parse()
+        .map_err(|_| StorageError::CorruptConfiguration)
 }
 
 fn parse_protocol_dialect(value: &str) -> Result<ProtocolDialect, StorageError> {
@@ -168,13 +163,7 @@ fn parse_protocol_dialect(value: &str) -> Result<ProtocolDialect, StorageError> 
 }
 
 const fn provider_kind_text(kind: ProviderKind) -> &'static str {
-    match kind {
-        ProviderKind::OpenAi => "openai",
-        ProviderKind::Codex => "codex",
-        ProviderKind::Claude => "claude",
-        ProviderKind::Grok => "grok",
-        ProviderKind::Kimi => "kimi",
-    }
+    kind.as_str()
 }
 
 const fn protocol_dialect_text(dialect: ProtocolDialect) -> &'static str {

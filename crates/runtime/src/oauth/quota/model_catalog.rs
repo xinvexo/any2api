@@ -112,8 +112,11 @@ impl OAuthQuotaService {
             .providers
             .get(provider)
             .ok_or(OAuthError::ProviderUnavailable)?;
-        let scope = driver.oauth_model_catalog_scope(token)?;
-        let plan = driver.oauth_model_catalog_plan(token)?;
+        let routing = driver
+            .oauth_routing()
+            .ok_or(OAuthError::UnsupportedProvider(provider))?;
+        let scope = routing.oauth_model_catalog_scope(token)?;
+        let plan = routing.oauth_model_catalog_plan(token)?;
         let snapshot = self.publisher.current_snapshot();
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_selection(proxy_selection)
@@ -131,7 +134,7 @@ impl OAuthQuotaService {
         if !response.status.is_success() {
             return Err(OAuthError::ModelCatalogRejected(response.status.as_u16()));
         }
-        let models = driver
+        let models = routing
             .parse_oauth_model_catalog(&response.body)
             .map_err(OAuthError::from_model_catalog_response_error)?;
         self.store_catalog(scope, models.clone())
@@ -227,6 +230,12 @@ impl OAuthQuotaService {
             .providers
             .get(account.provider_kind())
             .ok_or(OAuthQuotaError::ProviderUnavailable)?;
+        let routing = driver
+            .oauth_routing()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
+        let quota = driver
+            .oauth_quota()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let binding = snapshot
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
@@ -234,17 +243,17 @@ impl OAuthQuotaService {
             .generation()
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
-        let scope = driver
+        let scope = routing
             .oauth_model_catalog_scope(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?;
-        let plan = driver
+        let plan = routing
             .oauth_model_catalog_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?;
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account(id)
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
         let request = RequestContext::new(
-            driver.as_ref(),
+            quota,
             self.transport.as_ref(),
             self.control_plane.as_ref(),
             proxy,
@@ -256,7 +265,7 @@ impl OAuthQuotaService {
         if !response.status.is_success() {
             return Err(request.rejection(&response));
         }
-        let models = driver
+        let models = routing
             .parse_oauth_model_catalog(&response.body)
             .map_err(OAuthQuotaError::Provider)?;
         self.store_catalog(scope, models).await
@@ -275,10 +284,13 @@ impl OAuthQuotaService {
             .providers
             .get(account.provider_kind())
             .ok_or(OAuthQuotaError::ProviderUnavailable)?;
+        let routing = driver
+            .oauth_routing()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let token = snapshot
             .oauth_token_material(id)
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
-        driver
+        routing
             .oauth_model_catalog_scope(token.as_ref())
             .map_err(OAuthQuotaError::Provider)
     }

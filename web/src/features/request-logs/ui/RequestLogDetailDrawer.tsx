@@ -14,7 +14,6 @@ import {
   isSuccessOutcome,
   operationLabel,
   outputTps,
-  protocolLabel,
   proxyDisplayName,
   resultBadgeLabel,
   resultTone,
@@ -22,6 +21,7 @@ import {
   upstreamCredentialDisplay,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
+import { protocolDialectLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { Button } from "@/shared/ui/Button";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 
@@ -88,7 +88,7 @@ function RequestLogDrawerContent({
 
       <dl className="grid gap-x-4 gap-y-3 text-[12px] sm:grid-cols-2">
         <Metric label="开始时间" value={formatLogTime(request.startedAtMs)} />
-        <Metric label="协议" value={protocolLabel(request.ingressProtocol)} />
+        <Metric label="协议" value={protocolDialectLabel(request.ingressProtocol)} />
         <Metric label="接口" value={operationLabel(request.operation)} />
         <Metric label="客户端 IP" value={request.clientIp} mono />
         <Metric label="配置版本" value={String(request.configRevision)} mono />

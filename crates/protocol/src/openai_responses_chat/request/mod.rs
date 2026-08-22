@@ -4,10 +4,9 @@ mod ledger;
 mod options;
 mod target;
 
-use any2api_domain::OpenAiChatCompletionsProfile;
 use serde_json::{Map, Value};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::OpenAiChatCompletionsProfile};
 
 use super::capabilities::CAPABILITIES;
 use super::tool_projection::ToolProjection;

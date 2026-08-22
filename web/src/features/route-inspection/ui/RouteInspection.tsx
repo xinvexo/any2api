@@ -5,14 +5,15 @@ import type {
   RouteInspectionCandidateGroup,
   RouteInspectionItem,
   RouteInspectionStatus,
-  RouteProtocolDialect,
-  RouteProtocolOperation,
-  RouteProviderKind,
 } from "../api/route-inspection-contracts";
-import { getRouteInspectionErrorMessage } from "../model/route-inspection-error";
 import { useRouteInspection } from "../model/use-route-inspection";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
+import {
+  protocolDialectLabel,
+  protocolOperationLabel,
+  providerKindLabel,
+} from "@/shared/api/provider-protocol-vocabulary";
 import { Button } from "@/shared/ui/Button";
 import { Select } from "@/shared/ui/Select";
 import { Surface } from "@/shared/ui/Surface";
@@ -152,7 +153,7 @@ function RouteItem({ item }: { item: RouteInspectionItem }) {
             {item.publicModel}
           </p>
           <p className="mt-1 text-[11px] text-tertiary">
-            {dialectLabel(item.ingressProtocol)}
+            {protocolDialectLabel(item.ingressProtocol)}
             <span className="mx-1.5">·</span>
             <span>{item.published ? "已发布" : "未发布"}</span>
           </p>
@@ -169,7 +170,7 @@ function RouteItem({ item }: { item: RouteInspectionItem }) {
             className="grid min-w-0 gap-2 border-b border-subtle/50 py-2.5 last:border-b-0 sm:grid-cols-[7rem_minmax(0,1fr)]"
           >
             <p className="text-[12px] font-medium text-secondary">
-              {operationLabel(operation.operation)}
+              {protocolOperationLabel(operation.operation)}
             </p>
             {operation.candidateGroups.length === 0 ? (
               <p className="text-[12px] text-tertiary">无启用候选</p>
@@ -194,11 +195,11 @@ function CandidateGroup({ group }: { group: RouteInspectionCandidateGroup }) {
   return (
     <li className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 text-[12px]">
       <p className="min-w-0 text-secondary">
-        <span className="font-medium text-primary">{providerLabel(group.providerKind)}</span>
+        <span className="font-medium text-primary">{providerKindLabel(group.providerKind)}</span>
         <span className="mx-1.5 text-tertiary">·</span>
         <span className="break-words">{group.providerEndpointName ?? "OAuth"}</span>
         <span className="mx-1.5 text-tertiary">·</span>
-        <span>{dialectLabel(group.upstreamProtocolDialect)}</span>
+        <span>{protocolDialectLabel(group.upstreamProtocolDialect)}</span>
       </p>
       <p className="whitespace-nowrap font-medium tabular-nums text-primary">
         {group.enabledCandidateCount} 个
@@ -220,30 +221,6 @@ function Status({ status }: { status: RouteInspectionStatus }) {
   );
 }
 
-function providerLabel(provider: RouteProviderKind) {
-  return { openai: "OpenAI", codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
-    provider
-  ];
-}
-
-function dialectLabel(dialect: RouteProtocolDialect) {
-  return {
-    openai_responses: "OpenAI Responses",
-    openai_chat_completions: "Chat Completions",
-    openai_images: "OpenAI Images",
-    anthropic_messages: "Anthropic Messages",
-  }[dialect];
-}
-
-function operationLabel(operation: RouteProtocolOperation) {
-  return {
-    responses: "响应生成",
-    responses_compact: "响应压缩",
-    alpha_search: "联网搜索",
-    chat_completions: "聊天补全",
-    images_generations: "图像生成",
-    images_edits: "图像编辑",
-    messages: "消息",
-    messages_count_tokens: "Token 计数",
-  }[operation];
+function getRouteInspectionErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "路由检查读取失败";
 }

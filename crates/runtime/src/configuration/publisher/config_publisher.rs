@@ -113,7 +113,7 @@ impl ConfigPublisher {
             .publish_mutation_serialized_with_source(
                 current,
                 transaction_revision,
-                command.into_mutation(),
+                command,
                 PublicationSource::Operator,
             )
             .await?;
@@ -143,12 +143,7 @@ impl ConfigPublisher {
         let expected = current.revision();
         self.validate_command(current.as_ref(), &command)?;
         let (published, _) = self
-            .publish_mutation_serialized_with_source(
-                current,
-                expected,
-                command.into_mutation(),
-                source,
-            )
+            .publish_mutation_serialized_with_source(current, expected, command, source)
             .await?;
         Ok(published)
     }

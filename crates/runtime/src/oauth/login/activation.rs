@@ -21,7 +21,10 @@ pub(in crate::oauth) async fn publish(
     let driver = providers
         .get(provider)
         .ok_or(OAuthError::ProviderUnavailable)?;
-    driver.oauth_routing_profile(&token)?;
+    driver
+        .oauth_routing()
+        .ok_or(OAuthError::UnsupportedProvider(provider))?
+        .oauth_routing_profile(&token)?;
     let document = document::build_account_document(&token)?;
     let activation = OAuthAccountActivation {
         id: OAuthAccountId::new(),

@@ -1,13 +1,13 @@
 use any2api_domain::{
-    ConfigRevision, GatewayApiKeyConfiguration, ModelRouteConfiguration, OAuthAccountConfiguration,
-    ProtocolDialect, ProviderCredentialConfiguration, ProviderEndpoint,
+    ConfigRevision, ConfigurationCore, GatewayApiKeyConfiguration, ModelRouteConfiguration,
+    OAuthAccountConfiguration, ProtocolDialect, ProviderCredentialConfiguration, ProviderEndpoint,
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
     ProxyConfiguration, SettingsConfiguration,
 };
 use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{
-    GatewayApiKeyVerifier, StoredConfiguration, StoredOAuthAccountMaterials,
-    StoredProviderCredentialSecrets, StoredProxyPasswords,
+    StoredConfiguration, StoredOAuthAccountMaterials, StoredProviderCredentialSecrets,
+    StoredProxyPasswords,
 };
 
 use super::PreparedPublishedSnapshot;
@@ -63,15 +63,16 @@ fn compiling_rejects_an_unregistered_provider_before_binding() {
 
 fn stored_configuration(endpoints: ProviderEndpointConfiguration) -> StoredConfiguration {
     StoredConfiguration::new(
-        ConfigRevision::INITIAL,
-        ProxyConfiguration::initial(),
-        endpoints,
-        ProviderCredentialConfiguration::initial(),
-        OAuthAccountConfiguration::initial(),
-        ModelRouteConfiguration::default(),
-        GatewayApiKeyConfiguration::initial(),
-        GatewayApiKeyVerifier::new(),
-        SettingsConfiguration::defaults(),
+        ConfigurationCore::new(
+            ConfigRevision::INITIAL,
+            ProxyConfiguration::initial(),
+            endpoints,
+            ProviderCredentialConfiguration::initial(),
+            OAuthAccountConfiguration::initial(),
+            ModelRouteConfiguration::default(),
+            GatewayApiKeyConfiguration::initial(),
+            SettingsConfiguration::defaults(),
+        ),
         StoredProviderCredentialSecrets::default(),
         StoredOAuthAccountMaterials::default(),
         StoredProxyPasswords::default(),

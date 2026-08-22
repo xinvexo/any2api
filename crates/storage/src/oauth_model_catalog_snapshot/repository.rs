@@ -81,12 +81,10 @@ struct SnapshotRow {
 }
 
 fn parse_row(row: SnapshotRow) -> Result<StoredOAuthModelCatalogSnapshot, StorageError> {
-    let provider_kind = match row.provider_kind.as_str() {
-        "codex" => ProviderKind::Codex,
-        "claude" => ProviderKind::Claude,
-        "grok" => ProviderKind::Grok,
-        _ => return Err(StorageError::CorruptOAuthModelCatalogSnapshot),
-    };
+    let provider_kind = row
+        .provider_kind
+        .parse()
+        .map_err(|_| StorageError::CorruptOAuthModelCatalogSnapshot)?;
     let models = serde_json::from_slice::<Vec<String>>(&row.models_json)
         .map_err(|_| StorageError::CorruptOAuthModelCatalogSnapshot)?;
     let snapshot = StoredOAuthModelCatalogSnapshot {
@@ -100,8 +98,7 @@ fn parse_row(row: SnapshotRow) -> Result<StoredOAuthModelCatalogSnapshot, Storag
 }
 
 fn validate(snapshot: &StoredOAuthModelCatalogSnapshot) -> Result<(), StorageError> {
-    if !snapshot.provider_kind.supports_oauth()
-        || !valid_scope(&snapshot.directory_scope)
+    if !valid_scope(&snapshot.directory_scope)
         || snapshot.fetched_at < 0
         || snapshot.models.len() > MAX_OAUTH_MODEL_CATALOG_MODELS
     {

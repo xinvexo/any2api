@@ -4,8 +4,8 @@ use bytes::Bytes;
 use memmap2::MmapMut;
 use thiserror::Error;
 
-// Keeps the observed sub-1.5 MiB request/decode path in mimalloc while
-// retaining direct unmap for genuinely large buffered payloads.
+// Smaller buffers avoid per-allocation mapping cost; larger short-lived
+// buffers are unmapped directly on drop instead of relying on heap purging.
 const DIRECT_MMAP_THRESHOLD_BYTES: usize = 2 * 1024 * 1024;
 
 pub struct PayloadBuffer {
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn medium_payload_stays_on_the_mimalloc_heap() {
+    fn medium_payload_stays_on_the_heap() {
         let size = 1024 * 1024;
         let buffer = PayloadBuffer::with_capacity_hint(Some(size), size).expect("buffer");
 

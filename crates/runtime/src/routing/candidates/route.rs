@@ -300,17 +300,15 @@ pub(crate) fn build_route_candidates(
         // A bridge maps it to another operation later; that final operation is
         // validated while building the prepared upstream request.
         if route.ingress_protocol() == target.upstream_protocol_dialect()
-            && !driver.supports_api_key_operation(requirements.operation())
+            && !driver
+                .descriptor()
+                .supports_api_key_operation(requirements.operation())
         {
             continue;
         }
-        let capabilities = driver.capabilities();
-        if !capabilities
-            .protocols
-            .contains(&target.upstream_protocol_dialect())
-            || !capabilities
-                .transport_modes
-                .contains(&requirements.transport_mode())
+        let descriptor = driver.descriptor();
+        if !descriptor.supports_protocol(target.upstream_protocol_dialect())
+            || !descriptor.supports_transport_mode(requirements.transport_mode())
         {
             continue;
         }

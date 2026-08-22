@@ -1,7 +1,7 @@
 import { ChevronRight, Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
-import { protocolLabel } from "../model/protocol-catalog";
+import { protocolDialectLabel as protocolLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { cn } from "@/shared/lib/cn";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 

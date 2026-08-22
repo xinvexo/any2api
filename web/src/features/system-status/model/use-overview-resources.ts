@@ -2,8 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { parseOverviewResources } from "../api/overview-resources-contracts";
 import { getOverviewResources } from "../api/overview-resources-api";
-import { overviewResourcesQueryKeys } from "./overview-resources-query-keys";
 import { useAdminEvent } from "@/shared/realtime";
+
+export const overviewResourcesQueryKey = ["overview-resources", "current"] as const;
 
 export function useOverviewResources() {
   const queryClient = useQueryClient();
@@ -14,7 +15,7 @@ export function useOverviewResources() {
     }
     try {
       queryClient.setQueryData(
-        overviewResourcesQueryKeys.current(),
+        overviewResourcesQueryKey,
         parseOverviewResources(snapshot.resources),
       );
     } catch {
@@ -23,7 +24,7 @@ export function useOverviewResources() {
   });
 
   return useQuery({
-    queryKey: overviewResourcesQueryKeys.current(),
+    queryKey: overviewResourcesQueryKey,
     queryFn: ({ signal }) => getOverviewResources(signal),
   });
 }

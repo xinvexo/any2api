@@ -69,7 +69,7 @@ impl PublishedSnapshot {
         id: RoutingCredentialId,
     ) -> Option<CredentialRuntimeObservation<'_>> {
         let credential = self.routing_credentials.get(id)?;
-        let resolved_proxy = self.proxies.get(credential.proxy_id())?;
+        let resolved_proxy = self.proxies().get(credential.proxy_id())?;
         let binding = credential.binding();
         let rate = binding.rate_snapshot();
         let status = runtime_status(

@@ -1,4 +1,4 @@
-use any2api_domain::{OAuthAccount, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccount, OAuthAccountId};
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -53,7 +53,7 @@ async fn insert(
         "expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ))
     .bind(account.id().to_string())
-    .bind(provider_kind_text(account.provider_kind())?)
+    .bind(account.provider_kind().as_str())
     .bind(account.label())
     .bind(account.label_key())
     .bind(bytes)
@@ -200,13 +200,4 @@ fn require_single_row(rows_affected: u64, id: OAuthAccountId) -> Result<(), Stor
 
 fn to_i64(value: u64) -> Result<i64, StorageError> {
     i64::try_from(value).map_err(|_| StorageError::RevisionOverflow)
-}
-
-const fn provider_kind_text(kind: ProviderKind) -> Result<&'static str, StorageError> {
-    match kind {
-        ProviderKind::Codex => Ok("codex"),
-        ProviderKind::Claude => Ok("claude"),
-        ProviderKind::Grok => Ok("grok"),
-        ProviderKind::OpenAi | ProviderKind::Kimi => Err(StorageError::CorruptConfiguration),
-    }
 }

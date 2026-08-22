@@ -3,24 +3,10 @@ import type {
   RequestLog,
   RequestLogOperation,
   RequestLogOutcome,
-  RequestLogProtocol,
 } from "../api/request-log-contracts";
 import { formatCompactDateTime } from "@/shared/lib/date-time";
 
 export type UpstreamSourceKind = "api_key" | "oauth" | "none";
-
-export function protocolLabel(value: RequestLogProtocol) {
-  switch (value) {
-    case "openai_chat_completions":
-      return "Chat Completions";
-    case "openai_images":
-      return "Images";
-    case "anthropic_messages":
-      return "Messages";
-    case "openai_responses":
-      return "Responses";
-  }
-}
 
 /** Public gateway path for the logged operation (matches `/v1/...` routes). */
 export function operationLabel(value: RequestLogOperation) {

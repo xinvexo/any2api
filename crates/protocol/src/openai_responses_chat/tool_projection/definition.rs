@@ -2,10 +2,9 @@ mod parse;
 
 use std::collections::BTreeSet;
 
-use any2api_domain::OpenAiChatCustomToolMode;
 use serde_json::{Map, Value, json};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::OpenAiChatCustomToolMode};
 
 use super::{ChatToolKind, ToolIdentity, ToolProjection};
 

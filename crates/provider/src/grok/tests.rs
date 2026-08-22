@@ -8,8 +8,9 @@ use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::{GrokDriver, oauth_bot_flag};
 use crate::api::{
-    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderDriver,
-    ProviderError, ProviderRequestContext, ProviderSecret,
+    OAuthDeviceCodeProvider, OAuthDeviceTokenPoll, OAuthLoginFlow, OAuthRoutingProvider,
+    OAuthTokenMaterial, OAuthTokenProvider, ProviderDriver, ProviderError, ProviderRequestContext,
+    ProviderSecret,
 };
 
 #[test]
@@ -49,24 +50,25 @@ fn builds_xai_paths_and_bearer_authentication() {
     assert!(!format!("{headers:?}").contains("xai-test-key"));
     assert!(
         driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiResponses)
+            .descriptor()
+            .supports_protocol(ProtocolDialect::OpenAiResponses)
     );
     assert!(
         !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
+            .descriptor()
+            .supports_protocol(ProtocolDialect::OpenAiImages)
     );
     assert!(
         driver
-            .capabilities()
-            .transport_modes
-            .contains(&TransportMode::Sse)
+            .descriptor()
+            .supports_transport_mode(TransportMode::Sse)
     );
-    assert_eq!(driver.oauth_login_flow(), Some(OAuthLoginFlow::DeviceCode));
-    assert_eq!(driver.oauth_redirect_uri(), None);
+    assert_eq!(
+        driver.descriptor().oauth().map(|oauth| oauth.login_flow()),
+        Some(OAuthLoginFlow::DeviceCode)
+    );
+    assert!(driver.oauth_authorization_code().is_none());
+    assert!(driver.oauth_device_code().is_some());
 }
 
 #[test]
@@ -89,8 +91,16 @@ fn rejects_anthropic_operations() {
             .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
             .is_err()
     );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesGenerations)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesEdits)
+    );
 }
 
 #[test]
@@ -148,14 +158,8 @@ fn builds_grok_device_authorization_and_refresh_requests() {
         Some("device-secret")
     );
     assert!(!format!("{exchange:?}").contains("device-secret"));
-    assert!(
-        driver
-            .oauth_token_request(OAuthGrant::AuthorizationCode, "code", None, None)
-            .is_err()
-    );
-
     let refresh = driver
-        .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
+        .oauth_refresh_token_request("refresh-secret")
         .expect("refresh request");
     let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&refresh.body)
         .into_owned()
@@ -239,10 +243,26 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         "https://cli-chat-proxy.grok.com/v1"
     );
     assert_eq!(profile.protocol_dialect(), ProtocolDialect::OpenAiResponses);
-    assert!(driver.oauth_supports_operation(ProtocolOperation::Responses));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ResponsesCompact));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
+    assert!(
+        driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::Responses)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ResponsesCompact)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesGenerations)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesEdits)
+    );
 
     let headers = driver
         .oauth_credential_headers(&token, &http::HeaderMap::new())

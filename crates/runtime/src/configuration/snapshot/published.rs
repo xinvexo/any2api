@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId, ModelRoute,
-    ModelRouteConfiguration, OAuthAccountConfiguration, OAuthAccountId, OAuthProxySelection,
-    ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProxyConfiguration,
-    ProxyProfile, RoutingCredentialId, SettingsConfiguration, validate_gateway_token,
+    ConfigRevision, ConfigurationCore, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId,
+    GatewayApiKeyVerifier, ModelRoute, ModelRouteConfiguration, OAuthAccountConfiguration,
+    OAuthAccountId, OAuthProxySelection, ProviderCredentialConfiguration,
+    ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile, RoutingCredentialId,
+    SettingsConfiguration, validate_gateway_token,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
-use any2api_storage::api::GatewayApiKeyVerifier;
 use any2api_storage::api::StoredConfiguration;
 use any2api_transport::api::TransportProxy;
 
@@ -30,17 +30,9 @@ use crate::{
 
 #[derive(Debug)]
 pub struct PublishedSnapshot {
-    pub(super) revision: ConfigRevision,
-    pub(super) proxies: ProxyConfiguration,
+    pub(super) core: ConfigurationCore,
     pub(super) proxy_auth: ProxyAuthMaterials,
-    pub(super) provider_endpoints: ProviderEndpointConfiguration,
-    pub(super) provider_credentials: ProviderCredentialConfiguration,
-    pub(super) oauth_accounts: OAuthAccountConfiguration,
-    pub(super) model_routes: ModelRouteConfiguration,
-    pub(super) gateway_api_keys: GatewayApiKeyConfiguration,
-    pub(super) gateway_api_key_verifier: GatewayApiKeyVerifier,
     pub(super) gateway_api_key_index: HashMap<[u8; 32], GatewayApiKeyId>,
-    pub(super) settings: SettingsConfiguration,
     pub(super) affinity_registry: Arc<AffinityRegistry>,
     pub(super) affinity_policy: AffinityPolicy,
     pub(super) routing_credentials: RoutingCredentials,
@@ -84,42 +76,42 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub const fn revision(&self) -> ConfigRevision {
-        self.revision
+        self.core.revision()
     }
 
     #[must_use]
     pub const fn proxies(&self) -> &ProxyConfiguration {
-        &self.proxies
+        self.core.proxies()
     }
 
     #[must_use]
     pub const fn provider_endpoints(&self) -> &ProviderEndpointConfiguration {
-        &self.provider_endpoints
+        self.core.provider_endpoints()
     }
 
     #[must_use]
     pub const fn provider_credentials(&self) -> &ProviderCredentialConfiguration {
-        &self.provider_credentials
+        self.core.provider_credentials()
     }
 
     #[must_use]
     pub const fn oauth_accounts(&self) -> &OAuthAccountConfiguration {
-        &self.oauth_accounts
+        self.core.oauth_accounts()
     }
 
     #[must_use]
     pub const fn model_routes(&self) -> &ModelRouteConfiguration {
-        &self.model_routes
+        self.core.model_routes()
     }
 
     #[must_use]
     pub const fn gateway_api_keys(&self) -> &GatewayApiKeyConfiguration {
-        &self.gateway_api_keys
+        self.core.gateway_api_keys()
     }
 
     #[must_use]
     pub const fn settings(&self) -> &SettingsConfiguration {
-        &self.settings
+        self.core.settings()
     }
 
     #[must_use]
@@ -134,16 +126,12 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyAuthProof> {
         validate_gateway_token(token).ok()?;
-        let digest = self.gateway_api_key_verifier.hash(token.as_bytes());
+        let verifier = GatewayApiKeyVerifier::new();
+        let digest = verifier.hash(token.as_bytes());
         let id = *self.gateway_api_key_index.get(&digest)?;
-        self.gateway_api_keys
+        self.gateway_api_keys()
             .get(id)
-            .filter(|key| {
-                key.is_active()
-                    && self
-                        .gateway_api_key_verifier
-                        .verify_digest(&digest, key.token_hash())
-            })
+            .filter(|key| key.is_active() && verifier.verify_digest(&digest, key.token_hash()))
             .map(|key| GatewayApiKeyAuthProof {
                 id: key.id(),
                 token_version: key.token_version(),
@@ -254,15 +242,15 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub fn resolved_proxy_for_credential(&self, id: CredentialId) -> Option<&ProxyProfile> {
-        let credential = self.provider_credentials.get(id)?;
-        self.proxies.get(credential.proxy_profile_id())
+        let credential = self.provider_credentials().get(id)?;
+        self.proxies().get(credential.proxy_profile_id())
     }
 
     pub(crate) fn transport_proxy(
         &self,
         id: any2api_domain::ProxyProfileId,
     ) -> Option<TransportProxy<'_>> {
-        let profile = self.proxies.get(id)?;
+        let profile = self.proxies().get(id)?;
         Some(TransportProxy::new(
             profile,
             self.proxy_auth.credentials_for(profile),
@@ -284,7 +272,7 @@ impl PublishedSnapshot {
         &self,
         selection: OAuthProxySelection,
     ) -> Option<TransportProxy<'_>> {
-        let profile = self.proxies.resolve_oauth(selection)?;
+        let profile = self.proxies().resolve_oauth(selection)?;
         if !profile.enabled() {
             return None;
         }
@@ -298,7 +286,7 @@ impl PublishedSnapshot {
         &self,
         id: OAuthAccountId,
     ) -> Option<TransportProxy<'_>> {
-        let selection = self.oauth_accounts.get(id)?.proxy_selection();
+        let selection = self.oauth_accounts().get(id)?.proxy_selection();
         self.resolved_transport_proxy_for_oauth_selection(selection)
     }
 }

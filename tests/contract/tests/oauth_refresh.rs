@@ -375,20 +375,20 @@ impl AuthenticationRetryContext {
             .expect("publisher"),
         );
         let transport = Arc::new(AuthenticationRetryTransport::new(always_unauthorized));
-        let service = PublicRequestService::new(
-            protocols,
-            Arc::clone(&providers),
-            Arc::clone(&transport) as Arc<dyn TransportManager>,
-        )
-        .expect("public request service");
         let oauth = Arc::new(OAuthService::new(
-            providers,
+            Arc::clone(&providers),
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             Arc::clone(&publisher),
             Arc::clone(&storage),
             Arc::new(RequestTelemetry::disabled()),
         ));
-        assert!(service.install_oauth(oauth.as_ref()));
+        let service = PublicRequestService::new_with_oauth(
+            protocols,
+            Arc::clone(&providers),
+            Arc::clone(&transport) as Arc<dyn TransportManager>,
+            oauth.as_ref(),
+        )
+        .expect("public request service");
         let authentication = any2api_contract_tests::create_gateway_authentication(
             publisher.as_ref(),
             snapshots.as_ref(),

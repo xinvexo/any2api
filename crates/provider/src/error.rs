@@ -5,6 +5,11 @@ use thiserror::Error;
 pub enum ProviderError {
     #[error("provider driver already registered for {0:?}")]
     DuplicateProvider(ProviderKind),
+    #[error("invalid provider descriptor for {provider:?}: {reason}")]
+    InvalidProviderDescriptor {
+        provider: ProviderKind,
+        reason: &'static str,
+    },
     #[error("invalid provider credential: {0}")]
     InvalidCredential(String),
     #[error("invalid provider endpoint: {0}")]

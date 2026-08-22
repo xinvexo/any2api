@@ -1,7 +1,7 @@
-use any2api_domain::{OpenAiChatCompletionsProfile, ProtocolOperation, ProtocolTargetProfile};
+use any2api_domain::ProtocolOperation;
 use serde_json::{Value, json};
 
-use crate::api::BridgeContinuationState;
+use crate::api::{BridgeContinuationState, OpenAiChatCompletionsProfile, ProtocolTargetProfile};
 
 use super::{bridged_exchange, decoded, registry, upstream_response};
 

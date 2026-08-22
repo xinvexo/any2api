@@ -1,5 +1,4 @@
 export type SystemLogOutcome = "completed" | "body_error" | "cancelled";
-export type SystemLogByteEncoding = "utf8" | "base64";
 
 export interface SystemLog {
   requestId: string;
@@ -8,43 +7,15 @@ export interface SystemLog {
   clientIp: string | null;
   method: string;
   path: string;
-  uri: string;
   httpVersion: string;
   statusCode: number | null;
   durationMs: number;
   responseBytes: number;
   outcome: SystemLogOutcome;
-  exchangeCaptured: boolean;
-}
-
-export interface SystemLogHeader {
-  name: string;
-  value: string;
-  encoding: SystemLogByteEncoding;
-}
-
-export interface SystemLogBody {
-  content: string;
-  encoding: SystemLogByteEncoding;
-  capturedBytes: number;
-  totalBytes: number;
-  complete: boolean;
-  truncated: boolean;
-}
-
-export interface SystemLogMessage {
-  headers: SystemLogHeader[];
-  body: SystemLogBody;
-}
-
-export interface SystemLogExchange {
-  request: SystemLogMessage;
-  response: SystemLogMessage;
 }
 
 export interface SystemLogDetail {
   log: SystemLog;
-  exchange: SystemLogExchange | null;
 }
 
 interface SystemLogTelemetry {
@@ -91,12 +62,7 @@ export function parseClearSystemLogsResult(value: unknown): ClearSystemLogsResul
 
 export function parseSystemLogDetail(value: unknown): SystemLogDetail {
   const record = readRecord(value);
-  const log = parseSystemLog(record.log);
-  const exchange = record.exchange === null ? null : parseExchange(record.exchange);
-  if (log.exchangeCaptured !== (exchange !== null)) {
-    throw invalidResponse();
-  }
-  return { log, exchange };
+  return { log: parseSystemLog(record.log) };
 }
 
 function parseSystemLog(value: unknown): SystemLog {
@@ -108,56 +74,11 @@ function parseSystemLog(value: unknown): SystemLog {
     clientIp: readNullableString(record.client_ip),
     method: readString(record.method),
     path: readString(record.path),
-    uri: readString(record.uri),
     httpVersion: readHttpVersion(record.http_version),
     statusCode: readNullableStatusCode(record.status_code),
     durationMs: readNonNegativeInteger(record.duration_ms),
     responseBytes: readNonNegativeInteger(record.response_bytes),
     outcome: readOutcome(record.outcome),
-    exchangeCaptured: readBoolean(record.exchange_captured),
-  };
-}
-
-function parseExchange(value: unknown): SystemLogExchange {
-  const record = readRecord(value);
-  return {
-    request: parseMessage(record.request),
-    response: parseMessage(record.response),
-  };
-}
-
-function parseMessage(value: unknown): SystemLogMessage {
-  const record = readRecord(value);
-  return {
-    headers: readArray(record.headers).map(parseHeader),
-    body: parseBody(record.body),
-  };
-}
-
-function parseHeader(value: unknown): SystemLogHeader {
-  const record = readRecord(value);
-  return {
-    name: readString(record.name),
-    value: readText(record.value),
-    encoding: readEncoding(record.encoding),
-  };
-}
-
-function parseBody(value: unknown): SystemLogBody {
-  const record = readRecord(value);
-  const capturedBytes = readNonNegativeInteger(record.captured_bytes);
-  const totalBytes = readNonNegativeInteger(record.total_bytes);
-  const truncated = readBoolean(record.truncated);
-  if (capturedBytes > totalBytes || truncated !== (capturedBytes < totalBytes)) {
-    throw invalidResponse();
-  }
-  return {
-    content: readText(record.content),
-    encoding: readEncoding(record.encoding),
-    capturedBytes,
-    totalBytes,
-    complete: readBoolean(record.complete),
-    truncated,
   };
 }
 
@@ -207,25 +128,11 @@ function readString(value: unknown): string {
   return value;
 }
 
-function readText(value: unknown): string {
-  if (typeof value !== "string") {
-    throw invalidResponse();
-  }
-  return value;
-}
-
 function readBoolean(value: unknown): boolean {
   if (typeof value !== "boolean") {
     throw invalidResponse();
   }
   return value;
-}
-
-function readEncoding(value: unknown): SystemLogByteEncoding {
-  if (value === "utf8" || value === "base64") {
-    return value;
-  }
-  throw invalidResponse();
 }
 
 function readNullableString(value: unknown): string | null {

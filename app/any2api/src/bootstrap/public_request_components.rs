@@ -19,6 +19,7 @@ pub struct PublicRequestComponents {
     providers: Arc<ProviderRegistry>,
     configuration_capabilities: Arc<ConfigurationCapabilities>,
     transport: Arc<dyn TransportManager>,
+    telemetry: Arc<RequestTelemetry>,
     service: Arc<PublicRequestService>,
     proxy_tests: Arc<ProxyTestService>,
     provider_credential_tests: Arc<ProviderCredentialTestService>,
@@ -53,6 +54,19 @@ impl PublicRequestComponents {
     #[must_use]
     pub fn service(&self) -> Arc<PublicRequestService> {
         Arc::clone(&self.service)
+    }
+
+    pub fn service_with_oauth(
+        &self,
+        oauth: &any2api_runtime::api::OAuthService,
+    ) -> Result<Arc<PublicRequestService>, any2api_runtime::api::PublicRequestServiceError> {
+        PublicRequestService::new_with_oauth(
+            Arc::clone(&self.protocols),
+            Arc::clone(&self.providers),
+            Arc::clone(&self.transport),
+            oauth,
+        )
+        .map(|service| Arc::new(service.with_telemetry(Arc::clone(&self.telemetry))))
     }
 
     #[must_use]
@@ -108,13 +122,14 @@ pub fn build_public_request_components_with_telemetry(
             Arc::clone(&providers),
             Arc::clone(&transport),
         )?
-        .with_telemetry(telemetry),
+        .with_telemetry(Arc::clone(&telemetry)),
     );
     Ok(PublicRequestComponents {
         protocols,
         providers,
         configuration_capabilities,
         transport,
+        telemetry,
         service,
         proxy_tests,
         provider_credential_tests,

@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getRouteInspection } from "../api/route-inspection-api";
-import { routeInspectionQueryKeys } from "./route-inspection-query-keys";
+
+const routeInspectionQueryKey = ["route-inspection", "current"] as const;
 
 export function useRouteInspection() {
   return useQuery({
-    queryKey: routeInspectionQueryKeys.current(),
+    queryKey: routeInspectionQueryKey,
     queryFn: ({ signal }) => getRouteInspection(signal),
   });
 }

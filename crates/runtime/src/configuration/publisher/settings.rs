@@ -15,8 +15,13 @@ impl ConfigPublisher {
         key: SettingKey,
         value: SettingValue,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::SetSettingOverride { key, value })
-            .await
+        self.publish(
+            expected,
+            ConfigCommand::ApplySettingChanges {
+                changes: vec![SettingOverrideChange::Set { key, value }],
+            },
+        )
+        .await
     }
 
     pub async fn reset_setting_override(
@@ -24,8 +29,13 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         key: SettingKey,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::ResetSettingOverride { key })
-            .await
+        self.publish(
+            expected,
+            ConfigCommand::ApplySettingChanges {
+                changes: vec![SettingOverrideChange::Reset { key }],
+            },
+        )
+        .await
     }
 
     pub async fn apply_setting_changes(
@@ -42,20 +52,13 @@ impl ConfigPublisher {
         current: &PublishedSnapshot,
         command: &ConfigCommand,
     ) -> Result<(), ConfigPublishError> {
-        match command {
-            ConfigCommand::SetSettingOverride { key, value } => {
-                validate_model_allowlist(current, *key, value)?;
-                validate_rate_card_version(current, *key, value)?;
-            }
-            ConfigCommand::ApplySettingChanges { changes } => {
-                for change in changes {
-                    if let SettingOverrideChange::Set { key, value } = change {
-                        validate_model_allowlist(current, *key, value)?;
-                        validate_rate_card_version(current, *key, value)?;
-                    }
+        if let ConfigCommand::ApplySettingChanges { changes } = command {
+            for change in changes {
+                if let SettingOverrideChange::Set { key, value } = change {
+                    validate_model_allowlist(current, *key, value)?;
+                    validate_rate_card_version(current, *key, value)?;
                 }
             }
-            _ => {}
         }
         Ok(())
     }

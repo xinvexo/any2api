@@ -18,8 +18,7 @@ pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str = "\
     )";
 
 pub(super) const SYSTEM_LOG_BATCH_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
-    method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
-    exchange_captured";
+    method, path, http_version, status_code, duration_ms, response_bytes, outcome";
 
 pub(super) async fn list(
     store: &SqliteStore,

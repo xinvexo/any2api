@@ -10,7 +10,10 @@ pub(super) fn fingerprint(
 ) -> String {
     let mut hasher = Sha256::new();
     update(&mut hasher, account.provider_kind().as_str());
-    if let Some(identity) = driver.oauth_principal_identity(token) {
+    if let Some(identity) = driver
+        .oauth_token()
+        .and_then(|provider| provider.oauth_principal_identity(token))
+    {
         update(&mut hasher, "principal");
         hasher.update(identity.digest());
     } else {

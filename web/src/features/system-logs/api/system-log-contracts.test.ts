@@ -27,40 +27,14 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
   expect(parseClearSystemLogsResult({ deleted: 42 }).deleted).toBe(42);
 });
 
-test("parses raw request and response values without redaction", () => {
+test("keeps the detail contract metadata-only", () => {
   const detail = parseSystemLogDetail({
     log: systemLog("/v1/responses"),
-    exchange: {
-      request: {
-        headers: [
-          { name: "authorization", value: "Bearer raw-key", encoding: "utf8" },
-          { name: "x-binary", value: "/wA=", encoding: "base64" },
-        ],
-        body: body('{"prompt":"blocked word"}', 25),
-      },
-      response: {
-        headers: [{ name: "set-cookie", value: "session=raw", encoding: "utf8" }],
-        body: body("ok", 2),
-      },
-    },
   });
 
-  expect(detail.log.uri).toBe("/v1/responses?raw=query");
-  expect(detail.exchange?.request.headers[0]?.value).toBe("Bearer raw-key");
-  expect(detail.exchange?.request.body.content).toContain("blocked word");
-});
-
-test("rejects inconsistent exchange and body capture metadata", () => {
-  expect(() => parseSystemLogDetail({ log: systemLog("/"), exchange: null })).toThrow(
-    "invalid system log response",
-  );
-  expect(() => parseSystemLogDetail({
-    log: systemLog("/"),
-    exchange: {
-      request: { headers: [], body: { ...body("x", 2), truncated: false } },
-      response: { headers: [], body: body("", 0) },
-    },
-  })).toThrow("invalid system log response");
+  expect(detail.log.path).toBe("/v1/responses");
+  expect(detail).toEqual({ log: expect.objectContaining({ method: "GET" }) });
+  expect("exchange" in detail).toBe(false);
 });
 
 test("rejects unknown outcomes and invalid batch metadata", () => {
@@ -101,23 +75,10 @@ function systemLog(path: string) {
     client_ip: "203.0.113.8",
     method: "GET",
     path,
-    uri: `${path}?raw=query`,
     http_version: "HTTP/1.1",
     status_code: 200,
     duration_ms: 12,
     response_bytes: 42,
     outcome: "completed",
-    exchange_captured: true,
-  };
-}
-
-function body(content: string, totalBytes: number) {
-  return {
-    content,
-    encoding: "utf8",
-    captured_bytes: new TextEncoder().encode(content).length,
-    total_bytes: totalBytes,
-    complete: true,
-    truncated: new TextEncoder().encode(content).length < totalBytes,
   };
 }

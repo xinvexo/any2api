@@ -103,9 +103,6 @@ impl OAuthAccount {
         config_version: u64,
         models: Vec<String>,
     ) -> Result<Self, OAuthAccountValidationError> {
-        if !provider_kind.supports_oauth() {
-            return Err(OAuthAccountValidationError::UnsupportedProvider);
-        }
         if !valid_version(token_version)
             || !valid_version(account_generation)
             || !valid_version(config_version)
@@ -301,8 +298,6 @@ impl OAuthAccount {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum OAuthAccountValidationError {
-    #[error("provider does not support OAuth accounts")]
-    UnsupportedProvider,
     #[error("OAuth account label must not be empty")]
     EmptyLabel,
     #[error("OAuth account label must be trimmed")]

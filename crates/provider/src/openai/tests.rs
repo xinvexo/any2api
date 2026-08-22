@@ -1,7 +1,8 @@
 use any2api_domain::{
-    OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation, ProtocolTargetProfile,
-    ProviderBaseUrl, ProviderKind, TransportMode, UpstreamErrorKind,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
+    UpstreamErrorKind,
 };
+use any2api_protocol::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, StatusCode, header::AUTHORIZATION};
 
@@ -14,20 +15,16 @@ fn declares_the_standard_openai_contract_and_target_profile() {
 
     assert_eq!(driver.kind(), ProviderKind::OpenAi);
     assert_eq!(
-        driver.capabilities().protocols,
-        [
+        driver.descriptor().protocols().collect::<Vec<_>>(),
+        vec![
             ProtocolDialect::OpenAiResponses,
             ProtocolDialect::OpenAiChatCompletions,
             ProtocolDialect::OpenAiImages,
         ]
-        .into_iter()
-        .collect()
     );
     assert_eq!(
-        driver.capabilities().transport_modes,
-        [TransportMode::Json, TransportMode::Sse]
-            .into_iter()
-            .collect()
+        driver.descriptor().transport_modes(),
+        &[TransportMode::Json, TransportMode::Sse]
     );
     assert_eq!(
         driver.protocol_target_profile(ProtocolDialect::OpenAiChatCompletions, "gpt-5.4"),
@@ -35,7 +32,8 @@ fn declares_the_standard_openai_contract_and_target_profile() {
             OpenAiChatCompletionsProfile::CURRENT_OPENAI,
         ))
     );
-    assert!(driver.oauth_login_flow().is_none());
+    assert!(driver.descriptor().oauth().is_none());
+    assert!(driver.oauth_token().is_none());
 }
 
 #[test]
@@ -49,7 +47,7 @@ fn builds_only_standard_openai_paths_and_bearer_authentication() {
         (ProtocolOperation::ImagesGenerations, "images/generations"),
         (ProtocolOperation::ImagesEdits, "images/edits"),
     ] {
-        assert!(driver.supports_api_key_operation(operation));
+        assert!(driver.descriptor().supports_api_key_operation(operation));
         assert_eq!(
             driver
                 .endpoint_plan(&base, operation)
@@ -60,7 +58,7 @@ fn builds_only_standard_openai_paths_and_bearer_authentication() {
         );
     }
     for unsupported in [ProtocolOperation::AlphaSearch, ProtocolOperation::Messages] {
-        assert!(!driver.supports_api_key_operation(unsupported));
+        assert!(!driver.descriptor().supports_api_key_operation(unsupported));
         assert!(driver.endpoint_plan(&base, unsupported).is_err());
     }
     assert_eq!(

@@ -167,11 +167,11 @@ impl RequestTelemetry {
     }
 
     /// Whether a request starting under `settings` could persist an HTTP
-    /// access log. Lets the ingress middleware skip header and body capture
-    /// entirely instead of discarding a fully captured exchange at the end.
+    /// access log. Lets the ingress middleware skip metadata allocation when
+    /// the writer is unavailable or request telemetry is disabled.
     #[must_use]
-    pub fn http_access_capture_enabled(&self, settings: &LoggingSettings) -> bool {
-        self.request_logs.is_some() && settings.request_enabled()
+    pub fn http_access_log_enabled(&self, settings: &LoggingSettings) -> bool {
+        self.http_access_logs.is_some() && settings.request_enabled()
     }
 
     fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {

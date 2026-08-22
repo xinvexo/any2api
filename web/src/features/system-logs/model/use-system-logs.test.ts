@@ -107,12 +107,10 @@ function systemLog(requestId: string, startedAtMs: number): SystemLog {
     clientIp: "127.0.0.1",
     method: "GET",
     path: "/v1/models",
-    uri: "/v1/models",
     httpVersion: "HTTP/1.1",
     statusCode: 200,
     durationMs: 2,
     responseBytes: 128,
     outcome: "completed",
-    exchangeCaptured: true,
   };
 }

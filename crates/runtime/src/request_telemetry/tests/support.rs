@@ -4,10 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogExchange,
-    HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpProtocolVersion, LogBatch,
-    LogCursor, OAuthAccountId, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
-    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
+    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpAccessLogSummary,
+    HttpProtocolVersion, LogBatch, LogCursor, OAuthAccountId, ProtocolDialect, ProtocolOperation,
+    RequestId, RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -109,29 +108,13 @@ fn duplicate_access_log(log: &HttpAccessLog) -> HttpAccessLog {
         client_ip: log.client_ip,
         method: log.method.clone(),
         path: log.path.clone(),
-        uri: log.uri.clone(),
         http_version: log.http_version,
         status_code: log.status_code,
         duration_ms: log.duration_ms,
         response_bytes: log.response_bytes,
         outcome: log.outcome,
         gateway_auth_rejected: log.gateway_auth_rejected,
-        exchange: log.exchange.as_ref().map(|exchange| HttpAccessLogExchange {
-            request_headers: exchange.request_headers.clone(),
-            request_body: duplicate_body_capture(&exchange.request_body),
-            response_headers: exchange.response_headers.clone(),
-            response_body: duplicate_body_capture(&exchange.response_body),
-        }),
     }
-}
-
-fn duplicate_body_capture(capture: &HttpBodyCapture) -> HttpBodyCapture {
-    HttpBodyCapture::from_vec(
-        capture.content().to_vec(),
-        capture.total_bytes(),
-        capture.is_complete(),
-        capture.is_truncated(),
-    )
 }
 
 #[async_trait]
@@ -319,14 +302,12 @@ pub(super) fn access_log(path: &str) -> HttpAccessLog {
         client_ip: None,
         method: "GET".to_owned(),
         path: path.to_owned(),
-        uri: path.to_owned(),
         http_version: HttpProtocolVersion::Http11,
         status_code: Some(200),
         duration_ms: 1,
         response_bytes: 0,
         outcome: HttpAccessLogOutcome::Completed,
         gateway_auth_rejected: false,
-        exchange: None,
     }
 }
 

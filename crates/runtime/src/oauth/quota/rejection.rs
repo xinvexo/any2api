@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use any2api_provider::api::{
-    OAuthQuotaRejection, OAuthRequestPlan, ProviderDriver, UpstreamResponseMeta,
+    OAuthQuotaProvider, OAuthQuotaRejection, OAuthRequestPlan, UpstreamResponseMeta,
 };
 use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportProxy};
 use http::StatusCode;
@@ -15,7 +15,7 @@ use super::{
 use crate::oauth::control_plane::OAuthControlPlanePacer;
 
 pub(super) struct RequestContext<'a> {
-    driver: &'a dyn ProviderDriver,
+    quota: &'a dyn OAuthQuotaProvider,
     transport: &'a dyn TransportManager,
     control_plane: &'a OAuthControlPlanePacer,
     proxy: TransportProxy<'a>,
@@ -26,7 +26,7 @@ pub(super) struct RequestContext<'a> {
 
 impl<'a> RequestContext<'a> {
     pub(super) const fn new(
-        driver: &'a dyn ProviderDriver,
+        quota: &'a dyn OAuthQuotaProvider,
         transport: &'a dyn TransportManager,
         control_plane: &'a OAuthControlPlanePacer,
         proxy: TransportProxy<'a>,
@@ -35,7 +35,7 @@ impl<'a> RequestContext<'a> {
         isolation: TransportIsolationKey,
     ) -> Self {
         Self {
-            driver,
+            quota,
             transport,
             control_plane,
             proxy,
@@ -45,15 +45,15 @@ impl<'a> RequestContext<'a> {
         }
     }
 
-    pub(super) const fn driver(&self) -> &'a dyn ProviderDriver {
-        self.driver
+    pub(super) const fn quota(&self) -> &'a dyn OAuthQuotaProvider {
+        self.quota
     }
 
     pub(super) async fn execute(
         &self,
         plan: OAuthRequestPlan,
     ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
-        self.control_plane.wait(self.driver.kind()).await;
+        self.control_plane.wait(self.quota.kind()).await;
         request::execute(
             self.transport,
             self.proxy,
@@ -69,7 +69,7 @@ impl<'a> RequestContext<'a> {
         &self,
         plan: OAuthRequestPlan,
     ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
-        self.control_plane.wait(self.driver.kind()).await;
+        self.control_plane.wait(self.quota.kind()).await;
         request::execute_model_catalog(
             self.transport,
             self.proxy,
@@ -90,7 +90,7 @@ impl<'a> RequestContext<'a> {
             headers: response.headers.clone(),
         };
         match self
-            .driver
+            .quota
             .classify_oauth_quota_rejection(&meta, &response.body)
         {
             OAuthQuotaRejection::AccountRestricted => OAuthQuotaError::AccountRestricted,

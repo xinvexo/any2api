@@ -1,10 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use any2api_domain::{
-    ConfigRevision, HttpAccessLogExchange, HttpBodyCapture, MIN_TELEMETRY_QUEUE_MAX_BYTES,
-    RequestId,
-};
+use any2api_domain::{ConfigRevision, MIN_TELEMETRY_QUEUE_MAX_BYTES, RequestId};
 
 use super::support::{
     BlockingRepository, access_log, logging_settings, logging_settings_with_queue_limits, record,
@@ -197,6 +194,9 @@ async fn gateway_auth_rejections_cannot_fill_the_shared_logical_queue() {
 async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
     let repository = Arc::new(BlockingRepository::default());
     let settings = logging_settings_with_queue_limits(8, MIN_TELEMETRY_QUEUE_MAX_BYTES);
+    let queue_max_bytes = usize::try_from(MIN_TELEMETRY_QUEUE_MAX_BYTES)
+        .expect("telemetry queue byte limit fits usize");
+    let large_path_bytes = queue_max_bytes * 3 / 5;
     let lifecycle = ProcessLifecycle::new();
     let telemetry = RequestTelemetry::start(
         Arc::clone(&repository),
@@ -212,12 +212,7 @@ async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
 
     for path in ["/large-accepted", "/large-dropped"] {
         let mut log = access_log(path);
-        log.exchange = Some(HttpAccessLogExchange {
-            request_headers: Vec::new(),
-            request_body: body_capture(1024 * 1024),
-            response_headers: Vec::new(),
-            response_body: body_capture(1024 * 1024),
-        });
+        log.path.push_str(&"x".repeat(large_path_bytes));
         telemetry.try_record_http_access(
             log,
             settings.logging(),
@@ -231,6 +226,7 @@ async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
     );
 
     let metrics = telemetry.metrics();
+    assert!(telemetry.counters.owned_bytes_for_admission() <= queue_max_bytes);
     assert_eq!(metrics.queued_records, 2);
     assert_eq!(metrics.in_flight_records, 1);
     assert_eq!(metrics.dropped_records, 1);
@@ -239,16 +235,7 @@ async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
     let logs = repository.access_logs.lock().expect("HTTP access logs");
     assert_eq!(logs.len(), 2);
-    assert_eq!(logs[0].path, "/large-accepted");
+    assert!(logs[0].path.starts_with("/large-accepted"));
     assert_eq!(logs[1].path, "/small-accepted");
     assert_eq!(telemetry.metrics().persisted_records, 3);
-}
-
-fn body_capture(bytes: usize) -> HttpBodyCapture {
-    HttpBodyCapture::from_vec(
-        vec![0; bytes],
-        u64::try_from(bytes).expect("body size fits u64"),
-        true,
-        false,
-    )
 }

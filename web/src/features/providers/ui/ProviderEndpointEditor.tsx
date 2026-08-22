@@ -7,7 +7,7 @@ import type {
   ProviderProtocolOptions,
   ProtocolDialect,
 } from "../api/provider-contracts";
-import { protocolLabel } from "../model/protocol-catalog";
+import { protocolDialectLabel as protocolLabel } from "@/shared/api/provider-protocol-vocabulary";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
 import { ProtocolFidelityNotice } from "./ProtocolFidelityNotice";

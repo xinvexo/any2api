@@ -4,7 +4,6 @@ import {
   attemptResultLabel,
   formatLogListTime,
   operationLabel,
-  protocolLabel,
   resultBadgeLabel,
   resultTone,
   shouldShowAttemptTimeline,
@@ -19,7 +18,6 @@ test("formats request-list time like the compact system log table", () => {
 });
 
 test("labels OpenAI Images request logs", () => {
-  expect(protocolLabel("openai_images")).toBe("Images");
   expect(operationLabel("images_generations")).toBe(
     "/v1/images/generations",
   );

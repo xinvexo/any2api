@@ -283,10 +283,7 @@ async fn flush_http_access_logs(
     } = batch;
     let record_count = records.len();
     let policy = *state.policy.read().expect("request telemetry policy");
-    let capacity = HttpAccessLogCapacity::new(
-        policy.http_access_max_rows,
-        policy.http_access_max_exchange_bytes,
-    );
+    let capacity = HttpAccessLogCapacity::new(policy.http_access_max_rows);
     match repository.append_http_access_logs(records, capacity).await {
         Ok(deleted) => {
             state
@@ -354,10 +351,7 @@ async fn prune(
     match http_access_logs
         .prune_http_access_logs(
             cutoff,
-            HttpAccessLogCapacity::new(
-                policy.http_access_max_rows,
-                policy.http_access_max_exchange_bytes,
-            ),
+            HttpAccessLogCapacity::new(policy.http_access_max_rows),
             REQUEST_LOG_CLEANUP_BATCH_ROWS,
         )
         .await

@@ -107,7 +107,10 @@ impl OAuthQuotaService {
             .providers
             .get(account.provider_kind())
             .ok_or(OAuthQuotaError::ProviderUnavailable)?;
-        let rate_card = (driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
+        let quota = driver
+            .oauth_quota()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
+        let rate_card = (quota.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
             .then(|| current_rate_card(&published));
         Ok(self
             .persistence
@@ -246,6 +249,9 @@ impl OAuthQuotaService {
             .providers
             .get(account.provider_kind())
             .ok_or(OAuthQuotaError::ProviderUnavailable)?;
+        let quota = driver
+            .oauth_quota()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let binding = snapshot
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
@@ -255,7 +261,7 @@ impl OAuthQuotaService {
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
         let credential_fingerprint =
             identity::fingerprint(account, token.as_ref(), driver.as_ref());
-        let plan = driver
+        let plan = quota
             .oauth_quota_query_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
@@ -266,7 +272,7 @@ impl OAuthQuotaService {
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
         let request = RequestContext::new(
-            driver.as_ref(),
+            quota,
             self.transport.as_ref(),
             self.control_plane.as_ref(),
             proxy,
@@ -302,7 +308,8 @@ impl OAuthQuotaService {
         if let Some(credits_plan) = credits_plan
             && let Ok(response) = request.execute(credits_plan).await
             && response.status.is_success()
-            && let Ok(Some(credits)) = driver.parse_oauth_quota_reset_credits(&response.body)
+            && let Some(reset) = quota.reset()
+            && let Ok(Some(credits)) = reset.parse_oauth_quota_reset_credits(&response.body)
         {
             usage.replace_reset_credits(credits);
         }
@@ -366,6 +373,10 @@ impl OAuthQuotaService {
             .providers
             .get(account.provider_kind())
             .ok_or(OAuthQuotaError::ProviderUnavailable)?;
+        let quota = driver
+            .oauth_quota()
+            .ok_or(OAuthQuotaError::UnsupportedProvider)?;
+        let reset = quota.reset().ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let binding = snapshot
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
@@ -373,7 +384,7 @@ impl OAuthQuotaService {
             .generation()
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
-        let plan = driver
+        let plan = reset
             .oauth_quota_reset_plan(token.as_ref(), &redeem_request_id.to_string())
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
@@ -383,7 +394,7 @@ impl OAuthQuotaService {
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
         let request = RequestContext::new(
-            driver.as_ref(),
+            quota,
             self.transport.as_ref(),
             self.control_plane.as_ref(),
             proxy,
@@ -395,7 +406,7 @@ impl OAuthQuotaService {
         if !response.status.is_success() {
             return Err(request.rejection(&response));
         }
-        let result = driver
+        let result = reset
             .parse_oauth_quota_reset(&response.body)
             .map_err(OAuthQuotaError::Provider)?;
         Ok(result)

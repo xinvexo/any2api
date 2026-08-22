@@ -212,7 +212,7 @@ async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
 }
 
 #[tokio::test]
-async fn system_log_detail_preserves_raw_client_http_exchange() {
+async fn system_log_detail_never_exposes_raw_client_http_exchange() {
     let fixture = TestApplication::new().await;
     let storage = fixture.storage();
     let (_directory, app, telemetry) = build_test_app(fixture).await;
@@ -243,57 +243,13 @@ async fn system_log_detail_preserves_raw_client_http_exchange() {
     )
     .await;
     assert_eq!(detail.status, StatusCode::OK);
-    assert_eq!(
-        detail.json["log"]["uri"],
-        "/api/admin/auth/login?search=raw-query-value"
-    );
-    assert_eq!(detail.json["log"]["exchange_captured"], true);
-    let request_headers = detail.json["exchange"]["request"]["headers"]
-        .as_array()
-        .expect("request headers");
-    let repeated = request_headers
-        .iter()
-        .filter(|header| header["name"] == "x-repeated")
-        .map(|header| header["value"].as_str().expect("header value"))
-        .collect::<Vec<_>>();
-    assert_eq!(repeated, vec!["first", "second"]);
-    assert!(request_headers.iter().any(|header| {
-        header["name"] == "authorization" && header["value"] == "Bearer raw-gateway-key"
-    }));
-    assert_eq!(
-        detail.json["exchange"]["request"]["body"]["content"],
-        raw_body
-    );
-    assert_eq!(
-        detail.json["exchange"]["request"]["body"]["total_bytes"],
-        raw_body.len()
-    );
-    assert_eq!(detail.json["exchange"]["request"]["body"]["complete"], true);
-    assert_eq!(
-        detail.json["exchange"]["request"]["body"]["truncated"],
-        false
-    );
-    let response_headers = detail.json["exchange"]["response"]["headers"]
-        .as_array()
-        .expect("response headers");
-    assert!(response_headers.iter().any(|header| {
-        header["name"] == "x-request-id" && header["value"] == request_id.to_string()
-    }));
-    assert!(
-        !response_headers
-            .iter()
-            .any(|header| header["name"] == "x-any2api-request-id")
-    );
-    assert!(
-        detail.json["exchange"]["response"]["body"]["content"]
-            .as_str()
-            .expect("response body")
-            .contains("admin_invalid_credentials")
-    );
-    assert_eq!(
-        detail.json["exchange"]["response"]["body"]["complete"],
-        true
-    );
+    assert_eq!(detail.json["log"]["path"], "/api/admin/auth/login");
+    assert!(detail.json["log"].get("exchange_captured").is_none());
+    assert!(detail.json.get("exchange").is_none());
+    let serialized = detail.json.to_string();
+    assert!(!serialized.contains("raw-password"));
+    assert!(!serialized.contains("raw-gateway-key"));
+    assert!(!serialized.contains("raw-query-value"));
 
     telemetry.shutdown(Duration::from_secs(1)).await;
 }

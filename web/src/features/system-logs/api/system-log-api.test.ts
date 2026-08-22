@@ -20,7 +20,7 @@ test("serializes system log cursors without client-controlled audit headers", as
   expect(firstHeaders["X-Any2API-Log-Refresh"]).toBeUndefined();
 });
 
-test("loads one raw system log exchange by request ID", async () => {
+test("loads one system log metadata record by request ID", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     new Response(JSON.stringify(detailResponse()), {
       status: 200,
@@ -56,37 +56,11 @@ function detailResponse() {
       client_ip: "203.0.113.8",
       method: "POST",
       path: "/v1/responses",
-      uri: "/v1/responses?raw=true",
       http_version: "HTTP/1.1",
       status_code: 200,
       duration_ms: 12,
       response_bytes: 2,
       outcome: "completed",
-      exchange_captured: true,
-    },
-    exchange: {
-      request: {
-        headers: [],
-        body: {
-          content: "{}",
-          encoding: "utf8",
-          captured_bytes: 2,
-          total_bytes: 2,
-          complete: true,
-          truncated: false,
-        },
-      },
-      response: {
-        headers: [],
-        body: {
-          content: "ok",
-          encoding: "utf8",
-          captured_bytes: 2,
-          total_bytes: 2,
-          complete: true,
-          truncated: false,
-        },
-      },
     },
   };
 }

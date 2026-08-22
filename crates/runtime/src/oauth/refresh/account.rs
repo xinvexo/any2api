@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use any2api_domain::{OAuthAccountId, ProviderKind, RoutingCredentialId};
-use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection, OAuthTokenMaterial, ProviderError};
+use any2api_provider::api::{OAuthRefreshRejection, OAuthTokenMaterial, ProviderError};
 use any2api_storage::api::OAuthAccountDocument;
 use any2api_transport::api::TransportTrafficClass;
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -304,8 +304,14 @@ impl OAuthRefresher {
             .providers
             .get(provider_kind)
             .ok_or(OAuthRefreshError::ProviderUnavailable)?;
-        let plan = driver
-            .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
+        let token_provider = driver
+            .oauth_token()
+            .ok_or(OAuthRefreshError::ProviderUnavailable)?;
+        let routing = driver
+            .oauth_routing()
+            .ok_or(OAuthRefreshError::ProviderUnavailable)?;
+        let plan = token_provider
+            .oauth_refresh_token_request(refresh_token)
             .map_err(OAuthRefreshError::RequestBuild)?;
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account(id)
@@ -327,7 +333,7 @@ impl OAuthRefresher {
         .await?;
         if !response.status.is_success() {
             let rejection =
-                driver.classify_oauth_refresh_rejection(response.status, &response.body);
+                token_provider.classify_oauth_refresh_rejection(response.status, &response.body);
             if rejection.is_permanent() {
                 self.record_permanent_rejection(id, observed_token_version, rejection);
             }
@@ -336,7 +342,7 @@ impl OAuthRefresher {
                 rejection,
             });
         }
-        let refreshed = driver
+        let refreshed = token_provider
             .parse_oauth_refresh_response(&response.body, token)
             .map_err(|error| match error {
                 ProviderError::InvalidResponse(_) => OAuthRefreshError::TokenResponseInvalid,
@@ -345,7 +351,7 @@ impl OAuthRefresher {
         if refreshed.provider() != provider_kind {
             return Err(OAuthRefreshError::ProviderMismatch);
         }
-        driver
+        routing
             .oauth_routing_profile(&refreshed)
             .map_err(OAuthRefreshError::RoutingProfile)?;
         let document = document::build_account_document(&refreshed)

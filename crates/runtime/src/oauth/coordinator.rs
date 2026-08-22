@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Instant};
 
 use any2api_domain::{OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::api::{
-    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, ProviderDriver,
-    ProviderRegistry,
+    OAuthAuthorizationCodeProvider, OAuthDeviceCodeProvider, OAuthDeviceTokenPoll, OAuthLoginFlow,
+    OAuthRequestPlan, ProviderRegistry,
 };
 use any2api_storage::api::{
     OAuthModelCatalogSnapshotRepository, OAuthQuotaEstimationRepository,
@@ -316,16 +316,23 @@ impl OAuthService {
             .providers
             .get(provider)
             .ok_or(OAuthError::ProviderUnavailable)?;
-        match driver
-            .oauth_login_flow()
-            .ok_or(OAuthError::UnsupportedProvider(provider))?
-        {
+        let oauth = driver
+            .descriptor()
+            .oauth()
+            .ok_or(OAuthError::UnsupportedProvider(provider))?;
+        match oauth.login_flow() {
             OAuthLoginFlow::AuthorizationCodePkce => {
-                self.start_authorization_code(provider, proxy_selection, driver.as_ref())
+                let authorization = driver
+                    .oauth_authorization_code()
+                    .ok_or(OAuthError::UnsupportedProvider(provider))?;
+                self.start_authorization_code(provider, proxy_selection, authorization)
                     .await
             }
             OAuthLoginFlow::DeviceCode => {
-                self.start_device_code(provider, proxy_selection, driver.as_ref())
+                let device = driver
+                    .oauth_device_code()
+                    .ok_or(OAuthError::UnsupportedProvider(provider))?;
+                self.start_device_code(provider, proxy_selection, device)
                     .await
             }
         }
@@ -335,11 +342,9 @@ impl OAuthService {
         &self,
         provider: ProviderKind,
         proxy_selection: OAuthProxySelection,
-        driver: &dyn ProviderDriver,
+        driver: &dyn OAuthAuthorizationCodeProvider,
     ) -> Result<OAuthStartResult, OAuthError> {
-        let redirect_uri = driver
-            .oauth_redirect_uri()
-            .ok_or(OAuthError::UnsupportedProvider(provider))?;
+        let redirect_uri = driver.oauth_redirect_uri();
         let prepared = AuthorizationCodeSession::prepare(
             provider,
             proxy_selection,
@@ -365,7 +370,7 @@ impl OAuthService {
         &self,
         provider: ProviderKind,
         proxy_selection: OAuthProxySelection,
-        driver: &dyn ProviderDriver,
+        driver: &dyn OAuthDeviceCodeProvider,
     ) -> Result<OAuthStartResult, OAuthError> {
         let plan = driver.oauth_device_authorization_request()?;
         let body = self
@@ -412,16 +417,21 @@ impl OAuthService {
             .providers
             .get(session.provider)
             .ok_or(OAuthError::ProviderUnavailable)?;
-        let plan = driver.oauth_token_request(
-            OAuthGrant::AuthorizationCode,
+        let authorization = driver
+            .oauth_authorization_code()
+            .ok_or(OAuthError::UnsupportedProvider(session.provider))?;
+        let token_provider = driver
+            .oauth_token()
+            .ok_or(OAuthError::UnsupportedProvider(session.provider))?;
+        let plan = authorization.oauth_authorization_code_token_request(
             &callback.code,
-            Some(session.state()),
-            Some(session.code_verifier()),
+            session.state(),
+            session.code_verifier(),
         )?;
         let body = self
             .execute_request(session.provider, session.proxy_selection, plan)
             .await?;
-        let token = driver
+        let token = token_provider
             .parse_oauth_token_response(&body)
             .map_err(OAuthError::from_token_response_error)?;
         self.activate_token(session.provider, session.proxy_selection, token)
@@ -446,11 +456,14 @@ impl OAuthService {
             .providers
             .get(lease.provider())
             .ok_or(OAuthError::ProviderUnavailable)?;
-        let plan = driver.oauth_device_token_request(lease.device_code())?;
+        let device = driver
+            .oauth_device_code()
+            .ok_or(OAuthError::UnsupportedProvider(lease.provider()))?;
+        let plan = device.oauth_device_token_request(lease.device_code())?;
         let response = self
             .execute_request_with_status(lease.provider(), lease.proxy_selection(), plan)
             .await?;
-        let poll = driver
+        let poll = device
             .parse_oauth_device_token(response.status, &response.body)
             .map_err(OAuthError::from_token_response_error)?;
         match poll {

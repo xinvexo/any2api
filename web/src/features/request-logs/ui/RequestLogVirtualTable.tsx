@@ -1,8 +1,4 @@
-import {
-  observeElementRect as observeVirtualElementRect,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import {
   isActiveRequestLog,
@@ -16,6 +12,7 @@ import {
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
+import { AnchoredVirtualRows } from "@/shared/ui/AnchoredVirtualRows";
 import {
   listEntrySurfaceAnimationClass,
   type ListEntryAnimation,
@@ -46,63 +43,7 @@ export function RequestLogVirtualTable({
   onLoadMore,
   entryAnimations,
 }: RequestLogVirtualTableProps) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef({ ids: [] as string[], scrollTop: 0 });
-  const rowCount = items.length + (hasMore ? 1 : 0);
-  // TanStack Virtual exposes a mutable controller that React Compiler must not memoize.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: rowCount,
-    getScrollElement: () => viewportRef.current,
-    estimateSize: () => REQUEST_LOG_ROW_HEIGHT,
-    getItemKey: (index) => items[index]?.requestId ?? "request-log-history-loader",
-    overscan: 10,
-    useFlushSync: false,
-    initialRect: { width: 1_120, height: 640 },
-    observeElementRect: (instance, callback) =>
-      observeVirtualElementRect(instance, (rect) =>
-        callback({ width: rect.width, height: rect.height > 0 ? rect.height : 640 }),
-      ),
-  });
-
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
-    const previous = anchorRef.current;
-    const nextIds = items.map((item) => item.requestId);
-    if (followingLatest) {
-      viewport.scrollTop = 0;
-    } else if (previous.ids.length > 0 && nextIds.length > 0) {
-      const oldFirstInNext = nextIds.indexOf(previous.ids[0]);
-      const nextFirstInOld = previous.ids.indexOf(nextIds[0]);
-      if (previous.scrollTop <= REQUEST_LOG_ROW_HEIGHT) {
-        viewport.scrollTop = 0;
-      } else if (oldFirstInNext > 0) {
-        viewport.scrollTop = previous.scrollTop + oldFirstInNext * REQUEST_LOG_ROW_HEIGHT;
-      } else if (nextFirstInOld > 0) {
-        viewport.scrollTop = Math.max(
-          0,
-          previous.scrollTop - nextFirstInOld * REQUEST_LOG_ROW_HEIGHT,
-        );
-      }
-    }
-    anchorRef.current = { ids: nextIds, scrollTop: viewport.scrollTop };
-  }, [followingLatest, items]);
-
-  const handleScroll = () => {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
-    anchorRef.current.scrollTop = viewport.scrollTop;
-    onFollowingLatestChange(viewport.scrollTop <= REQUEST_LOG_ROW_HEIGHT);
-    const remaining = virtualizer.getTotalSize() - viewport.scrollTop - viewport.clientHeight;
-    if (hasMore && !loadingMore && remaining <= REQUEST_LOG_ROW_HEIGHT * 10) {
-      onLoadMore();
-    }
-  };
+  const itemIds = useMemo(() => items.map((item) => item.requestId), [items]);
 
   return (
     <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
@@ -124,42 +65,35 @@ export function RequestLogVirtualTable({
             <Header>TPS</Header>
           </div>
         </div>
-        <div
-          ref={viewportRef}
-          role="rowgroup"
-          aria-label="请求日志表格数据"
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-          tabIndex={0}
-          className="focus-ring min-h-0 flex-1 overflow-y-scroll outline-none [scrollbar-gutter:stable]"
-          onScroll={handleScroll}
-        >
-          <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const item = items[virtualRow.index];
-              return (
-                <div
-                  key={virtualRow.key}
-                  className="absolute left-0 top-0 w-full"
-                  style={{ height: REQUEST_LOG_ROW_HEIGHT, transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {item ? (
-                    <RequestLogFeedTableRow
-                      item={item}
-                      selected={selectedId === item.requestId}
-                      nowMs={nowMs}
-                      animation={entryAnimations?.get(item.requestId)}
-                      onSelect={onSelect}
-                    />
-                  ) : (
-                    <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">
-                      {loadingMore ? "正在加载更早记录" : "继续滚动加载更早记录"}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <AnchoredVirtualRows
+          itemIds={itemIds}
+          rowHeight={REQUEST_LOG_ROW_HEIGHT}
+          followingLatest={followingLatest}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          historyLoaderKey="request-log-history-loader"
+          initialWidth={1_120}
+          ariaLabel="请求日志表格数据"
+          onFollowingLatestChange={onFollowingLatestChange}
+          onLoadMore={onLoadMore}
+          renderRow={(index) => {
+            const item = items[index]!;
+            return (
+              <RequestLogFeedTableRow
+                item={item}
+                selected={selectedId === item.requestId}
+                nowMs={nowMs}
+                animation={entryAnimations?.get(item.requestId)}
+                onSelect={onSelect}
+              />
+            );
+          }}
+          renderHistoryLoader={(loading) => (
+            <div role="row" className="grid h-11 place-items-center text-[11px] text-tertiary">
+              {loading ? "正在加载更早记录" : "继续滚动加载更早记录"}
+            </div>
+          )}
+        />
       </div>
     </div>
   );

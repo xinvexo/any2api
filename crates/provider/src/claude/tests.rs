@@ -9,7 +9,8 @@ use http::{
 
 use super::ClaudeDriver;
 use crate::api::{
-    OAuthGrant, ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
+    OAuthAuthorizationCodeProvider, OAuthRoutingProvider, OAuthTokenProvider, ProviderDriver,
+    ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
 };
 
 #[test]
@@ -108,15 +109,13 @@ fn builds_messages_paths_and_anthropic_headers() {
     assert_eq!(identity["anthropic-version"], "2023-06-01");
     assert!(
         driver
-            .capabilities()
-            .transport_modes
-            .contains(&TransportMode::Sse)
+            .descriptor()
+            .supports_transport_mode(TransportMode::Sse)
     );
     assert!(
         !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
+            .descriptor()
+            .supports_protocol(ProtocolDialect::OpenAiImages)
     );
     assert!(
         driver
@@ -128,8 +127,16 @@ fn builds_messages_paths_and_anthropic_headers() {
             .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
             .is_err()
     );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesGenerations)
+    );
+    assert!(
+        !driver
+            .descriptor()
+            .supports_oauth_operation(ProtocolOperation::ImagesEdits)
+    );
 }
 
 #[test]
@@ -169,11 +176,10 @@ fn builds_pkce_json_token_request() {
         Some("challenge-value")
     );
     let plan = driver
-        .oauth_token_request(
-            OAuthGrant::AuthorizationCode,
+        .oauth_authorization_code_token_request(
             "authorization-code",
-            Some("state-value"),
-            Some("verifier-value"),
+            "state-value",
+            "verifier-value",
         )
         .expect("token request");
     assert_eq!(plan.headers[CONTENT_TYPE], "application/json");
@@ -184,7 +190,7 @@ fn builds_pkce_json_token_request() {
     assert!(!format!("{plan:?}").contains("verifier-value"));
 
     let refresh = driver
-        .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
+        .oauth_refresh_token_request("refresh-secret")
         .expect("refresh request");
     let body: serde_json::Value = serde_json::from_slice(&refresh.body).expect("refresh JSON");
     assert_eq!(body["grant_type"], "refresh_token");

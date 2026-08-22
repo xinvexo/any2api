@@ -66,7 +66,7 @@ impl ConfigPublisher {
                 id,
                 endpoint_id,
                 draft,
-                api_key,
+                api_key: api_key.into_storage_secret(),
             },
         )
         .await
@@ -104,7 +104,7 @@ impl ConfigPublisher {
                 id,
                 expected_config_version,
                 expected_secret_version,
-                api_key,
+                api_key: api_key.into_storage_secret(),
             },
         )
         .await

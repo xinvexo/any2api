@@ -5,8 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { AdminRealtimeProvider } from "@/shared/realtime";
 import { FakeEventSource } from "@/test/fake-event-source";
 
-import { overviewResourcesQueryKeys } from "./overview-resources-query-keys";
-import { useOverviewResources } from "./use-overview-resources";
+import { overviewResourcesQueryKey, useOverviewResources } from "./use-overview-resources";
 
 afterEach(() => {
   FakeEventSource.reset();
@@ -29,7 +28,7 @@ test("updates the resource query from overview snapshots without a polling inter
 
   expect(await screen.findByText("1")).toBeInTheDocument();
   const options = queryClient.getQueryCache().find({
-    queryKey: overviewResourcesQueryKeys.current(),
+    queryKey: overviewResourcesQueryKey,
   })?.options as { refetchInterval?: unknown } | undefined;
   expect(options?.refetchInterval).toBeUndefined();
 

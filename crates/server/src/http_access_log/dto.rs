@@ -74,13 +74,11 @@ pub(super) struct SystemLogResponse {
     client_ip: Option<String>,
     method: String,
     path: String,
-    uri: String,
     http_version: &'static str,
     status_code: Option<u16>,
     duration_ms: u64,
     response_bytes: u64,
     outcome: &'static str,
-    exchange_captured: bool,
 }
 
 impl From<HttpAccessLogSummary> for SystemLogResponse {
@@ -92,13 +90,11 @@ impl From<HttpAccessLogSummary> for SystemLogResponse {
             client_ip: value.client_ip.map(|address| address.to_string()),
             method: value.method,
             path: value.path,
-            uri: value.uri,
             http_version: value.http_version.as_str(),
             status_code: value.status_code,
             duration_ms: value.duration_ms,
             response_bytes: value.response_bytes,
             outcome: value.outcome.as_str(),
-            exchange_captured: value.exchange_captured,
         }
     }
 }

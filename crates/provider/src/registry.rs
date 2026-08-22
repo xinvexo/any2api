@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use any2api_domain::ProviderKind;
 
-use crate::{ProviderError, api::ProviderDriver};
+use crate::{
+    ProviderError,
+    api::{OAuthLoginFlow, ProviderDriver},
+};
 
 #[derive(Default)]
 pub struct ProviderRegistry {
@@ -17,6 +20,7 @@ impl ProviderRegistry {
 
     pub fn register(&mut self, driver: Arc<dyn ProviderDriver>) -> Result<(), ProviderError> {
         let kind = driver.kind();
+        validate_driver(driver.as_ref())?;
         if self.drivers.contains_key(&kind) {
             return Err(ProviderError::DuplicateProvider(kind));
         }
@@ -35,13 +39,67 @@ impl ProviderRegistry {
     }
 }
 
+fn validate_driver(driver: &dyn ProviderDriver) -> Result<(), ProviderError> {
+    let descriptor = *driver.descriptor();
+    let invalid = |reason| ProviderError::InvalidProviderDescriptor {
+        provider: descriptor.kind(),
+        reason,
+    };
+    descriptor.validate().map_err(invalid)?;
+
+    let Some(oauth) = descriptor.oauth() else {
+        if driver.oauth_authorization_code().is_some()
+            || driver.oauth_device_code().is_some()
+            || driver.oauth_token().is_some()
+            || driver.oauth_routing().is_some()
+            || driver.oauth_quota().is_some()
+        {
+            return Err(invalid("OAuth facet is present without OAuth capabilities"));
+        }
+        return Ok(());
+    };
+
+    if driver.oauth_token().is_none() || driver.oauth_routing().is_none() {
+        return Err(invalid("OAuth token or routing facet is missing"));
+    }
+    let login_matches = match oauth.login_flow() {
+        OAuthLoginFlow::AuthorizationCodePkce => {
+            driver.oauth_authorization_code().is_some() && driver.oauth_device_code().is_none()
+        }
+        OAuthLoginFlow::DeviceCode => {
+            driver.oauth_device_code().is_some() && driver.oauth_authorization_code().is_none()
+        }
+    };
+    if !login_matches {
+        return Err(invalid("OAuth login facet does not match the descriptor"));
+    }
+
+    let quota = driver.oauth_quota();
+    if oauth.supports_quota() != quota.is_some() {
+        return Err(invalid("OAuth quota facet does not match the descriptor"));
+    }
+    if let Some(quota) = quota {
+        if oauth.supports_quota_supplement() != quota.supplement().is_some() {
+            return Err(invalid(
+                "OAuth quota supplement facet does not match the descriptor",
+            ));
+        }
+        if oauth.supports_quota_reset() != quota.reset().is_some() {
+            return Err(invalid(
+                "OAuth quota reset facet does not match the descriptor",
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use any2api_domain::{
-        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, UpstreamError,
-        UpstreamErrorClassification, UpstreamErrorKind,
+        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, TransportMode,
+        UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
     };
     use http::HeaderMap;
 
@@ -49,30 +107,41 @@ mod tests {
     use crate::{
         ProviderError, ProviderSecret,
         api::{
-            CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
-            UpstreamResponseMeta,
+            CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthCapabilities, OAuthLoginFlow,
+            ProviderDescriptor, ProviderDriver, UpstreamResponseMeta,
         },
     };
 
     struct FakeDriver {
-        capabilities: CapabilitySet,
+        descriptor: &'static ProviderDescriptor,
     }
 
     impl FakeDriver {
-        fn new() -> Self {
-            Self {
-                capabilities: CapabilitySet::default(),
-            }
+        fn new(descriptor: &'static ProviderDescriptor) -> Self {
+            Self { descriptor }
         }
     }
 
-    impl ProviderDriver for FakeDriver {
-        fn kind(&self) -> ProviderKind {
-            ProviderKind::Codex
-        }
+    const API_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+        ProviderKind::Codex,
+        &[ProtocolOperation::Responses],
+        None,
+        &[TransportMode::Json],
+    );
 
-        fn capabilities(&self) -> &CapabilitySet {
-            &self.capabilities
+    const INCONSISTENT_OAUTH_DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
+        ProviderKind::Claude,
+        &[],
+        Some(OAuthCapabilities::new(
+            &[ProtocolOperation::Messages],
+            OAuthLoginFlow::AuthorizationCodePkce,
+        )),
+        &[TransportMode::Json],
+    );
+
+    impl ProviderDriver for FakeDriver {
+        fn descriptor(&self) -> &'static ProviderDescriptor {
+            self.descriptor
         }
 
         fn validate_credential(&self, _secret: &ProviderSecret) -> Result<(), ProviderError> {
@@ -134,13 +203,29 @@ mod tests {
     fn duplicate_provider_kinds_are_rejected() {
         let mut registry = ProviderRegistry::new();
         registry
-            .register(Arc::new(FakeDriver::new()))
+            .register(Arc::new(FakeDriver::new(&API_DESCRIPTOR)))
             .expect("first driver registers");
 
         let error = registry
-            .register(Arc::new(FakeDriver::new()))
+            .register(Arc::new(FakeDriver::new(&API_DESCRIPTOR)))
             .expect_err("duplicate driver must fail");
 
         assert_eq!(error, ProviderError::DuplicateProvider(ProviderKind::Codex));
+    }
+
+    #[test]
+    fn descriptor_and_optional_facets_must_agree() {
+        let mut registry = ProviderRegistry::new();
+        let error = registry
+            .register(Arc::new(FakeDriver::new(&INCONSISTENT_OAUTH_DESCRIPTOR)))
+            .expect_err("missing OAuth facets must fail registration");
+
+        assert_eq!(
+            error,
+            ProviderError::InvalidProviderDescriptor {
+                provider: ProviderKind::Claude,
+                reason: "OAuth token or routing facet is missing",
+            }
+        );
     }
 }

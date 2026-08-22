@@ -136,12 +136,9 @@ fn group_models(rows: Vec<OAuthAccountModelRow>) -> HashMap<String, Vec<String>>
 }
 
 fn parse_provider_kind(value: &str) -> Result<ProviderKind, StorageError> {
-    match value {
-        "codex" => Ok(ProviderKind::Codex),
-        "claude" => Ok(ProviderKind::Claude),
-        "grok" => Ok(ProviderKind::Grok),
-        _ => Err(StorageError::CorruptConfiguration),
-    }
+    value
+        .parse()
+        .map_err(|_| StorageError::CorruptConfiguration)
 }
 
 fn parse_bool(value: i64) -> Result<bool, StorageError> {

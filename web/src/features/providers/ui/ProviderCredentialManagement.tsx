@@ -1,6 +1,5 @@
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
 import type {
@@ -8,6 +7,7 @@ import type {
   ProviderCredential,
 } from "../api/provider-credential-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
+import { useProviderRouteState } from "../model/provider-route-state";
 import { useProviderCredentialMutations } from "../model/use-provider-credential-mutations";
 import { useProviderCredentials } from "../model/use-provider-credentials";
 import { useProviderSecretActions } from "../model/use-provider-secret-actions";
@@ -45,11 +45,11 @@ export function ProviderCredentialManagement({
   const proxies = useProxyConfiguration();
   const mutations = useProviderCredentialMutations(endpoint.id);
   const secretActions = useProviderSecretActions(endpoint.id);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const routeState = useProviderRouteState();
   const [deleteTarget, setDeleteTarget] = useState<ProviderCredential | null>(null);
-  const activeEndpointId = searchParams.get("keys");
-  const editorId = searchParams.get("credential");
-  const editorAction = searchParams.get("action");
+  const activeEndpointId = routeState.credentialEndpointId;
+  const editorId = routeState.credentialId;
+  const editorAction = routeState.credentialAction;
   const isActiveEndpoint = activeEndpointId === endpoint.id;
   const mode = editorId === "new" ? "create" : "edit";
   const selected =
@@ -76,53 +76,18 @@ export function ProviderCredentialManagement({
   function openEditor(id: string) {
     mutations.update.reset();
     secretActions.reset();
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("editor");
-        next.delete("action");
-        next.set("keys", endpoint.id);
-        next.set("credential", id);
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.openCredentialEditor(endpoint.id, id);
   }
 
   function openModels(id: string) {
     mutations.models.reset();
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("editor");
-        next.set("keys", endpoint.id);
-        next.set("credential", id);
-        next.set("action", "models");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.openCredentialModels(endpoint.id, id);
   }
 
   function closeEditor(expectedId: string | null = editorId) {
     mutations.update.reset();
     secretActions.reset();
-    setSearchParams(
-      (current) => {
-        if (current.get("keys") !== endpoint.id) {
-          return current;
-        }
-        if (expectedId && current.get("credential") !== expectedId) {
-          return current;
-        }
-        const next = new URLSearchParams(current);
-        next.delete("keys");
-        next.delete("credential");
-        next.delete("action");
-        return next;
-      },
-      { replace: true },
-    );
+    routeState.closeCredential(endpoint.id, expectedId);
   }
 
   if (initialListPending || (showList && !revealListContent)) {
@@ -190,9 +155,14 @@ export function ProviderCredentialManagement({
   async function submit(submission: CredentialEditorSubmission) {
     try {
       if (submission.mode === "create") {
+        const existingIds = new Set(configuration.items.map((credential) => credential.id));
         const createdConfiguration = await secretActions.create(submission.input);
         const created = createdConfiguration.items.find(
-          (credential) => credential.label === submission.input.label,
+          (credential) =>
+            !existingIds.has(credential.id)
+            && credential.label === submission.input.label,
+        ) ?? createdConfiguration.items.find(
+          (credential) => !existingIds.has(credential.id),
         );
         if (!created) {
           throw new Error("credential missing after create");

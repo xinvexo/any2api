@@ -1,4 +1,4 @@
-use any2api_domain::{HttpAccessLog, HttpBodyCapture, HttpHeader, canonical_ip};
+use any2api_domain::{HttpAccessLog, canonical_ip};
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -7,39 +7,10 @@ pub(super) async fn insert(
     connection: &mut SqliteConnection,
     log: &HttpAccessLog,
 ) -> Result<(), StorageError> {
-    let empty_body = HttpBodyCapture::empty(false);
-    let empty_headers: &[HttpHeader] = &[];
-    let exchange = log.exchange.as_ref();
-    let request_headers = serialize_headers(
-        exchange.map_or(empty_headers, |value| value.request_headers.as_slice()),
-    )?;
-    let response_headers = serialize_headers(
-        exchange.map_or(empty_headers, |value| value.response_headers.as_slice()),
-    )?;
-    let request_body = exchange.map_or(&empty_body, |value| &value.request_body);
-    let response_body = exchange.map_or(&empty_body, |value| &value.response_body);
-    let exchange_bytes = if exchange.is_some() {
-        [
-            request_headers.len(),
-            request_body.captured_bytes(),
-            response_headers.len(),
-            response_body.captured_bytes(),
-        ]
-        .into_iter()
-        .try_fold(0_u64, |total, bytes| {
-            total.checked_add(u64::try_from(bytes).ok()?)
-        })
-        .ok_or(StorageError::CorruptTelemetry)?
-    } else {
-        0
-    };
     sqlx::query(
         "INSERT INTO http_access_logs (request_id, started_at_ms, config_revision, client_ip, \
-         method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
-         gateway_auth_rejected, exchange_captured, request_headers, request_body, request_body_bytes, \
-         request_body_complete, request_body_truncated, response_headers, response_body, \
-         response_body_bytes, response_body_complete, response_body_truncated, exchange_bytes) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         method, path, http_version, status_code, duration_ms, response_bytes, outcome, \
+         gateway_auth_rejected) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -51,32 +22,15 @@ pub(super) async fn insert(
     )
     .bind(&log.method)
     .bind(&log.path)
-    .bind(&log.uri)
     .bind(log.http_version.as_str())
     .bind(log.status_code.map(i64::from))
     .bind(to_i64(log.duration_ms)?)
     .bind(to_i64(log.response_bytes)?)
     .bind(log.outcome.as_str())
     .bind(bool_value(log.gateway_auth_rejected))
-    .bind(bool_value(exchange.is_some()))
-    .bind(request_headers)
-    .bind(request_body.content())
-    .bind(to_i64(request_body.total_bytes())?)
-    .bind(bool_value(request_body.is_complete()))
-    .bind(bool_value(request_body.is_truncated()))
-    .bind(response_headers)
-    .bind(response_body.content())
-    .bind(to_i64(response_body.total_bytes())?)
-    .bind(bool_value(response_body.is_complete()))
-    .bind(bool_value(response_body.is_truncated()))
-    .bind(to_i64(exchange_bytes)?)
     .execute(connection)
     .await?;
     Ok(())
-}
-
-fn serialize_headers(headers: &[HttpHeader]) -> Result<Vec<u8>, StorageError> {
-    serde_json::to_vec(headers).map_err(|_| StorageError::CorruptTelemetry)
 }
 
 const fn bool_value(value: bool) -> i64 {

@@ -1,3 +1,4 @@
+use any2api_domain::{ConfigurationCore, GatewayApiKeyVerifier};
 use sqlx::SqliteConnection;
 
 use crate::{
@@ -24,21 +25,22 @@ pub(crate) async fn load_configuration_from(
         load_provider_credentials_from(connection, &provider_endpoints, &proxies).await?;
     let (oauth_accounts, oauth_account_materials) =
         load_oauth_accounts_from(connection, &proxies).await?;
-    let gateway_api_key_verifier = crate::gateway_api_key::GatewayApiKeyVerifier::new();
+    let gateway_api_key_verifier = GatewayApiKeyVerifier::new();
     let gateway_api_keys =
         load_gateway_api_keys_from(connection, &gateway_api_key_verifier).await?;
     let settings = load_settings_from(connection).await?;
 
     Ok(StoredConfiguration::new(
-        revision,
-        proxies,
-        provider_endpoints,
-        provider_credentials,
-        oauth_accounts,
-        model_routes,
-        gateway_api_keys,
-        gateway_api_key_verifier,
-        settings,
+        ConfigurationCore::new(
+            revision,
+            proxies,
+            provider_endpoints,
+            provider_credentials,
+            oauth_accounts,
+            model_routes,
+            gateway_api_keys,
+            settings,
+        ),
         provider_credential_secrets,
         oauth_account_materials,
         proxy_passwords,

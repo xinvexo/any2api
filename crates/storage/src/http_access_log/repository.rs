@@ -17,32 +17,20 @@ use super::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HttpAccessLogCapacity {
     max_rows: u64,
-    max_exchange_bytes: u64,
 }
 
 impl HttpAccessLogCapacity {
     #[must_use]
-    pub const fn new(max_rows: u64, max_exchange_bytes: u64) -> Self {
-        Self {
-            max_rows,
-            max_exchange_bytes,
-        }
+    pub const fn new(max_rows: u64) -> Self {
+        Self { max_rows }
     }
 
     pub const fn max_rows(self) -> u64 {
         self.max_rows
     }
 
-    pub const fn max_exchange_bytes(self) -> u64 {
-        self.max_exchange_bytes
-    }
-
     pub const fn gateway_auth_rejected_max_rows(self) -> u64 {
         gateway_auth_rejected_capacity(self.max_rows)
-    }
-
-    pub const fn gateway_auth_rejected_max_exchange_bytes(self) -> u64 {
-        gateway_auth_rejected_capacity(self.max_exchange_bytes)
     }
 }
 
@@ -164,11 +152,9 @@ impl HttpAccessLogRepository for SqliteStore {
         request_id: RequestId,
     ) -> Result<Option<HttpAccessLog>, StorageError> {
         let row = sqlx::query_as::<_, HttpAccessLogDetailRow>(
-            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
-             http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured, \
-             gateway_auth_rejected, request_headers, request_body, request_body_bytes, request_body_complete, \
-             request_body_truncated, response_headers, response_body, response_body_bytes, \
-             response_body_complete, response_body_truncated \
+            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, \
+             http_version, status_code, duration_ms, response_bytes, outcome, \
+             gateway_auth_rejected \
              FROM http_access_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())

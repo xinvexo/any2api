@@ -4,10 +4,12 @@ mod usage;
 
 use std::collections::HashSet;
 
-use any2api_domain::{OpenAiChatCompletionsProfile, OpenAiChatReasoningResponse};
 use serde_json::{Map, Value, json};
 
-use crate::ProtocolError;
+use crate::{
+    ProtocolError,
+    api::{OpenAiChatCompletionsProfile, OpenAiChatReasoningResponse},
+};
 
 use super::{
     response_projection::ResponseProjection,

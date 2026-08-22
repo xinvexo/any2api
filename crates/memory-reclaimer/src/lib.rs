@@ -3,8 +3,12 @@ mod platform;
 mod transparent_huge_pages;
 
 pub use mimalloc::mark_current_thread_as_mimalloc_pool_worker;
-pub use platform::relieve_native_allocator_pressure;
 pub use transparent_huge_pages::disable_for_current_process as disable_transparent_huge_pages;
+
+pub fn relieve_native_allocator_pressure() {
+    mimalloc::collect_unused_pages();
+    platform::relieve_native_allocator_pressure();
+}
 
 #[cfg(test)]
 mod tests {

@@ -23,7 +23,6 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsRequestRetention
         | SettingKey::LogsRequestMaxRows
         | SettingKey::LogsHttpAccessMaxRows
-        | SettingKey::LogsHttpAccessMaxExchangeBytes
         | SettingKey::LogsFileLevel
         | SettingKey::LogsFileRetention
         | SettingKey::LogsFileMaxTotalSize

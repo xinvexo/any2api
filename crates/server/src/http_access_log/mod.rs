@@ -1,5 +1,4 @@
 mod body;
-mod capture;
 mod detail_dto;
 mod dto;
 mod handlers;

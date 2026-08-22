@@ -26,6 +26,8 @@ pub(crate) enum RoutingCredentialCompileError {
     MissingCredentialProxy(any2api_domain::CredentialId),
     #[error("provider driver is not registered: {0:?}")]
     MissingProviderDriver(ProviderKind),
+    #[error("provider does not support OAuth routing: {0:?}")]
+    UnsupportedOAuthProvider(ProviderKind),
     #[error("duplicate OAuth material for account {0}")]
     DuplicateOAuthMaterial(OAuthAccountId),
     #[error("OAuth material is missing for account {0}")]
@@ -145,6 +147,9 @@ fn compile_oauth_accounts(
         let driver = providers.get(account.provider_kind()).ok_or(
             RoutingCredentialCompileError::MissingProviderDriver(account.provider_kind()),
         )?;
+        let routing = driver.oauth_routing().ok_or(
+            RoutingCredentialCompileError::UnsupportedOAuthProvider(account.provider_kind()),
+        )?;
         let material = materials.take_for(account)?;
         let token = decode_oauth_account_document(
             account.provider_kind(),
@@ -152,7 +157,7 @@ fn compile_oauth_accounts(
             material.expose_secret(),
         )
         .map_err(|_| RoutingCredentialCompileError::InvalidOAuthDocument(account.id()))?;
-        let profile = driver
+        let profile = routing
             .oauth_routing_profile(&token)
             .map_err(|_| RoutingCredentialCompileError::InvalidOAuthRoutingProfile(account.id()))?;
         let proxy = proxies.resolve_oauth(account.proxy_selection()).ok_or(

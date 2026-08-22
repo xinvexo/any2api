@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use any2api_domain::{OpenAiChatCompletionsProfile, TokenUsage};
+use any2api_domain::TokenUsage;
 use serde_json::{Value, json};
 
 use super::{
@@ -13,6 +13,7 @@ use super::{
     items::TextState,
     tools::ToolState,
 };
+use crate::api::OpenAiChatCompletionsProfile;
 use crate::{
     ProtocolError,
     api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination},

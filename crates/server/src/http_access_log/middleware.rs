@@ -4,21 +4,18 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use any2api_domain::{HttpHeader, HttpProtocolVersion, RequestId};
+use any2api_domain::{HttpProtocolVersion, RequestId};
 use axum::{
     body::Body,
     extract::{ConnectInfo, Request, State},
-    http::{HeaderMap, HeaderValue, Version, header::HeaderName},
+    http::{HeaderValue, Version, header::HeaderName},
     middleware::Next,
     response::Response,
 };
 
 use crate::{client_address::ClientAddressContext, state::AppState};
 
-use super::{
-    body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata},
-    capture::{RequestBodyCaptureSlot, RequestCaptureBody},
-};
+use super::body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata};
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -50,16 +47,16 @@ pub(crate) async fn record(
         .map(|ConnectInfo(address)| *address);
     let client_context =
         ClientAddressContext::capture(Arc::clone(&snapshot), peer, request.headers());
-    // Capture is skipped entirely when logging cannot persist anything.
+    // Metadata construction is skipped entirely when logging cannot persist anything.
     // `should_record` still runs at completion because its status and outcome
     // inputs are unknown here, so it can never pre-exclude a request.
     let request_snapshot = client_context.snapshot();
     let mut completion = None;
     if state
         .request_telemetry()
-        .http_access_capture_enabled(request_snapshot.settings().logging())
+        .http_access_log_enabled(request_snapshot.settings().logging())
     {
-        let request_body_capture = RequestBodyCaptureSlot::new();
+        let path = request.uri().path().to_owned();
         completion = Some(AccessLogCompletion::new(
             state.request_telemetry_handle(),
             request_snapshot.settings().logging().clone(),
@@ -69,16 +66,11 @@ pub(crate) async fn record(
                 request_snapshot.revision(),
                 client_context.audit_client_ip(),
                 request.method().as_str().to_owned(),
-                request.uri().path().to_owned(),
-                request.uri().to_string(),
+                path,
                 protocol_version(request.version()),
-                capture_headers(request.headers()),
-                request_body_capture.clone(),
             ),
             Instant::now(),
         ));
-        request =
-            request.map(|body| Body::new(RequestCaptureBody::new(body, request_body_capture)));
     }
     request.extensions_mut().insert(client_context);
     request.extensions_mut().insert(HttpRequestId(request_id));
@@ -100,10 +92,7 @@ pub(crate) async fn record(
     let Some(mut completion) = completion else {
         return response;
     };
-    completion.set_response(
-        response.status().as_u16(),
-        capture_headers(response.headers()),
-    );
+    completion.set_response(response.status().as_u16());
     if response
         .extensions_mut()
         .remove::<GatewayAuthRejected>()
@@ -120,16 +109,6 @@ pub(crate) async fn record(
         return response;
     }
     response.map(|body| Body::new(AccessLogBody::new(body, completion)))
-}
-
-fn capture_headers(headers: &HeaderMap) -> Vec<HttpHeader> {
-    headers
-        .iter()
-        .map(|(name, value)| HttpHeader {
-            name: name.as_str().to_owned(),
-            value: value.as_bytes().to_vec(),
-        })
-        .collect()
 }
 
 fn protocol_version(version: Version) -> HttpProtocolVersion {

@@ -254,9 +254,7 @@ async fn rejected_proxy_candidate_still_contains_complete_gateway_configuration(
         .expect("unchanged gateway key");
     assert_eq!(key.token(), token);
     assert!(
-        candidate
-            .gateway_api_key_verifier()
-            .verify(token.as_bytes(), key.token_hash())
+        any2api_domain::GatewayApiKeyVerifier::new().verify(token.as_bytes(), key.token_hash())
     );
     let committed = store
         .load_configuration()
