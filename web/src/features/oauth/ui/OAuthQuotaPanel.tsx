@@ -213,7 +213,6 @@ export function OAuthQuotaPanel({
         <OAuthQuotaDetails
           quota={quota}
           provider={provider}
-          showResetCredits={canReset}
         />
       ) : (
         <p className="mt-1.5 text-[11px] text-tertiary">额度尚未刷新</p>

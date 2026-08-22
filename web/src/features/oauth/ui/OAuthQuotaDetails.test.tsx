@@ -9,7 +9,6 @@ test("shows real Credits in dollars and the estimate beside its percentage", () 
     <OAuthQuotaDetails
       quota={quota}
       provider="codex"
-      showResetCredits={false}
     />,
   );
 
@@ -30,7 +29,6 @@ test("renders unavailable Credits as a dash", () => {
         credits: { hasCredits: false, unlimited: false, balance: null },
       }}
       provider="codex"
-      showResetCredits={false}
     />,
   );
 

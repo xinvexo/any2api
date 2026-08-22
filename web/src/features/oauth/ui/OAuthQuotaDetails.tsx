@@ -12,14 +12,11 @@ import { cn } from "@/shared/lib/cn";
 export function OAuthQuotaDetails({
   quota,
   provider,
-  showResetCredits,
 }: {
   quota: OAuthQuotaSnapshot;
   provider: OAuthProvider;
-  showResetCredits: boolean;
 }) {
   const windows = quota.rateLimit?.windows ?? [];
-  const creditExpiry = showResetCredits ? formatCreditExpiries(quota) : null;
   const isGrok = provider === "grok";
   const hardStopMessage = codexHardStopMessage(quota);
   const credits = quota.credits ? presentCodexCredits(quota.credits, quota.rateCard) : null;
@@ -82,11 +79,6 @@ export function OAuthQuotaDetails({
           label="按量使用"
           value={`${formatUsdMinor(quota.billing?.onDemandUsedMinor ?? 0)} / ${formatUsdMinor(quota.billing?.onDemandCapMinor ?? 0)}`}
         />
-      ) : null}
-      {creditExpiry ? (
-        <p className="truncate text-[10px] text-tertiary" title={creditExpiry}>
-          {creditExpiry}
-        </p>
       ) : null}
     </div>
   );
@@ -275,18 +267,4 @@ function formatCompactTime(value: number) {
     minute: "2-digit",
     hour12: false,
   });
-}
-
-function formatCreditExpiries(quota: OAuthQuotaSnapshot): string | null {
-  const expiries = quota.resetCredits?.expiresAt ?? [];
-  if (expiries.length === 0) return null;
-  const first = formatExpiry(expiries[0]);
-  return expiries.length === 1
-    ? `最早 ${first} 到期`
-    : `最早 ${first} 到期 · 共 ${expiries.length} 次`;
-}
-
-function formatExpiry(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }

@@ -22,7 +22,7 @@ export type ProviderEditorErrors = Partial<Record<EditorField, string>>;
 
 export function useProviderEditor(
   endpoint?: ProviderEndpoint,
-  defaultKind: ProviderKind = "openai",
+  defaultKind: ProviderKind = "codex",
   protocolOptions: ProviderProtocolOptions[] = [],
 ) {
   const [draft, setDraft] = useState<ProviderEditorDraft>(() =>
