@@ -4,12 +4,15 @@ use axum::{
     middleware,
     routing::{any, get},
 };
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
-    admin, embedded_web, health::health, http_access_log, public, request_body_timeout,
-    request_lifecycle, response_security_headers, state::AppState, web_assets::WebAssets,
+    admin, embedded_web,
+    health::health,
+    http_access_log, public, request_body_timeout, request_lifecycle, response_security_headers,
+    state::AppState,
+    web_assets::{MANAGEMENT_DEEP_LINKS, WebAssets},
     web_security_headers,
 };
 
@@ -30,12 +33,9 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
         .nest("/api", build_api_router(state.clone()))
         .nest("/v1", public::routes(state.clone()));
     let web_router = match web_assets.into() {
-        WebAssets::External(web_root) => Router::new()
-            .nest_service("/assets", ServeDir::new(web_root.join("assets")))
-            .fallback_service(
-                ServeDir::new(&web_root).fallback(ServeFile::new(web_root.join("index.html"))),
-            )
-            .layer(middleware::from_fn(web_security_headers::add)),
+        WebAssets::External(web_root) => {
+            external_web_router(web_root).layer(middleware::from_fn(web_security_headers::add))
+        }
         WebAssets::Embedded(assets) => Router::new().fallback(
             move |method: Method, uri: Uri, headers: HeaderMap| async move {
                 embedded_web::response(&method, &uri, &headers, assets)
@@ -56,6 +56,18 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
             state,
             http_access_log::record,
         ))
+}
+
+fn external_web_router(web_root: PathBuf) -> Router {
+    let index = ServeFile::new(web_root.join("index.html"));
+    let mut router = Router::new();
+    for path in MANAGEMENT_DEEP_LINKS {
+        router = router.route_service(path, index.clone());
+        if *path != "/" {
+            router = router.route_service(&format!("{path}/"), index.clone());
+        }
+    }
+    router.fallback_service(ServeDir::new(web_root))
 }
 
 fn build_api_router(state: AppState) -> Router {

@@ -7,7 +7,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::{web_assets::EmbeddedWebAsset, web_security_headers};
+use crate::{
+    web_assets::{EmbeddedWebAsset, is_management_deep_link},
+    web_security_headers,
+};
 
 const CACHE_NO_CACHE: &str = "no-cache";
 const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
@@ -44,7 +47,7 @@ fn response_without_security_headers(
         requested
     };
     let asset = find(assets, requested)
-        .or_else(|| (!requested.starts_with("assets/")).then(|| find(assets, "index.html"))?);
+        .or_else(|| is_management_deep_link(uri.path()).then(|| find(assets, "index.html"))?);
     let Some(asset) = asset else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -173,7 +176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn head_missing_assets_and_writes_have_explicit_semantics() {
+    async fn unknown_paths_missing_assets_and_writes_have_explicit_semantics() {
         let head = serve(&Method::HEAD, &Uri::from_static("/assets/app-123.css"));
         assert_eq!(head.status(), StatusCode::OK);
         assert_eq!(head.headers()[CONTENT_LENGTH], "6");
@@ -181,6 +184,11 @@ mod tests {
 
         let missing = serve(&Method::GET, &Uri::from_static("/assets/missing.js"));
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+        for path in ["/definitely-missing", "/wp-login.php"] {
+            let unknown = serve(&Method::GET, &path.parse().expect("unknown URI"));
+            assert_eq!(unknown.status(), StatusCode::NOT_FOUND, "{path}");
+        }
 
         let write = serve(&Method::POST, &Uri::from_static("/settings"));
         assert_eq!(write.status(), StatusCode::METHOD_NOT_ALLOWED);

@@ -47,9 +47,9 @@ ACL 限制服务账号。没有内建在线备份或恢复协议，备份在停�
 
 ## 内嵌 Web
 
-正式应用把当前 Vite 输出编入单个可执行文件，并以预计算 MIME、ETag 和压缩变体提供。SPA deep link 回落到
-内嵌 `index.html`；API 路径和资源路径不参与 SPA fallback。`ANY2API_WEB_DIR` 只用于明确的开发覆盖，不能
-在生产时隐式读取工作目录中的旧 `web/dist`。
+正式应用把当前 Vite 输出编入单个可执行文件，并以预计算 MIME、ETag 和压缩变体提供。只有已注册的管理端
+SPA deep link 回落到内嵌 `index.html`；未知路径、API 路径和资源路径返回 404，不参与 SPA fallback。
+`ANY2API_WEB_DIR` 只用于明确的开发覆盖，不能在生产时隐式读取工作目录中的旧 `web/dist`。
 
 ## 官方 Release 与自更新
 

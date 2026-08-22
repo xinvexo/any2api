@@ -20,7 +20,7 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     let (_directory, app, telemetry) = build_test_app(fixture).await;
     for (uri, status) in [
         ("/api/health?token=must-not-be-stored", StatusCode::OK),
-        ("/client/actual%20value?code=secret", StatusCode::OK),
+        ("/settings/basic?code=secret", StatusCode::OK),
         (
             "/v1/models?api_key=must-not-be-stored",
             StatusCode::UNAUTHORIZED,
@@ -108,7 +108,7 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     assert!(paths.contains(&"/api/not-a-real-route"));
     assert!(paths.contains(&"/api/health"));
     assert!(paths.contains(&"/api/admin/system-logs"));
-    assert!(!paths.contains(&"/client/actual%20value"));
+    assert!(!paths.contains(&"/settings/basic"));
     assert!(paths.iter().all(|path| !path.contains('?')));
     let health = items
         .iter()
