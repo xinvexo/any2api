@@ -22,6 +22,7 @@ test("parses aggregate-only balancing runtime", () => {
     onRateLimited: "wait",
     fallbackOnRateLimit: false,
   });
+  expect(parsed.publicRequestsInWindow).toBe(1_234);
   expect(parsed.totals).toEqual({
     credentialCount: 1_000,
     enabledCredentialCount: 940,
@@ -52,6 +53,7 @@ function runtimeResponse() {
   return {
     config_revision: 3,
     scheduler_epoch: 8,
+    public_requests_in_window: 1_234,
     process: { active_requests: 4, background_tasks: 6, shutdown_phase: "running" },
     transport: {
       cache_entries: 3,

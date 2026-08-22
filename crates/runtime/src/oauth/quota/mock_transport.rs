@@ -285,7 +285,7 @@ impl QuotaTransport {
             http::StatusCode::OK,
             http::HeaderMap::new(),
             Bytes::from_static(
-                br#"{"models":[{"slug":"gpt-catalog-a","supported_in_api":true},{"slug":"hidden","supported_in_api":false}]}"#,
+                br#"{"models":[{"slug":"gpt-catalog-a","supported_in_api":true},{"slug":"chatgpt-only","supported_in_api":false}]}"#,
             ),
         )
     }

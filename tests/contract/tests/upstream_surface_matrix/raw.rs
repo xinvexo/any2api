@@ -119,7 +119,7 @@ fn normalize_raw(raw: Vec<u8>, address: std::net::SocketAddr) -> String {
 }
 
 fn multipart_boundary(raw: &str) -> Option<String> {
-    let marker = "boundary=any2api_";
+    let marker = "boundary=";
     let start = raw.find(marker)? + "boundary=".len();
     let end = start + raw[start..].find("\r\n")?;
     Some(raw[start..end].to_owned())

@@ -9,10 +9,12 @@ publish.workspace = true
 any2api-domain = { path = "../domain" }
 any2api-payload-buffer = { path = "../payload-buffer" }
 any2api-protocol = { path = "../protocol" }
+arc-swap.workspace = true
 base64.workspace = true
 bytes.workspace = true
 http.workspace = true
 secrecy.workspace = true
+semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -175,7 +175,7 @@ content-type: multipart/form-data; boundary=<multipart-boundary>\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
 host: <authority>\r\n
-content-length: 421\r\n
+content-length: 389\r\n
 \r\n
 --<multipart-boundary>\r\n
 content-disposition: form-data; name="model"\r\n
@@ -541,7 +541,7 @@ content-type: multipart/form-data; boundary=<multipart-boundary>\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-openai-api-key\r\n
 host: <authority>\r\n
-content-length: 421\r\n
+content-length: 389\r\n
 \r\n
 --<multipart-boundary>\r\n
 content-disposition: form-data; name="model"\r\n

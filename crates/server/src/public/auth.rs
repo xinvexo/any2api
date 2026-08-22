@@ -73,9 +73,9 @@ pub(crate) async fn require_gateway_api_key(
     let Some(authentication) = snapshot.authenticate_gateway_api_key(&token) else {
         return reject(PublicApiError::unauthorized(), &state, request.uri());
     };
-    state
-        .request_telemetry()
-        .record_gateway_key_use(authentication.id(), snapshot.revision());
+    let telemetry = state.request_telemetry();
+    telemetry.record_public_request();
+    telemetry.record_gateway_key_use(authentication.id(), snapshot.revision());
 
     strip_client_credentials(request.headers_mut());
     request.extensions_mut().insert(AuthenticatedGatewayApiKey {

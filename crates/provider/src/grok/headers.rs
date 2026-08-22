@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
     ProviderError,
-    api::ProviderRequestContext,
+    api::{OfficialClientVersion, ProviderRequestContext},
     header_policy::{ordered_names, project},
     request_header_policy::{
         RequestHeaderOwnership::{Replayable, SessionScoped},
@@ -45,9 +45,12 @@ static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ])
 });
 
-pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, ProviderError> {
+pub(crate) fn request(
+    context: ProviderRequestContext<'_>,
+    version: &OfficialClientVersion,
+) -> Result<HeaderMap, ProviderError> {
     let mut headers = HeaderMap::new();
-    super::identity::apply_data_defaults(&mut headers, context.oauth);
+    super::identity::apply_data_defaults(&mut headers, context.oauth, version);
     if context.ingress_dialect == context.upstream_operation.dialect() {
         headers.extend(project_request(
             context.client_headers,
@@ -82,7 +85,7 @@ mod tests {
     use http::{HeaderMap, HeaderValue};
 
     use super::request;
-    use crate::api::ProviderRequestContext;
+    use crate::api::{OfficialClientVersion, ProviderRequestContext};
 
     const SESSION_HEADERS: &[&str] = &[
         "x-grok-conv-id",
@@ -115,7 +118,11 @@ mod tests {
             allow_turn_state: false,
         };
 
-        let switched = request(context).expect("switched headers");
+        let switched = request(
+            context,
+            &OfficialClientVersion::new("9.8.7").expect("version"),
+        )
+        .expect("switched headers");
         for name in SESSION_HEADERS {
             assert_eq!(switched[*name], "session", "missing {name}");
         }

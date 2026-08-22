@@ -12,8 +12,9 @@ use super::{
     OAuthDeviceTokenPoll, OAuthImportedAccount, OAuthModelCatalogScope, OAuthPrincipalIdentity,
     OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaResetCredits, OAuthQuotaResetResult,
     OAuthQuotaSupplement, OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan,
-    OAuthRoutingProfile, OAuthTokenMaterial, ProviderDescriptor, ProviderError,
-    ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
+    OAuthRoutingProfile, OAuthTokenMaterial, OfficialClientVersion,
+    OfficialClientVersionRequestPlan, ProviderDescriptor, ProviderError, ProviderRequestContext,
+    ProviderSecret, UpstreamResponseMeta,
 };
 
 pub trait ProviderDriver: Send + Sync {
@@ -119,12 +120,38 @@ pub trait ProviderDriver: Send + Sync {
         None
     }
 
+    fn official_client_version(&self) -> Option<&dyn OfficialClientVersionProvider> {
+        None
+    }
+
     fn classify_error(
         &self,
         operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
     ) -> UpstreamError;
+}
+
+pub trait OfficialClientVersionProvider: ProviderDriver {
+    fn latest_official_client_version_plan(
+        &self,
+    ) -> Result<OfficialClientVersionRequestPlan, ProviderError>;
+
+    fn parse_latest_official_client_version(
+        &self,
+        bounded_body: &[u8],
+    ) -> Result<OfficialClientVersion, ProviderError>;
+
+    fn current_official_client_version(&self) -> Option<std::sync::Arc<OfficialClientVersion>>;
+
+    fn publish_official_client_version(&self, version: OfficialClientVersion);
+
+    fn require_official_client_version(
+        &self,
+    ) -> Result<std::sync::Arc<OfficialClientVersion>, ProviderError> {
+        self.current_official_client_version()
+            .ok_or_else(|| ProviderError::OfficialClientVersionUnavailable(self.kind()))
+    }
 }
 
 pub trait OAuthAuthorizationCodeProvider: ProviderDriver {

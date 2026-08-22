@@ -23,6 +23,9 @@ pub use crate::oauth_quota_snapshot::{
     MAX_OAUTH_QUOTA_SNAPSHOT_BYTES, OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
     OAuthQuotaSnapshotRepository, StoredOAuthQuotaSnapshot,
 };
+pub use crate::official_client_version::{
+    OfficialClientVersionRepository, StoredOfficialClientVersion,
+};
 pub use crate::provider::{
     ProviderApiKeyValidationError, StoredProviderCredentialSecret, StoredProviderCredentialSecrets,
 };

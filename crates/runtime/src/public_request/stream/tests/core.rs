@@ -9,7 +9,7 @@ use any2api_protocol::{
     OpenAiResponsesAdapter,
     api::{ProtocolAdapter, ProtocolRegistry},
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, api::ProviderDriver};
+use any2api_provider::api::ProviderDriver;
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
@@ -275,8 +275,8 @@ fn guarded_body_with_adapter(
         .exchange(dialect, dialect, operation)
         .expect("direct protocol exchange");
     let driver: Arc<dyn ProviderDriver> = match dialect {
-        ProtocolDialect::AnthropicMessages => Arc::new(ClaudeDriver::new()),
-        _ => Arc::new(CodexDriver::new()),
+        ProtocolDialect::AnthropicMessages => Arc::new(crate::test_support::claude_driver()),
+        _ => Arc::new(crate::test_support::codex_driver()),
     };
     GuardedBody::new(
         upstream,

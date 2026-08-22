@@ -5,7 +5,7 @@ use any2api_domain::{
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestsPerMinute,
     RetrySafety, UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_provider::{CodexDriver, api::ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,
@@ -82,7 +82,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
 
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(crate::test_support::codex_driver()))
         .expect("Codex driver");
     let transport = Arc::new(CapturingTransport::default());
     let service = ProviderCredentialTestService::new(
@@ -170,7 +170,7 @@ async fn assert_probe_available(endpoint_enabled: bool, credential_enabled: bool
         .expect("credential");
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(crate::test_support::codex_driver()))
         .expect("Codex driver");
     let transport = Arc::new(CapturingTransport::default());
     let service = ProviderCredentialTestService::new(

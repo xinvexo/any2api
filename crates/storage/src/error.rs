@@ -151,6 +151,8 @@ pub enum StorageError {
     CorruptOAuthQuotaSnapshot,
     #[error("stored OAuth model catalog snapshot is invalid")]
     CorruptOAuthModelCatalogSnapshot,
+    #[error("stored official client version is invalid")]
+    CorruptOfficialClientVersion,
     #[error("setting value is invalid: {0}")]
     SettingsValidation(#[from] SettingsValidationError),
 }

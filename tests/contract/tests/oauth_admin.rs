@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use any2api_contract_tests::TestApplication;
+use any2api_contract_tests::{TestApplication, seed_official_client_versions};
 use any2api_domain::{OAuthProxySelection, ProviderKind, ProxyProfileId};
 use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_runtime::api::{OAuthService, RequestTelemetry};
@@ -39,6 +39,7 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
     providers
         .register(Arc::new(GrokDriver::new()))
         .expect("Grok driver");
+    seed_official_client_versions(&providers);
     let oauth = Arc::new(OAuthService::new(
         Arc::new(providers),
         Arc::new(TokenTransport),
@@ -127,6 +128,7 @@ async fn oauth_service_paces_concurrent_network_starts_for_one_provider() {
     providers
         .register(Arc::new(GrokDriver::new()))
         .expect("Grok driver");
+    seed_official_client_versions(&providers);
     let oauth = Arc::new(OAuthService::new(
         Arc::new(providers),
         transport.clone(),
@@ -226,7 +228,7 @@ impl TransportManager for TokenTransport {
         assert_eq!(proxy.profile().id(), ProxyProfileId::DIRECT);
         let body = match (request.uri.host(), request.uri.path()) {
             (Some("auth.openai.com"), "/oauth/token") => Bytes::from_static(
-                br#"{"access_token":"codex-access-token","refresh_token":"codex-refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyJ9fQ.signature","expires_in":3600}"#,
+                br#"{"access_token":"codex-access-token","refresh_token":"codex-refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyIsImNoYXRncHRfcGxhbl90eXBlIjoiZnJlZSJ9fQ.signature","expires_in":3600}"#,
             ),
             (Some("chatgpt.com"), "/backend-api/codex/models") => Bytes::from_static(
                 br#"{"models":[{"slug":"gpt-5.5","supported_in_api":true}]}"#,

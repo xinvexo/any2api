@@ -9,13 +9,50 @@ use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 use super::{GrokDriver, oauth_bot_flag};
 use crate::api::{
     OAuthDeviceCodeProvider, OAuthDeviceTokenPoll, OAuthLoginFlow, OAuthRoutingProvider,
-    OAuthTokenMaterial, OAuthTokenProvider, ProviderDriver, ProviderError, ProviderRequestContext,
-    ProviderSecret,
+    OAuthTokenMaterial, OAuthTokenProvider, OfficialClientVersion, ProviderDriver, ProviderError,
+    ProviderRequestContext, ProviderSecret,
 };
+
+fn driver() -> GrokDriver {
+    GrokDriver::new_with_official_client_version(
+        OfficialClientVersion::new("9.8.7").expect("version"),
+    )
+}
+
+#[test]
+fn version_dependent_requests_require_a_published_official_version() {
+    let driver = GrokDriver::new();
+    let client_headers = http::HeaderMap::new();
+    let context = ProviderRequestContext {
+        ingress_dialect: ProtocolDialect::OpenAiResponses,
+        upstream_operation: ProtocolOperation::Responses,
+        upstream_model: "grok",
+        client_headers: &client_headers,
+        oauth: true,
+        allow_credential_bound: true,
+        allow_session_replay: true,
+        allow_turn_state: false,
+    };
+    assert_eq!(
+        driver
+            .prepare_request_headers(context)
+            .expect_err("missing version"),
+        ProviderError::OfficialClientVersionUnavailable(ProviderKind::Grok)
+    );
+
+    let versions = driver
+        .official_client_version()
+        .expect("official client version facet");
+    versions.publish_official_client_version(OfficialClientVersion::new("9.8.7").expect("version"));
+    assert_eq!(
+        driver.prepare_request_headers(context).expect("headers")["x-grok-client-version"],
+        "9.8.7"
+    );
+}
 
 #[test]
 fn builds_xai_paths_and_bearer_authentication() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     let base = ProviderBaseUrl::parse("https://api.x.ai/v1").expect("base URL");
 
     assert_eq!(driver.kind(), ProviderKind::Grok);
@@ -73,7 +110,7 @@ fn builds_xai_paths_and_bearer_authentication() {
 
 #[test]
 fn rejects_anthropic_operations() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     let base = ProviderBaseUrl::parse("https://api.x.ai/v1").expect("base URL");
 
     assert!(
@@ -105,7 +142,7 @@ fn rejects_anthropic_operations() {
 
 #[test]
 fn builds_grok_device_authorization_and_refresh_requests() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     let authorization = driver
         .oauth_device_authorization_request()
         .expect("device authorization request");
@@ -177,7 +214,7 @@ fn builds_grok_device_authorization_and_refresh_requests() {
 
 #[test]
 fn classifies_grok_device_poll_responses() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     assert!(matches!(
         driver
             .parse_oauth_device_token(
@@ -226,7 +263,7 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
     let body = format!(
         r#"{{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":"header.{claims}.signature","expires_in":3600}}"#
     );
-    let driver = GrokDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(body.as_bytes())
         .expect("Grok token response");
@@ -283,14 +320,17 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         })
         .expect("identity headers");
     assert_eq!(identity["x-xai-token-auth"], "xai-grok-cli");
-    assert_eq!(identity["x-grok-client-version"], "0.2.112");
-    assert_eq!(identity["user-agent"], super::identity::user_agent_text());
+    assert_eq!(identity["x-grok-client-version"], "9.8.7");
+    assert_eq!(
+        identity["user-agent"],
+        super::identity::user_agent_text(&OfficialClientVersion::new("9.8.7").expect("version"))
+    );
     assert!(!format!("{headers:?}").contains("access-secret"));
 }
 
 #[test]
 fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     let client_headers = http::HeaderMap::new();
 
     let oauth_headers = driver
@@ -347,7 +387,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
 
 #[test]
 fn grok_jwt_identity_falls_back_per_claim_field() {
-    let driver = GrokDriver::new();
+    let driver = driver();
     for (id_payload, access_payload, expected_subject, expected_email) in [
         (
             br#"{"email":"id@example.com"}"#.as_slice(),

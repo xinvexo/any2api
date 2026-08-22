@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderValue};
 
 use any2api_provider::{
     ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, OpenAiDriver,
-    api::{ProviderDriver, ProviderRegistry, ProviderRequestContext},
+    api::{OfficialClientVersion, ProviderDriver, ProviderRegistry, ProviderRequestContext},
 };
 
 #[derive(Clone, Copy)]
@@ -78,14 +78,24 @@ fn provider_registry() -> ProviderRegistry {
     let mut registry = ProviderRegistry::new();
     for driver in [
         Arc::new(OpenAiDriver::new()) as Arc<dyn ProviderDriver>,
-        Arc::new(CodexDriver::new()) as Arc<dyn ProviderDriver>,
-        Arc::new(ClaudeDriver::new()),
-        Arc::new(GrokDriver::new()),
+        Arc::new(CodexDriver::new_with_official_client_version(version(
+            "0.145.0",
+        ))) as Arc<dyn ProviderDriver>,
+        Arc::new(ClaudeDriver::new_with_official_client_version(version(
+            "2.1.220",
+        ))),
+        Arc::new(GrokDriver::new_with_official_client_version(version(
+            "0.2.112",
+        ))),
         Arc::new(KimiDriver::new()),
     ] {
         registry.register(driver).expect("unique Provider driver");
     }
     registry
+}
+
+fn version(value: &str) -> OfficialClientVersion {
+    OfficialClientVersion::new(value).expect("test client version")
 }
 
 fn supported_operations(driver: &dyn ProviderDriver) -> Vec<ProtocolOperation> {

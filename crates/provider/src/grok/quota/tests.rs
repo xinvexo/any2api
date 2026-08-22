@@ -4,7 +4,10 @@ use any2api_domain::ProviderKind;
 use http::{Method, header};
 
 use super::{parse_subscription, parse_usage, query_plan};
-use crate::{OAuthTokenMaterial, api::OAuthQuotaWindowKind};
+use crate::{
+    OAuthTokenMaterial,
+    api::{OAuthQuotaWindowKind, OfficialClientVersion},
+};
 
 fn token(account_id: Option<&str>) -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -21,7 +24,8 @@ fn token(account_id: Option<&str>) -> OAuthTokenMaterial {
 
 #[test]
 fn builds_billing_and_subscription_queries_with_official_identity() {
-    let (usage, supplement, credits) = query_plan(&token(Some("subject-1")))
+    let version = OfficialClientVersion::new("9.8.7").expect("version");
+    let (usage, supplement, credits) = query_plan(&token(Some("subject-1")), &version)
         .expect("query plan")
         .into_parts();
     let supplement = supplement.expect("subscription query");
@@ -42,12 +46,12 @@ fn builds_billing_and_subscription_queries_with_official_identity() {
         );
         assert_eq!(request.headers["x-xai-token-auth"], "xai-grok-cli");
         assert_eq!(request.headers["x-userid"], "subject-1");
-        assert_eq!(request.headers["x-grok-client-version"], "0.2.112");
+        assert_eq!(request.headers["x-grok-client-version"], "9.8.7");
         assert_eq!(request.headers["x-grok-client-identifier"], "grok-shell");
         assert_eq!(request.headers["x-grok-client-mode"], "interactive");
         assert_eq!(
             request.headers[header::USER_AGENT],
-            super::super::identity::user_agent_text()
+            super::super::identity::user_agent_text(&version)
         );
         assert_eq!(request.headers[header::ACCEPT], "application/json");
         assert!(request.body.is_empty());
@@ -58,7 +62,8 @@ fn builds_billing_and_subscription_queries_with_official_identity() {
 
 #[test]
 fn quota_query_requires_the_grok_subject() {
-    assert!(query_plan(&token(None)).is_err());
+    let version = OfficialClientVersion::new("9.8.7").expect("version");
+    assert!(query_plan(&token(None), &version).is_err());
 }
 
 #[test]

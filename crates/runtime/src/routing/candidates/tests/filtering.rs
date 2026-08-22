@@ -8,7 +8,7 @@ use any2api_protocol::{
     OpenAiResponsesAdapter,
     api::{ProtocolRegistry, RequestExecutionProfile},
 };
-use any2api_provider::{CodexDriver, api::ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 
 use super::{PublisherFixture, credential_draft, endpoint_draft, publisher_fixture};
 use crate::{
@@ -69,7 +69,7 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
 
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(crate::test_support::codex_driver()))
         .expect("Codex driver");
 
     assert_eq!(

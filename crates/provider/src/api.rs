@@ -6,6 +6,7 @@ use url::Url;
 
 mod descriptor;
 mod facets;
+mod official_client_version;
 
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
 pub use crate::credential::ProviderSecret;
@@ -33,7 +34,10 @@ pub use descriptor::{OAuthCapabilities, ProviderDescriptor};
 pub use facets::{
     OAuthAuthorizationCodeProvider, OAuthDeviceCodeProvider, OAuthQuotaProvider,
     OAuthQuotaResetProvider, OAuthQuotaSupplementProvider, OAuthRoutingProvider,
-    OAuthTokenProvider, ProviderDriver,
+    OAuthTokenProvider, OfficialClientVersionProvider, ProviderDriver,
+};
+pub use official_client_version::{
+    InvalidOfficialClientVersion, OfficialClientVersion, OfficialClientVersionRequestPlan,
 };
 
 #[derive(Clone, Debug)]

@@ -1,51 +1,55 @@
 //! Versioned Grok application identity profile.
 
-use std::sync::LazyLock;
-
 use http::{HeaderMap, HeaderValue, header};
 
-use crate::header_policy::insert_default;
+use crate::{api::OfficialClientVersion, header_policy::insert_default};
 
-pub(super) const CLIENT_VERSION: &str = "0.2.112";
 pub(super) const CLIENT_IDENTIFIER: &str = "grok-shell";
 const CLIENT_MODE: &str = "interactive";
 
-static USER_AGENT_TEXT: LazyLock<String> = LazyLock::new(|| {
+fn user_agent(version: &OfficialClientVersion) -> HeaderValue {
+    HeaderValue::from_str(&user_agent_text(version))
+        .expect("stable SemVer and build target produce a valid Grok User-Agent")
+}
+
+pub(super) fn user_agent_text(version: &OfficialClientVersion) -> String {
     format!(
-        "{CLIENT_IDENTIFIER}/{CLIENT_VERSION} ({}; {})",
+        "{CLIENT_IDENTIFIER}/{version} ({}; {})",
         std::env::consts::OS,
         std::env::consts::ARCH
     )
-});
-static USER_AGENT_VALUE: LazyLock<HeaderValue> = LazyLock::new(|| {
-    HeaderValue::from_str(&USER_AGENT_TEXT).expect("build target produces a valid User-Agent")
-});
+}
 
-pub(super) fn apply_data_defaults(headers: &mut HeaderMap, oauth: bool) {
-    apply_cli_defaults(headers);
+pub(super) fn apply_data_defaults(
+    headers: &mut HeaderMap,
+    oauth: bool,
+    version: &OfficialClientVersion,
+) {
+    apply_cli_defaults(headers, version);
     if oauth {
         insert_default(headers, "x-grok-client-mode", CLIENT_MODE);
         apply_oauth_identity(headers);
     }
 }
 
-pub(super) fn apply_quota_defaults(headers: &mut HeaderMap) {
-    apply_cli_defaults(headers);
+pub(super) fn apply_quota_defaults(headers: &mut HeaderMap, version: &OfficialClientVersion) {
+    apply_cli_defaults(headers, version);
     insert_default(headers, "x-grok-client-mode", CLIENT_MODE);
     apply_oauth_identity(headers);
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
 }
 
-#[cfg(test)]
-pub(super) fn user_agent_text() -> &'static str {
-    &USER_AGENT_TEXT
-}
-
-fn apply_cli_defaults(headers: &mut HeaderMap) {
+fn apply_cli_defaults(headers: &mut HeaderMap, version: &OfficialClientVersion) {
     if !headers.contains_key(header::USER_AGENT) {
-        headers.insert(header::USER_AGENT, USER_AGENT_VALUE.clone());
+        headers.insert(header::USER_AGENT, user_agent(version));
     }
-    insert_default(headers, "x-grok-client-version", CLIENT_VERSION);
+    if !headers.contains_key("x-grok-client-version") {
+        headers.insert(
+            "x-grok-client-version",
+            HeaderValue::from_str(version.as_str())
+                .expect("stable SemVer produces a valid Grok version header"),
+        );
+    }
     insert_default(headers, "x-grok-client-identifier", CLIENT_IDENTIFIER);
 }
 
@@ -62,13 +66,15 @@ mod tests {
     use http::HeaderMap;
 
     use super::{apply_data_defaults, apply_quota_defaults, user_agent_text};
+    use crate::api::OfficialClientVersion;
 
     #[test]
     fn data_and_quota_share_target_accurate_cli_identity() {
         let mut data = HeaderMap::new();
-        apply_data_defaults(&mut data, true);
+        let version = OfficialClientVersion::new("9.8.7").expect("version");
+        apply_data_defaults(&mut data, true, &version);
         let mut quota = HeaderMap::new();
-        apply_quota_defaults(&mut quota);
+        apply_quota_defaults(&mut quota, &version);
 
         assert_eq!(data["user-agent"], quota["user-agent"]);
         assert_eq!(
@@ -80,8 +86,9 @@ mod tests {
             quota["x-grok-client-identifier"]
         );
         assert_eq!(data["x-grok-client-mode"], quota["x-grok-client-mode"]);
-        assert_eq!(data["user-agent"], user_agent_text());
-        assert!(user_agent_text().contains(std::env::consts::OS));
-        assert!(user_agent_text().contains(std::env::consts::ARCH));
+        assert_eq!(data["x-grok-client-version"], "9.8.7");
+        assert_eq!(data["user-agent"], user_agent_text(&version));
+        assert!(user_agent_text(&version).contains(std::env::consts::OS));
+        assert!(user_agent_text(&version).contains(std::env::consts::ARCH));
     }
 }

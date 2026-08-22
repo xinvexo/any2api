@@ -9,6 +9,7 @@ use url::Url;
 use crate::grok::oauth;
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
+    api::OfficialClientVersion,
     oauth::quota::{
         OAuthQuotaBilling, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaUsage,
         OAuthQuotaWindow, OAuthQuotaWindowKind,
@@ -19,13 +20,16 @@ const BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=cre
 const SUBSCRIPTION_URL: &str = "https://cli-chat-proxy.grok.com/v1/user?include=subscription";
 const MAX_SAFE_INTEGER_MINOR: u64 = 9_007_199_254_740_991;
 
-pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPlan, ProviderError> {
+pub(crate) fn query_plan(
+    token: &OAuthTokenMaterial,
+    version: &OfficialClientVersion,
+) -> Result<OAuthQuotaQueryPlan, ProviderError> {
     if token.provider() != ProviderKind::Grok {
         return Err(ProviderError::InvalidCredential(
             "OAuth token provider does not match Grok quota".into(),
         ));
     }
-    let headers = request_headers(token)?;
+    let headers = request_headers(token, version)?;
     let usage = get(BILLING_URL, headers.clone())?;
     let supplement = get(SUBSCRIPTION_URL, headers)?;
     Ok(OAuthQuotaQueryPlan::with_supplement(usage, supplement))
@@ -97,6 +101,7 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
 
 pub(super) fn request_headers(
     token: &OAuthTokenMaterial,
+    version: &OfficialClientVersion,
 ) -> Result<http::HeaderMap, ProviderError> {
     if token.provider() != ProviderKind::Grok {
         return Err(ProviderError::InvalidCredential(
@@ -107,7 +112,7 @@ pub(super) fn request_headers(
         ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
     })?;
     let mut headers = oauth::credential_headers(token)?.headers;
-    super::super::identity::apply_quota_defaults(&mut headers);
+    super::super::identity::apply_quota_defaults(&mut headers, version);
     headers.insert(
         "x-userid",
         HeaderValue::from_str(account_id).map_err(|_| {

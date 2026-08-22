@@ -4,7 +4,7 @@ use any2api_domain::ProviderKind;
 use http::{Method, header};
 
 use super::*;
-use crate::OAuthTokenMaterial;
+use crate::{OAuthTokenMaterial, api::OfficialClientVersion};
 
 fn token() -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -21,7 +21,10 @@ fn token() -> OAuthTokenMaterial {
 
 #[test]
 fn builds_fixed_usage_query_with_claude_code_identity() {
-    let (usage, probe, credits) = query_plan(&token()).expect("query plan").into_parts();
+    let version = OfficialClientVersion::new("9.8.7").expect("version");
+    let (usage, probe, credits) = query_plan(&token(), &version)
+        .expect("query plan")
+        .into_parts();
 
     assert_eq!(usage.method, Method::GET);
     assert_eq!(
@@ -35,7 +38,7 @@ fn builds_fixed_usage_query_with_claude_code_identity() {
     );
     assert_eq!(usage.headers[header::CONTENT_TYPE], "application/json");
     assert_eq!(usage.headers["anthropic-beta"], "oauth-2025-04-20");
-    assert_eq!(usage.headers[header::USER_AGENT], "claude-code/2.1.220");
+    assert_eq!(usage.headers[header::USER_AGENT], "claude-code/9.8.7");
     assert!(usage.body.is_empty());
     assert!(probe.is_none());
     assert!(credits.is_none());

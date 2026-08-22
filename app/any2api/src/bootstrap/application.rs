@@ -1,8 +1,8 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
-    SnapshotStore,
+    ConfigPublisher, OAuthService, OfficialClientVersionService, PublishedSnapshot,
+    RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 use any2api_server::api::{AdminAuthService, AppServices, AppState, WebAssets, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -86,6 +86,16 @@ pub(super) async fn run(
         )
         .context("failed to compile the stored configuration")?,
     ));
+    let official_client_versions = OfficialClientVersionService::new(
+        request_components.provider_registry_handle(),
+        request_components.transport_manager(),
+        Arc::clone(&snapshots),
+        Arc::clone(&storage),
+    );
+    official_client_versions
+        .initialize()
+        .await
+        .context("failed to initialize official client versions")?;
     let snapshot_reconciler = Arc::new(AppSnapshotReconciler::new(
         Arc::clone(&telemetry),
         file_logging.control(),
@@ -160,6 +170,10 @@ pub(super) async fn run(
     anyhow::ensure!(
         oauth.start_quota_worker(&lifecycle),
         "OAuth quota activity worker was already started"
+    );
+    anyhow::ensure!(
+        official_client_versions.start(&lifecycle),
+        "official client version worker was already started"
     );
     anyhow::ensure!(
         runtime.start_affinity_sweeper(publisher),

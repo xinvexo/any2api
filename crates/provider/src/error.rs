@@ -23,6 +23,8 @@ pub enum ProviderError {
         provider: ProviderKind,
         model: String,
     },
+    #[error("official client version is unavailable for provider {0:?}")]
+    OfficialClientVersionUnavailable(ProviderKind),
     #[error("invalid provider response: {0}")]
     InvalidResponse(String),
 }

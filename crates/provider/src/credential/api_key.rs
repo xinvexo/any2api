@@ -90,9 +90,10 @@ mod tests {
 
     #[test]
     fn model_catalog_is_sorted_and_deduplicated() {
-        let models =
-            parse_model_catalog(br#"{"data":[{"id":"gpt-z"},{"id":"gpt-a"},{"id":"gpt-z"}]}"#)
-                .expect("model catalog");
+        let models = parse_model_catalog(
+            br#"{"data":[{"id":"gpt-z"},{"id":"gpt-a","supported_in_api":false},{"id":"gpt-z"}]}"#,
+        )
+        .expect("model catalog");
 
         assert_eq!(models, ["gpt-a", "gpt-z"]);
     }

@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use any2api_contract_tests::seed_official_client_versions;
 use any2api_domain::{
     ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId,
     OAuthProxySelection, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId,
@@ -63,7 +64,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             models: vec!["gpt-5.5".into()],
             document: OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"access_token":"oauth-access-secret","refresh_token":null,"id_token":null,"account_id":"account-123","email":"person@example.com"}"#
+                br#"{"access_token":"oauth-access-secret","refresh_token":null,"id_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIn19.signature","account_id":"account-123","email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )
@@ -222,6 +223,7 @@ fn providers() -> Arc<ProviderRegistry> {
     providers
         .register(Arc::new(ClaudeDriver::new()))
         .expect("Claude driver");
+    seed_official_client_versions(&providers);
     Arc::new(providers)
 }
 

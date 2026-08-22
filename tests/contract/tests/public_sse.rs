@@ -298,7 +298,7 @@ async fn buffered_status_and_200_envelope_failures_recover_across_candidates() {
     select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
 
     let response = request(
-        app,
+        app.clone(),
         "/v1/responses",
         json!({"model":"gpt-upstream","input":"hello"}),
         remote,
@@ -324,6 +324,7 @@ async fn buffered_status_and_200_envelope_failures_recover_across_candidates() {
         .map(|request| request.headers["authorization"].as_str())
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(authorizations.len(), 3);
+    assert_eq!(public_requests_in_window(&app, remote).await, 1);
 }
 
 #[tokio::test]
@@ -2088,6 +2089,19 @@ async fn requests_in_window(app: &Router, remote: SocketAddr) -> u64 {
     .await["totals"]["requests_in_window"]
         .as_u64()
         .expect("requests in window")
+}
+
+async fn public_requests_in_window(app: &Router, remote: SocketAddr) -> u64 {
+    request_admin_method(
+        app.clone(),
+        Method::GET,
+        "/api/admin/balancing",
+        None,
+        remote,
+    )
+    .await["public_requests_in_window"]
+        .as_u64()
+        .expect("public requests in window")
 }
 
 fn spawn_follow_up(

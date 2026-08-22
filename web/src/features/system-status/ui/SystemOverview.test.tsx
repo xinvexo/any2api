@@ -47,6 +47,7 @@ test("shows resource and request load bands, then refreshes the system queries",
   expect(screen.queryByText("内存回收阻塞")).not.toBeInTheDocument();
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
+  expect(screen.getByText("27")).toBeInTheDocument();
   expect(screen.getByText("账号与密钥")).toBeInTheDocument();
   expect(screen.getByText("已达每分钟上限")).toBeInTheDocument();
   expect(screen.queryByRole("progressbar", { name: "近 60 秒请求 使用率" }))
@@ -122,6 +123,7 @@ test("keeps the last snapshot visible and marks a disconnected stream stale", ()
 
 interface RuntimeQuery {
   data: {
+    publicRequestsInWindow: number;
     process: { shutdownPhase: "running"; activeRequests: number; backgroundTasks: number };
     queue: { waiting: number; maxWaiting: number };
     totals: {
@@ -160,6 +162,7 @@ interface ResourcesQuery {
 function runtimeQuery(refetch: () => Promise<{ isSuccess: boolean }>): RuntimeQuery {
   return {
     data: {
+      publicRequestsInWindow: 27,
       process: { shutdownPhase: "running", activeRequests: 1, backgroundTasks: 0 },
       queue: { waiting: 2, maxWaiting: 128 },
       totals: {

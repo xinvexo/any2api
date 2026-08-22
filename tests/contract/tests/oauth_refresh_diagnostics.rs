@@ -45,7 +45,7 @@ async fn refresh_rejection_exposes_one_safe_diagnostic_across_error_account_and_
             vec!["gpt-5.5".into()],
             OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":null,"account_id":"account-123","email":"person@example.com"}"#
+                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIn19.signature","account_id":"account-123","email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )

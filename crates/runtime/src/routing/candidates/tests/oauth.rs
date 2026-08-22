@@ -10,7 +10,7 @@ use any2api_protocol::{
     OpenAiResponsesAdapter,
     api::{ProtocolRegistry, RequestExecutionProfile},
 };
-use any2api_provider::{GrokDriver, api::ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::OAuthAccountDocument;
 
 use super::{PublisherFixture, publisher_fixture};
@@ -97,7 +97,7 @@ async fn grok_oauth_routes_responses_but_not_compact() {
 
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(GrokDriver::new()))
+        .register(Arc::new(crate::test_support::grok_driver()))
         .expect("Grok driver");
     let mut protocols = ProtocolRegistry::new();
     protocols

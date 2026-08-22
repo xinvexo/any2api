@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use any2api_contract_tests::seed_official_client_versions;
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProtocolOperation,
     ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
@@ -258,6 +259,7 @@ fn build_service(transport: Arc<CallGateTransport>) -> PublicRequestService {
     providers
         .register(Arc::new(CodexDriver::new()))
         .expect("Codex driver");
+    seed_official_client_versions(&providers);
     PublicRequestService::new(Arc::new(protocols), Arc::new(providers), transport)
         .expect("public request service")
 }

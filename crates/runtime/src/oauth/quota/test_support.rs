@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
-use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
@@ -232,48 +232,44 @@ impl QuotaTestContext {
 fn providers() -> Arc<ProviderRegistry> {
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(crate::test_support::codex_driver()))
         .expect("Codex driver");
     providers
-        .register(Arc::new(GrokDriver::new()))
+        .register(Arc::new(crate::test_support::grok_driver()))
         .expect("Grok driver");
     providers
-        .register(Arc::new(ClaudeDriver::new()))
+        .register(Arc::new(crate::test_support::claude_driver()))
         .expect("Claude driver");
     Arc::new(providers)
 }
 
 fn codex_oauth_document() -> OAuthAccountDocument {
+    let id_token = codex_id_token_for_plan("free");
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"access_token":"old-access","refresh_token":"old-refresh","id_token":null,"account_id":"account-123","email":null}"#
-            .to_vec()
-            .into(),
+        serde_json::json!({
+            "access_token": "old-access",
+            "refresh_token": "old-refresh",
+            "id_token": id_token,
+            "account_id": "account-123",
+            "email": null,
+        })
+        .to_string()
+        .into_bytes()
+        .into(),
     )
     .expect("OAuth document")
 }
 
 fn codex_oauth_document_for(account_id: &str) -> OAuthAccountDocument {
-    let document = format!(
-        r#"{{"access_token":"old-access-{account_id}","refresh_token":"old-refresh-{account_id}","id_token":null,"account_id":"{account_id}","email":null}}"#,
-    );
-    OAuthAccountDocument::new(ProviderKind::Codex, document.into_bytes().into())
-        .expect("OAuth document")
+    codex_oauth_document_for_plan(account_id, "free")
 }
 
 fn codex_oauth_document_for_plan(account_id: &str, plan: &str) -> OAuthAccountDocument {
-    let payload = URL_SAFE_NO_PAD.encode(
-        serde_json::json!({
-            "https://api.openai.com/auth": {
-                "chatgpt_plan_type": plan,
-            },
-        })
-        .to_string(),
-    );
     let document = serde_json::json!({
         "access_token": format!("old-access-{account_id}"),
         "refresh_token": format!("old-refresh-{account_id}"),
-        "id_token": format!("header.{payload}.signature"),
+        "id_token": codex_id_token_for_plan(plan),
         "account_id": account_id,
         "email": null,
     });
@@ -284,12 +280,32 @@ fn codex_oauth_document_for_plan(account_id: &str, plan: &str) -> OAuthAccountDo
     .expect("OAuth document")
 }
 
+fn codex_id_token_for_plan(plan: &str) -> String {
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_plan_type": plan,
+            },
+        })
+        .to_string(),
+    );
+    format!("header.{payload}.signature")
+}
+
 fn codex_oauth_document_without_refresh_token() -> OAuthAccountDocument {
+    let id_token = codex_id_token_for_plan("free");
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"access_token":"old-access","refresh_token":null,"id_token":null,"account_id":"account-123","email":null}"#
-            .to_vec()
-            .into(),
+        serde_json::json!({
+            "access_token": "old-access",
+            "refresh_token": null,
+            "id_token": id_token,
+            "account_id": "account-123",
+            "email": null,
+        })
+        .to_string()
+        .into_bytes()
+        .into(),
     )
     .expect("OAuth document")
 }

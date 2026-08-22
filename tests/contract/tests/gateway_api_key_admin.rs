@@ -98,6 +98,19 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
     assert_eq!(unchanged.headers["etag"], etag);
     assert_eq!(unchanged.headers["x-models-etag"], etag);
 
+    let balancing = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/balancing",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(balancing.status, StatusCode::OK);
+    assert_eq!(balancing.body["public_requests_in_window"], 2);
+    assert_eq!(balancing.body["totals"]["requests_in_window"], 0);
+
     let used = request_json(
         app.clone(),
         Method::GET,

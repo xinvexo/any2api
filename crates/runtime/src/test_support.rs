@@ -7,7 +7,8 @@ use any2api_protocol::{
     api::ProtocolRegistry,
 };
 use any2api_provider::{
-    ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, OpenAiDriver, api::ProviderRegistry,
+    ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, OpenAiDriver,
+    api::{OfficialClientVersion, ProviderRegistry},
 };
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, ConfigurationTransactionOutcome,
@@ -15,6 +16,22 @@ use any2api_storage::api::{
 };
 
 use crate::configuration::ConfigurationCapabilities;
+
+pub(crate) fn codex_driver() -> CodexDriver {
+    CodexDriver::new_with_official_client_version(test_official_client_version("0.145.0"))
+}
+
+pub(crate) fn claude_driver() -> ClaudeDriver {
+    ClaudeDriver::new_with_official_client_version(test_official_client_version("2.1.220"))
+}
+
+pub(crate) fn grok_driver() -> GrokDriver {
+    GrokDriver::new_with_official_client_version(test_official_client_version("0.2.112"))
+}
+
+fn test_official_client_version(version: &str) -> OfficialClientVersion {
+    OfficialClientVersion::new(version).expect("valid test official client version")
+}
 
 pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     let mut protocols = ProtocolRegistry::new();
@@ -42,13 +59,13 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
         .register(Arc::new(OpenAiDriver::new()))
         .expect("OpenAI driver");
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(codex_driver()))
         .expect("Codex driver");
     providers
-        .register(Arc::new(ClaudeDriver::new()))
+        .register(Arc::new(claude_driver()))
         .expect("Claude driver");
     providers
-        .register(Arc::new(GrokDriver::new()))
+        .register(Arc::new(grok_driver()))
         .expect("Grok driver");
     providers
         .register(Arc::new(KimiDriver::new()))

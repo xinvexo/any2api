@@ -13,6 +13,7 @@ pub(crate) struct BalancingRuntimeResponse {
     transport: Option<TransportResponse>,
     breakers: BreakerResponse,
     telemetry: TelemetryResponse,
+    public_requests_in_window: u64,
     queue: QueueResponse,
     totals: TotalsResponse,
     providers: Vec<ProviderResponse>,
@@ -25,6 +26,7 @@ impl BalancingRuntimeResponse {
         lifecycle: &ProcessLifecycle,
         transport: Option<TransportRuntimeSnapshot>,
         telemetry: RequestTelemetryMetrics,
+        public_requests_in_window: u64,
     ) -> Self {
         let breakers = runtime.breakers();
         Self {
@@ -47,6 +49,7 @@ impl BalancingRuntimeResponse {
                 capacity: published.settings().logging().telemetry_queue_capacity(),
                 dropped: telemetry.dropped_records,
             },
+            public_requests_in_window,
             queue: QueueResponse::from(runtime),
             totals: TotalsResponse::from(runtime.totals()),
             providers: runtime

@@ -19,18 +19,14 @@ pub(super) fn project_name(
     let desired = match identity {
         ToolIdentity::Function { name } => sanitize(name),
         ToolIdentity::Custom { name } if chat_kind == ChatToolKind::Custom => sanitize(name),
-        ToolIdentity::Custom { name } => format!("any2api_custom__{}", sanitize(name)),
+        ToolIdentity::Custom { name } => format!("custom__{}", sanitize(name)),
         ToolIdentity::NamespaceFunction { namespace, name } => {
             format!("{}__{}", sanitize(namespace), sanitize(name))
         }
         ToolIdentity::NamespaceCustom { namespace, name } => {
-            format!(
-                "any2api_custom__{}__{}",
-                sanitize(namespace),
-                sanitize(name)
-            )
+            format!("custom__{}__{}", sanitize(namespace), sanitize(name))
         }
-        ToolIdentity::ToolSearch => "any2api_tool_search".to_owned(),
+        ToolIdentity::ToolSearch => "tool_search".to_owned(),
     };
     let lossless = matches!(identity, ToolIdentity::Function { name } if name == &desired)
         || matches!(identity, ToolIdentity::Custom { name } if chat_kind == ChatToolKind::Custom && name == &desired);

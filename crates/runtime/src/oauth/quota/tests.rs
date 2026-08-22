@@ -4,7 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_storage::api::OAuthModelCatalogSnapshotRepository;
+use any2api_storage::api::{OAuthModelCatalogSnapshotRepository, StoredOAuthModelCatalogSnapshot};
 use any2api_transport::api::TransportTrafficClass;
 
 use super::{
@@ -42,7 +42,7 @@ async fn only_manual_quota_refresh_reads_and_persists_the_live_model_catalog() {
         any2api_domain::ProviderKind::Codex
     );
     assert_eq!(catalogs[0].directory_scope, "free");
-    assert_eq!(catalogs[0].models, ["gpt-catalog-a"]);
+    assert_eq!(catalogs[0].models, ["chatgpt-only", "gpt-catalog-a"]);
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn manual_batch_refreshes_one_catalog_per_shared_scope() {
 }
 
 #[tokio::test]
-async fn manual_batch_refreshes_twenty_codex_accounts_with_two_plan_catalog_queries() {
+async fn manual_batch_refreshes_once_per_exact_codex_plan() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
     let mut ids = vec![context.account_id];
     for index in 1..10 {
@@ -105,28 +105,89 @@ async fn manual_batch_refreshes_twenty_codex_accounts_with_two_plan_catalog_quer
                 .await,
         );
     }
+    for index in 0..10 {
+        ids.push(
+            context
+                .add_codex_account_with_plan(&format!("prolite-account-{index}"), "prolite")
+                .await,
+        );
+    }
 
     let result = context.service.refresh_quota_batch(ids).await;
 
-    assert_eq!(result.succeeded().len(), 20);
+    assert_eq!(result.succeeded().len(), 30);
     assert!(result.failed().is_empty());
-    assert_eq!(result.model_catalog_refreshed_scopes(), 2);
+    assert_eq!(result.model_catalog_refreshed_scopes(), 3);
     assert_eq!(result.model_catalog_failed_scopes(), 0);
-    assert_eq!(context.transport.usage_calls(), 20);
-    assert_eq!(context.transport.model_catalog_calls(), 2);
+    assert_eq!(context.transport.usage_calls(), 30);
+    assert_eq!(context.transport.model_catalog_calls(), 3);
     let catalogs = context
         .storage
         .load_oauth_model_catalog_snapshots()
         .await
         .expect("catalog snapshots");
-    assert_eq!(catalogs.len(), 2);
+    assert_eq!(catalogs.len(), 3);
     assert_eq!(
         catalogs
             .iter()
             .map(|catalog| catalog.directory_scope.as_str())
             .collect::<Vec<_>>(),
-        ["free", "plus_or_pro"]
+        ["free", "plus", "prolite"]
     );
+}
+
+#[tokio::test]
+async fn manual_free_refresh_changes_only_the_free_plan_catalog() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    let plus = context
+        .add_codex_account_with_plan("plus-account", "plus")
+        .await;
+    let prolite = context
+        .add_codex_account_with_plan("prolite-account", "prolite")
+        .await;
+    for (scope, fetched_at, model) in [
+        ("free", 10, "free-before"),
+        ("plus", 11, "plus-before"),
+        ("prolite", 12, "prolite-before"),
+    ] {
+        context
+            .storage
+            .upsert_oauth_model_catalog_snapshot(&StoredOAuthModelCatalogSnapshot {
+                provider_kind: any2api_domain::ProviderKind::Codex,
+                directory_scope: scope.to_owned(),
+                fetched_at,
+                models: vec![model.to_owned()],
+            })
+            .await
+            .expect("seed model catalog");
+    }
+
+    let snapshot = context.snapshots.load();
+    let before = context
+        .service
+        .model_catalogs_for_accounts(snapshot.as_ref())
+        .await
+        .expect("catalogs before refresh");
+    drop(snapshot);
+
+    context
+        .service
+        .refresh_quota_manually(context.account_id)
+        .await
+        .expect("free quota refresh");
+
+    let snapshot = context.snapshots.load();
+    let after = context
+        .service
+        .model_catalogs_for_accounts(snapshot.as_ref())
+        .await
+        .expect("catalogs after refresh");
+    assert_eq!(
+        after[&context.account_id].models(),
+        ["chatgpt-only", "gpt-catalog-a"]
+    );
+    assert_eq!(after.get(&plus), before.get(&plus));
+    assert_eq!(after.get(&prolite), before.get(&prolite));
 }
 
 #[tokio::test]

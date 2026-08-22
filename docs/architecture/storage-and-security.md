@@ -9,6 +9,7 @@
 
 - 代理、Provider Endpoint、Provider API Key、OAuthAccount、Gateway API Key 和设置覆盖；
 - OAuth 模型目录与额度的必要快照；
+- Provider 官方客户端版本的最后一次成功快照；
 - 有界 RequestLog、RequestAttempt 和 HTTP 系统日志；
 - 管理员认证所需的当前持久化材料。
 

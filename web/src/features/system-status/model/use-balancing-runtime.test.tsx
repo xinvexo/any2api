@@ -51,6 +51,7 @@ function runtime(configRevision: number) {
   return {
     config_revision: configRevision,
     scheduler_epoch: 0,
+    public_requests_in_window: 0,
     process: { active_requests: 0, background_tasks: 0, shutdown_phase: "running" },
     transport: null,
     breakers: { closed: 0, open: 0, half_open: 0 },

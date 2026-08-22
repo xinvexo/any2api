@@ -317,7 +317,7 @@ fn oauth_document() -> OAuthAccountDocument {
         serde_json::to_vec(&serde_json::json!({
             "access_token": "old-access",
             "refresh_token": "old-refresh",
-            "id_token": "old-id-token",
+            "id_token": "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIn19.signature",
             "account_id": "account-123",
             "email": "person@example.com",
         }))

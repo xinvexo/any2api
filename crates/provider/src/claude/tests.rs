@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, RequestSpeedTier, TransportMode,
-    UpstreamErrorKind,
+    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, RequestSpeedTier,
+    TransportMode, UpstreamErrorKind,
 };
 use http::{
     HeaderMap, StatusCode,
@@ -9,13 +9,51 @@ use http::{
 
 use super::ClaudeDriver;
 use crate::api::{
-    OAuthAuthorizationCodeProvider, OAuthRoutingProvider, OAuthTokenProvider, ProviderDriver,
-    ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
+    OAuthAuthorizationCodeProvider, OAuthRoutingProvider, OAuthTokenProvider,
+    OfficialClientVersion, ProviderDriver, ProviderError, ProviderRequestContext, ProviderSecret,
+    UpstreamResponseMeta,
 };
+
+fn driver() -> ClaudeDriver {
+    ClaudeDriver::new_with_official_client_version(
+        OfficialClientVersion::new("9.8.7").expect("version"),
+    )
+}
+
+#[test]
+fn version_dependent_requests_require_a_published_official_version() {
+    let driver = ClaudeDriver::new();
+    let client_headers = HeaderMap::new();
+    let context = ProviderRequestContext {
+        ingress_dialect: ProtocolDialect::AnthropicMessages,
+        upstream_operation: ProtocolOperation::Messages,
+        upstream_model: "claude",
+        client_headers: &client_headers,
+        oauth: true,
+        allow_credential_bound: true,
+        allow_session_replay: true,
+        allow_turn_state: false,
+    };
+    assert_eq!(
+        driver
+            .prepare_request_headers(context)
+            .expect_err("missing version"),
+        ProviderError::OfficialClientVersionUnavailable(ProviderKind::Claude)
+    );
+
+    let versions = driver
+        .official_client_version()
+        .expect("official client version facet");
+    versions.publish_official_client_version(OfficialClientVersion::new("9.8.7").expect("version"));
+    assert_eq!(
+        driver.prepare_request_headers(context).expect("headers")["user-agent"],
+        "claude-code/9.8.7"
+    );
+}
 
 #[test]
 fn gates_speed_tier_to_messages_requests() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let headers = HeaderMap::new();
     let context = |operation| ProviderRequestContext {
         ingress_dialect: ProtocolDialect::AnthropicMessages,
@@ -57,7 +95,7 @@ fn gates_speed_tier_to_messages_requests() {
 
 #[test]
 fn builds_messages_paths_and_anthropic_headers() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let base = ProviderBaseUrl::parse("https://api.example.com/gateway").expect("base URL");
     assert_eq!(
         driver
@@ -141,7 +179,7 @@ fn builds_messages_paths_and_anthropic_headers() {
 
 #[test]
 fn count_tokens_not_found_is_operation_unavailable() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let response = UpstreamResponseMeta {
         status: StatusCode::NOT_FOUND,
         headers: HeaderMap::new(),
@@ -165,7 +203,7 @@ fn count_tokens_not_found_is_operation_unavailable() {
 
 #[test]
 fn builds_pkce_json_token_request() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let authorization = driver
         .oauth_authorization_url("state-value", "challenge-value")
         .expect("authorization URL");
@@ -200,7 +238,7 @@ fn builds_pkce_json_token_request() {
 
 #[test]
 fn parses_claude_account_email() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(
             br#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600,"account":{"email_address":"claude@example.com"}}"#,
@@ -228,7 +266,7 @@ fn parses_claude_account_email() {
 
 #[test]
 fn builds_claude_oauth_headers_and_preserves_client_betas() {
-    let driver = ClaudeDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(br#"{"access_token":"oauth-secret","expires_in":3600}"#)
         .expect("OAuth token response");

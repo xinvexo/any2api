@@ -23,6 +23,7 @@ interface BalancingProvider extends BalancingTotals {
 export interface BalancingRuntime {
   configRevision: number;
   schedulerEpoch: number;
+  publicRequestsInWindow: number;
   process: {
     activeRequests: number;
     backgroundTasks: number;
@@ -64,6 +65,7 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
   return {
     configRevision: positive(root.config_revision),
     schedulerEpoch: integer(root.scheduler_epoch),
+    publicRequestsInWindow: integer(root.public_requests_in_window),
     process: {
       activeRequests: integer(process.active_requests),
       backgroundTasks: integer(process.background_tasks),

@@ -107,7 +107,7 @@ pub(crate) fn encode(
     payload: &MultipartPayload,
     upstream_model: &str,
 ) -> Result<(Bytes, HeaderValue), ProtocolError> {
-    let boundary = format!("any2api_{}", Uuid::new_v4().simple());
+    let boundary = Uuid::new_v4().simple().to_string();
     if payload.parts.get(payload.model_part_index).is_none() {
         return Err(ProtocolError::InvalidPayload(
             "multipart model part is missing".into(),

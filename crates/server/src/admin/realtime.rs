@@ -176,6 +176,7 @@ async fn sample_once(
         &lifecycle,
         public_requests.transport_runtime_snapshot(),
         telemetry_metrics,
+        telemetry.public_requests_in_window(),
     );
     let resources = OverviewResourcesResponse::new(metrics);
     Ok(OverviewSnapshot::fresh(

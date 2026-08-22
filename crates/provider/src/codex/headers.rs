@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderName};
 
 use crate::{
     ProviderError,
-    api::ProviderRequestContext,
+    api::{OfficialClientVersion, ProviderRequestContext},
     header_policy::{ordered_names, project},
     request_header_policy::{
         RequestHeaderOwnership::{BoundTurnState, CredentialOwned, Replayable, SessionScoped},
@@ -54,9 +54,12 @@ static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ])
 });
 
-pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, ProviderError> {
+pub(crate) fn request(
+    context: ProviderRequestContext<'_>,
+    version: &OfficialClientVersion,
+) -> Result<HeaderMap, ProviderError> {
     let mut headers = HeaderMap::new();
-    super::identity::apply_data_defaults(&mut headers);
+    super::identity::apply_data_defaults(&mut headers, version);
     if context.ingress_dialect == context.upstream_operation.dialect() {
         headers.extend(project_request(
             context.client_headers,
@@ -99,7 +102,11 @@ mod tests {
     use http::{HeaderMap, HeaderValue};
 
     use super::{request, response, supports_encoding};
-    use crate::api::ProviderRequestContext;
+    use crate::api::{OfficialClientVersion, ProviderRequestContext};
+
+    fn version() -> OfficialClientVersion {
+        OfficialClientVersion::new("9.8.7").expect("version")
+    }
 
     const OWNED_HEADERS: &[&str] = &["x-oai-attestation"];
     const REPLAYABLE_HEADERS: &[(&str, &str)] = &[
@@ -142,7 +149,7 @@ mod tests {
             allow_session_replay: true,
             allow_turn_state: false,
         };
-        let projected = request(context).expect("headers");
+        let projected = request(context, &version()).expect("headers");
         for name in OWNED_HEADERS {
             assert!(!projected.contains_key(*name), "unexpected {name}");
         }
@@ -152,12 +159,15 @@ mod tests {
         }
         assert_eq!(projected["originator"], "codex_cli_rs");
 
-        let owner = request(ProviderRequestContext {
-            allow_credential_bound: true,
-            allow_session_replay: true,
-            allow_turn_state: true,
-            ..context
-        })
+        let owner = request(
+            ProviderRequestContext {
+                allow_credential_bound: true,
+                allow_session_replay: true,
+                allow_turn_state: true,
+                ..context
+            },
+            &version(),
+        )
         .expect("owner headers");
         for name in OWNED_HEADERS {
             assert_eq!(owner[*name], "owned", "missing {name}");
@@ -184,14 +194,17 @@ mod tests {
             allow_turn_state: false,
         };
 
-        let unbound = request(context).expect("unbound headers");
+        let unbound = request(context, &version()).expect("unbound headers");
         assert_eq!(unbound["session-id"], "session");
         assert!(!unbound.contains_key("x-codex-turn-state"));
 
-        let bound = request(ProviderRequestContext {
-            allow_turn_state: true,
-            ..context
-        })
+        let bound = request(
+            ProviderRequestContext {
+                allow_turn_state: true,
+                ..context
+            },
+            &version(),
+        )
         .expect("bound headers");
         assert_eq!(bound["x-codex-turn-state"], "turn");
     }

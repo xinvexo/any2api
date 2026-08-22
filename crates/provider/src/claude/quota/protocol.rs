@@ -8,6 +8,7 @@ use url::Url;
 
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
+    api::OfficialClientVersion,
     oauth::quota::{
         OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaWindow,
         OAuthQuotaWindowKind,
@@ -16,7 +17,10 @@ use crate::{
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 
-pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPlan, ProviderError> {
+pub(crate) fn query_plan(
+    token: &OAuthTokenMaterial,
+    version: &OfficialClientVersion,
+) -> Result<OAuthQuotaQueryPlan, ProviderError> {
     if token.provider() != ProviderKind::Claude {
         return Err(ProviderError::InvalidCredential(
             "OAuth token provider does not match Claude quota".into(),
@@ -29,7 +33,7 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
         })?;
     authorization.set_sensitive(true);
     headers.insert(header::AUTHORIZATION, authorization);
-    super::super::identity::apply_quota_defaults(&mut headers);
+    super::super::identity::apply_quota_defaults(&mut headers, version);
     let usage = OAuthRequestPlan {
         method: Method::GET,
         url: Url::parse(USAGE_URL)

@@ -1,10 +1,14 @@
 use super::{
-    error as claude_error, headers as claude_headers, import as claude_import,
-    model_catalog as claude_model_catalog, oauth as claude_oauth, quota as claude_quota,
+    client_version as claude_client_version, error as claude_error, headers as claude_headers,
+    import as claude_import, model_catalog as claude_model_catalog, oauth as claude_oauth,
+    quota as claude_quota,
 };
+use std::sync::Arc;
+
 use any2api_domain::{
     ProtocolOperation, ProviderBaseUrl, ProviderKind, RequestSpeedTier, TransportMode,
 };
+use arc_swap::ArcSwapOption;
 use http::{HeaderMap, HeaderValue};
 use url::Url;
 
@@ -15,8 +19,9 @@ use crate::{
         OAuthCapabilities, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
         OAuthModelCatalogScope, OAuthQuotaProvider, OAuthQuotaQueryPlan, OAuthQuotaUsage,
         OAuthRequestPlan, OAuthRoutingProfile, OAuthRoutingProvider, OAuthTokenMaterial,
-        OAuthTokenProvider, ProviderDescriptor, ProviderDriver, ProviderRequestContext,
-        UpstreamResponseMeta,
+        OAuthTokenProvider, OfficialClientVersion, OfficialClientVersionProvider,
+        OfficialClientVersionRequestPlan, ProviderDescriptor, ProviderDriver,
+        ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -41,7 +46,9 @@ const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
 );
 
 #[derive(Debug)]
-pub struct ClaudeDriver;
+pub struct ClaudeDriver {
+    official_client_version: ArcSwapOption<OfficialClientVersion>,
+}
 
 impl Default for ClaudeDriver {
     fn default() -> Self {
@@ -51,8 +58,17 @@ impl Default for ClaudeDriver {
 
 impl ClaudeDriver {
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {
+            official_client_version: ArcSwapOption::empty(),
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_official_client_version(version: OfficialClientVersion) -> Self {
+        Self {
+            official_client_version: ArcSwapOption::from(Some(Arc::new(version))),
+        }
     }
 }
 
@@ -105,7 +121,8 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
-        claude_headers::request(context)
+        let version = self.require_official_client_version()?;
+        claude_headers::request(context, &version)
     }
 
     fn request_speed_tier(
@@ -164,6 +181,10 @@ impl ProviderDriver for ClaudeDriver {
         Some(self)
     }
 
+    fn official_client_version(&self) -> Option<&dyn OfficialClientVersionProvider> {
+        Some(self)
+    }
+
     fn classify_error(
         &self,
         operation: ProtocolOperation,
@@ -171,6 +192,29 @@ impl ProviderDriver for ClaudeDriver {
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamError {
         claude_error::classify(operation, meta, bounded_body)
+    }
+}
+
+impl OfficialClientVersionProvider for ClaudeDriver {
+    fn latest_official_client_version_plan(
+        &self,
+    ) -> Result<OfficialClientVersionRequestPlan, ProviderError> {
+        claude_client_version::request_plan()
+    }
+
+    fn parse_latest_official_client_version(
+        &self,
+        bounded_body: &[u8],
+    ) -> Result<OfficialClientVersion, ProviderError> {
+        claude_client_version::parse(bounded_body)
+    }
+
+    fn current_official_client_version(&self) -> Option<Arc<OfficialClientVersion>> {
+        self.official_client_version.load_full()
+    }
+
+    fn publish_official_client_version(&self, version: OfficialClientVersion) {
+        self.official_client_version.store(Some(Arc::new(version)));
     }
 }
 
@@ -262,7 +306,8 @@ impl OAuthQuotaProvider for ClaudeDriver {
         &self,
         token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
-        claude_quota::query_plan(token).map(Some)
+        let version = self.require_official_client_version()?;
+        claude_quota::query_plan(token, &version).map(Some)
     }
 
     fn parse_oauth_quota_usage(

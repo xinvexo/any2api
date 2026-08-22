@@ -1,12 +1,16 @@
 use super::{
-    headers as codex_headers, import as codex_import, model_catalog as codex_model_catalog,
-    oauth as codex_oauth, quota as codex_quota, request as codex_request,
+    client_version as codex_client_version, headers as codex_headers, import as codex_import,
+    model_catalog as codex_model_catalog, oauth as codex_oauth, quota as codex_quota,
+    request as codex_request,
 };
+use std::sync::Arc;
+
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding, RequestSpeedTier,
     TransportMode,
 };
 use any2api_protocol::api::{OpenAiChatCompletionsProfile, ProtocolTargetProfile};
+use arc_swap::ArcSwapOption;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use url::Url;
@@ -19,6 +23,7 @@ use crate::{
         OAuthModelCatalogScope, OAuthPrincipalIdentity, OAuthQuotaProvider, OAuthQuotaRejection,
         OAuthQuotaResetProvider, OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthRoutingProvider, OAuthTokenMaterial, OAuthTokenProvider,
+        OfficialClientVersion, OfficialClientVersionProvider, OfficialClientVersionRequestPlan,
         ProviderDescriptor, ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -51,7 +56,9 @@ const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
 );
 
 #[derive(Debug)]
-pub struct CodexDriver;
+pub struct CodexDriver {
+    official_client_version: ArcSwapOption<OfficialClientVersion>,
+}
 
 impl Default for CodexDriver {
     fn default() -> Self {
@@ -61,8 +68,17 @@ impl Default for CodexDriver {
 
 impl CodexDriver {
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {
+            official_client_version: ArcSwapOption::empty(),
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_official_client_version(version: OfficialClientVersion) -> Self {
+        Self {
+            official_client_version: ArcSwapOption::from(Some(Arc::new(version))),
+        }
     }
 }
 
@@ -142,7 +158,8 @@ impl ProviderDriver for CodexDriver {
         &self,
         context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
-        codex_headers::request(context)
+        let version = self.require_official_client_version()?;
+        codex_headers::request(context, &version)
     }
 
     fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {
@@ -187,6 +204,10 @@ impl ProviderDriver for CodexDriver {
         Some(self)
     }
 
+    fn official_client_version(&self) -> Option<&dyn OfficialClientVersionProvider> {
+        Some(self)
+    }
+
     fn classify_error(
         &self,
         _operation: ProtocolOperation,
@@ -194,6 +215,29 @@ impl ProviderDriver for CodexDriver {
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamError {
         openai_error::classify(meta, bounded_body)
+    }
+}
+
+impl OfficialClientVersionProvider for CodexDriver {
+    fn latest_official_client_version_plan(
+        &self,
+    ) -> Result<OfficialClientVersionRequestPlan, ProviderError> {
+        codex_client_version::request_plan()
+    }
+
+    fn parse_latest_official_client_version(
+        &self,
+        bounded_body: &[u8],
+    ) -> Result<OfficialClientVersion, ProviderError> {
+        codex_client_version::parse(bounded_body)
+    }
+
+    fn current_official_client_version(&self) -> Option<Arc<OfficialClientVersion>> {
+        self.official_client_version.load_full()
+    }
+
+    fn publish_official_client_version(&self, version: OfficialClientVersion) {
+        self.official_client_version.store(Some(Arc::new(version)));
     }
 }
 
@@ -274,7 +318,8 @@ impl OAuthRoutingProvider for CodexDriver {
         &self,
         token: &OAuthTokenMaterial,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        codex_model_catalog::request_plan(token)
+        let version = self.require_official_client_version()?;
+        codex_model_catalog::request_plan(token, &version)
     }
 
     fn parse_oauth_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {

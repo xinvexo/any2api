@@ -1,3 +1,4 @@
+mod client_version;
 mod driver;
 mod error;
 mod headers;

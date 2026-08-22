@@ -10,6 +10,7 @@ mod migration;
 mod oauth_account;
 mod oauth_model_catalog_snapshot;
 mod oauth_quota_snapshot;
+mod official_client_version;
 mod provider;
 mod proxy;
 mod request_log;

@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
-use any2api_provider::{CodexDriver, api::ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
@@ -318,7 +318,7 @@ impl RefreshTestContext {
 fn providers() -> Arc<ProviderRegistry> {
     let mut providers = ProviderRegistry::new();
     providers
-        .register(Arc::new(CodexDriver::new()))
+        .register(Arc::new(crate::test_support::codex_driver()))
         .expect("Codex driver");
     Arc::new(providers)
 }

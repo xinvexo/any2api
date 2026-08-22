@@ -4,6 +4,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use any2api_contract_tests::seed_official_client_versions;
 use any2api_domain::{
     CredentialId, CredentialKind, GatewayApiKeyDraft, ProtocolDialect, ProtocolOperation,
     ProviderCredentialDraft, ProviderCredentialModel, ProviderEndpointDraft, ProviderEndpointId,
@@ -454,6 +455,7 @@ fn build_service(transport: Arc<RecordingTransport>) -> PublicRequestService {
     providers
         .register(Arc::new(CodexDriver::new()))
         .expect("Codex driver");
+    seed_official_client_versions(&providers);
     PublicRequestService::new(Arc::new(protocols), Arc::new(providers), transport)
         .expect("public request service")
 }

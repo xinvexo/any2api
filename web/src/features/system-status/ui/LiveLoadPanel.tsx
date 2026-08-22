@@ -5,7 +5,7 @@ import type { BalancingRuntime } from "../api/balancing-contracts";
 import { OverviewMetricTile, ProgressBar } from "./OverviewMetricTile";
 
 export function LiveLoadPanel({ runtime }: { runtime: BalancingRuntime | undefined }) {
-  const requests = runtime ? formatCount(runtime.totals.requestsInWindow) : "—";
+  const requests = runtime ? formatCount(runtime.publicRequestsInWindow) : "—";
   const queueRatio = runtime ? ratioPercent(runtime.queue.waiting, runtime.queue.maxWaiting) : null;
   const enabledCredentialRatio = runtime
     ? ratioPercent(runtime.totals.enabledCredentialCount, runtime.totals.credentialCount)

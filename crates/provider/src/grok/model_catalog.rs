@@ -2,7 +2,10 @@ use any2api_domain::ProviderKind;
 use http::{HeaderValue, Method, header};
 use url::Url;
 
-use crate::{OAuthRequestPlan, OAuthTokenMaterial, ProviderError, oauth::OAuthModelCatalogScope};
+use crate::{
+    OAuthRequestPlan, OAuthTokenMaterial, ProviderError, api::OfficialClientVersion,
+    oauth::OAuthModelCatalogScope,
+};
 
 use super::{identity, oauth};
 
@@ -17,9 +20,12 @@ pub(crate) fn scope(token: &OAuthTokenMaterial) -> Result<OAuthModelCatalogScope
     OAuthModelCatalogScope::new(ProviderKind::Grok, "subscription")
 }
 
-pub(crate) fn request_plan(token: &OAuthTokenMaterial) -> Result<OAuthRequestPlan, ProviderError> {
+pub(crate) fn request_plan(
+    token: &OAuthTokenMaterial,
+    version: &OfficialClientVersion,
+) -> Result<OAuthRequestPlan, ProviderError> {
     let mut headers = oauth::credential_headers(token)?.headers;
-    identity::apply_data_defaults(&mut headers, true);
+    identity::apply_data_defaults(&mut headers, true, version);
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     Ok(OAuthRequestPlan {
         method: Method::GET,
@@ -39,7 +45,7 @@ mod tests {
     use super::{parse, request_plan, scope};
     use any2api_domain::ProviderKind;
 
-    use crate::OAuthTokenMaterial;
+    use crate::{OAuthTokenMaterial, api::OfficialClientVersion};
 
     #[test]
     fn uses_subscription_directory_and_oauth_identity_headers() {
@@ -57,13 +63,15 @@ mod tests {
             scope(&token).expect("scope").directory_scope(),
             "subscription"
         );
-        let plan = request_plan(&token).expect("catalog plan");
+        let version = OfficialClientVersion::new("9.8.7").expect("version");
+        let plan = request_plan(&token, &version).expect("catalog plan");
         assert_eq!(
             plan.url.as_str(),
             "https://cli-chat-proxy.grok.com/v1/models"
         );
         assert_eq!(plan.headers["x-userid"], "subject");
         assert_eq!(plan.headers["x-xai-token-auth"], "xai-grok-cli");
+        assert_eq!(plan.headers["x-grok-client-version"], "9.8.7");
         assert_eq!(
             parse(br#"{"data":[{"id":"grok-z"},{"id":"grok-a"}]}"#).expect("catalog"),
             ["grok-a", "grok-z"]

@@ -43,3 +43,4 @@
 "0042_add_openai_provider_kind.sql" = "d93b6f6291dde900645ecc05bb77c29ab9cd890503799f3601d3a16418dd96d8"
 "0043_remove_raw_http_access_capture.sql" = "c3ff5c6ebc61a7bef2ba915006903ef3ca0a3ab2cf931347804ed77bbaa50979"
 "0044_open_provider_endpoint_kind.sql" = "d6877924f23be71401eb38f7b0a9e377d05a9acd64548f4890c0bb630a4d0701"
+"0045_persist_official_client_versions.sql" = "73b9b776919c4ff42a9c2be2a12f1d3161b68e252b6ae64dcb99500c3c600d96"

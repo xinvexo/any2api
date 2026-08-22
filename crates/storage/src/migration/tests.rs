@@ -30,6 +30,7 @@ mod oauth_quota_snapshot_v7;
 mod oauth_quota_snapshot_v8;
 mod oauth_quota_snapshot_v9;
 mod oauth_quota_snapshots;
+mod official_client_versions;
 mod plaintext_schema;
 mod provider_kind_kimi;
 mod provider_kind_openai;
@@ -128,6 +129,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (42, "add openai provider kind".to_owned()),
             (43, "remove raw http access capture".to_owned()),
             (44, "open provider endpoint kind".to_owned()),
+            (45, "persist official client versions".to_owned()),
         ]
     );
 
@@ -205,6 +207,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(oauth_model_catalog_schema.contains("provider_kind IN ('codex', 'claude', 'grok')"));
     assert!(oauth_model_catalog_schema.contains("PRIMARY KEY (provider_kind, directory_scope)"));
     assert!(oauth_model_catalog_schema.contains("length(models_json) BETWEEN 2 AND 131072"));
+    let official_versions_schema = table_schema(&pool, "official_client_versions").await;
+    assert!(official_versions_schema.contains("provider_kind TEXT PRIMARY KEY"));
+    assert!(official_versions_schema.contains("length(provider_kind) BETWEEN 1 AND 64"));
+    assert!(!official_versions_schema.contains("provider_kind IN"));
     let quota_boundary_exists: Option<i64> = sqlx::query_scalar(
         "SELECT 1 FROM sqlite_schema WHERE type = 'table' \
          AND name = 'oauth_quota_estimation_boundaries'",

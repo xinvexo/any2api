@@ -5,7 +5,6 @@ use any2api_protocol::{
     OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge,
     api::{DecodedRequest, IngressRequest, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolRegistry},
 };
-use any2api_provider::CodexDriver;
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{StreamExt, future, stream};
@@ -334,7 +333,7 @@ async fn bridged_body_with_idle_timeout(
             attempt_recorder: AttemptRecorder::disabled(),
             quota_activity: None,
             status_code: 200,
-            driver: Arc::new(CodexDriver::new()),
+            driver: Arc::new(crate::test_support::codex_driver()),
             upstream_operation: ProtocolOperation::ChatCompletions,
             upstream_headers: HeaderMap::new(),
             precommit_budget: PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),

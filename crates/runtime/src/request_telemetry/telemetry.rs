@@ -28,6 +28,7 @@ use super::{
     },
     metrics::{RequestTelemetryMetrics, TelemetryCounters},
     policy::RequestLogPolicy,
+    public_request_window::PublicRequestWindow,
     worker,
 };
 use crate::{
@@ -55,6 +56,7 @@ pub struct RequestTelemetry {
     prune_wakeup: Arc<Notify>,
     gateway_usage: Mutex<GatewayUsageTracker>,
     gateway_usage_debounce: GatewayUsageDebounce,
+    public_requests: PublicRequestWindow,
     pub(super) changes: LogChangeNotifier,
     pub(super) active_requests: ActiveRequestRegistry,
     pub(super) process_id: Uuid,
@@ -85,6 +87,7 @@ impl RequestTelemetry {
             prune_wakeup: Arc::new(Notify::new()),
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
+            public_requests: PublicRequestWindow::new(),
             changes,
             active_requests,
             process_id: Uuid::new_v4(),
@@ -147,6 +150,7 @@ impl RequestTelemetry {
             prune_wakeup,
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
+            public_requests: PublicRequestWindow::new(),
             changes,
             active_requests,
             process_id,
@@ -261,6 +265,15 @@ impl RequestTelemetry {
             policy.queue_capacity,
             policy.queue_max_bytes,
         );
+    }
+
+    pub fn record_public_request(&self) {
+        self.public_requests.record();
+    }
+
+    #[must_use]
+    pub fn public_requests_in_window(&self) -> u64 {
+        self.public_requests.count()
     }
 
     #[must_use]

@@ -9,8 +9,15 @@ use http::{HeaderMap, StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 use super::CodexDriver;
 use crate::api::{
     OAuthAuthorizationCodeProvider, OAuthQuotaProvider, OAuthRoutingProvider, OAuthTokenMaterial,
-    OAuthTokenProvider, ProviderDriver, ProviderRequestContext, ProviderSecret,
+    OAuthTokenProvider, OfficialClientVersion, ProviderDriver, ProviderError,
+    ProviderRequestContext, ProviderSecret,
 };
+
+fn driver() -> CodexDriver {
+    CodexDriver::new_with_official_client_version(
+        OfficialClientVersion::new("9.8.7").expect("version"),
+    )
+}
 
 fn request_context(
     headers: &HeaderMap,
@@ -30,8 +37,40 @@ fn request_context(
 }
 
 #[test]
-fn declares_the_current_openai_chat_target_profile() {
+fn version_dependent_requests_require_a_published_official_version() {
     let driver = CodexDriver::new();
+    let headers = HeaderMap::new();
+    assert_eq!(
+        driver
+            .prepare_request_headers(request_context(
+                &headers,
+                ProtocolOperation::Responses,
+                true,
+            ))
+            .expect_err("missing version"),
+        ProviderError::OfficialClientVersionUnavailable(ProviderKind::Codex)
+    );
+
+    let versions = driver
+        .official_client_version()
+        .expect("official client version facet");
+    assert!(versions.current_official_client_version().is_none());
+    versions.publish_official_client_version(OfficialClientVersion::new("9.8.7").expect("version"));
+    assert_eq!(
+        driver
+            .prepare_request_headers(request_context(
+                &headers,
+                ProtocolOperation::Responses,
+                true,
+            ))
+            .expect("headers")["user-agent"],
+        "codex_cli_rs/9.8.7"
+    );
+}
+
+#[test]
+fn declares_the_current_openai_chat_target_profile() {
+    let driver = driver();
 
     assert_eq!(
         driver.protocol_target_profile(ProtocolDialect::OpenAiChatCompletions, "gpt-5.4"),
@@ -47,7 +86,7 @@ fn declares_the_current_openai_chat_target_profile() {
 
 #[test]
 fn gates_responses_speed_tier_and_oauth_request_costs_without_body_parsing() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let headers = HeaderMap::new();
     let responses = request_context(&headers, ProtocolOperation::Responses, true);
 
@@ -89,7 +128,7 @@ fn gates_responses_speed_tier_and_oauth_request_costs_without_body_parsing() {
 
 #[test]
 fn builds_responses_paths_and_bearer_authentication() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let base = ProviderBaseUrl::parse("https://api.example.com/v1").expect("base URL");
     assert_eq!(
         driver
@@ -152,7 +191,7 @@ fn builds_responses_paths_and_bearer_authentication() {
 
 #[test]
 fn builds_pkce_authorization_and_token_requests() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let authorization = driver
         .oauth_authorization_url("state-value", "challenge-value")
         .expect("authorization URL");
@@ -204,7 +243,7 @@ fn builds_pkce_authorization_and_token_requests() {
 
 #[test]
 fn classifies_declared_codex_refresh_token_failures_as_permanent() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     for (code, expected) in [
         (
             "invalid_grant",
@@ -244,7 +283,7 @@ fn classifies_declared_codex_refresh_token_failures_as_permanent() {
 
 #[test]
 fn refresh_preserves_omitted_codex_identity_fields() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let previous = OAuthTokenMaterial::new(
         ProviderKind::Codex,
         "old-access".into(),
@@ -276,7 +315,7 @@ fn parses_codex_token_claims_without_logging_token_values() {
         br#"{"email":"person@example.com","https://api.openai.com/auth":{"chatgpt_account_id":"account-123","chatgpt_plan_type":"plus"}}"#,
     );
     let id_token = format!("header.{payload}.signature");
-    let driver = CodexDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(
             serde_json::json!({
@@ -338,7 +377,7 @@ fn codex_principal_identity_uses_member_claim_not_workspace_alone() {
         .expect("token")
     }
 
-    let driver = CodexDriver::new();
+    let driver = driver();
     let first = token("workspace-a", "member-a");
     let same_member = token("workspace-a", "member-a");
     let other_member = token("workspace-a", "member-b");
@@ -377,7 +416,7 @@ fn codex_principal_identity_uses_member_claim_not_workspace_alone() {
 
 #[test]
 fn missing_codex_plan_does_not_create_a_local_catalog() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(br#"{"access_token":"access-secret","expires_in":3600}"#)
         .expect("token response");
@@ -393,7 +432,7 @@ fn missing_codex_plan_does_not_create_a_local_catalog() {
 
 #[test]
 fn builds_codex_oauth_headers_from_token_response() {
-    let driver = CodexDriver::new();
+    let driver = driver();
     let token = driver
         .parse_oauth_token_response(
             br#"{"access_token":"oauth-secret","account_id":"account-123","expires_in":3600}"#,

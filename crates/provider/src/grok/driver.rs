@@ -1,8 +1,12 @@
 use super::{
-    headers as grok_headers, import as grok_import, model_catalog as grok_model_catalog,
-    oauth as grok_oauth, quota as grok_quota, upstream_error as grok_error,
+    client_version as grok_client_version, headers as grok_headers, import as grok_import,
+    model_catalog as grok_model_catalog, oauth as grok_oauth, quota as grok_quota,
+    upstream_error as grok_error,
 };
+use std::sync::Arc;
+
 use any2api_domain::{ProtocolOperation, ProviderKind, TransportMode};
+use arc_swap::ArcSwapOption;
 use http::HeaderMap;
 
 use crate::{
@@ -13,7 +17,8 @@ use crate::{
         OAuthImportedAccount, OAuthLoginFlow, OAuthModelCatalogScope, OAuthQuotaProvider,
         OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaSupplement,
         OAuthQuotaSupplementProvider, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthRoutingProvider, OAuthTokenMaterial, OAuthTokenProvider, ProviderDescriptor,
+        OAuthRoutingProvider, OAuthTokenMaterial, OAuthTokenProvider, OfficialClientVersion,
+        OfficialClientVersionProvider, OfficialClientVersionRequestPlan, ProviderDescriptor,
         ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -35,7 +40,9 @@ const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor::new(
 );
 
 #[derive(Debug)]
-pub struct GrokDriver;
+pub struct GrokDriver {
+    official_client_version: ArcSwapOption<OfficialClientVersion>,
+}
 
 impl Default for GrokDriver {
     fn default() -> Self {
@@ -45,8 +52,17 @@ impl Default for GrokDriver {
 
 impl GrokDriver {
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {
+            official_client_version: ArcSwapOption::empty(),
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_official_client_version(version: OfficialClientVersion) -> Self {
+        Self {
+            official_client_version: ArcSwapOption::from(Some(Arc::new(version))),
+        }
     }
 }
 
@@ -100,7 +116,8 @@ impl ProviderDriver for GrokDriver {
         &self,
         context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
-        grok_headers::request(context)
+        let version = self.require_official_client_version()?;
+        grok_headers::request(context, &version)
     }
 
     fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {
@@ -123,6 +140,10 @@ impl ProviderDriver for GrokDriver {
         Some(self)
     }
 
+    fn official_client_version(&self) -> Option<&dyn OfficialClientVersionProvider> {
+        Some(self)
+    }
+
     fn classify_error(
         &self,
         _operation: ProtocolOperation,
@@ -130,6 +151,29 @@ impl ProviderDriver for GrokDriver {
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamError {
         grok_error::classify(meta, bounded_body)
+    }
+}
+
+impl OfficialClientVersionProvider for GrokDriver {
+    fn latest_official_client_version_plan(
+        &self,
+    ) -> Result<OfficialClientVersionRequestPlan, ProviderError> {
+        grok_client_version::request_plan()
+    }
+
+    fn parse_latest_official_client_version(
+        &self,
+        bounded_body: &[u8],
+    ) -> Result<OfficialClientVersion, ProviderError> {
+        grok_client_version::parse(bounded_body)
+    }
+
+    fn current_official_client_version(&self) -> Option<Arc<OfficialClientVersion>> {
+        self.official_client_version.load_full()
+    }
+
+    fn publish_official_client_version(&self, version: OfficialClientVersion) {
+        self.official_client_version.store(Some(Arc::new(version)));
     }
 }
 
@@ -200,7 +244,8 @@ impl OAuthRoutingProvider for GrokDriver {
         &self,
         token: &OAuthTokenMaterial,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        grok_model_catalog::request_plan(token)
+        let version = self.require_official_client_version()?;
+        grok_model_catalog::request_plan(token, &version)
     }
 
     fn parse_oauth_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
@@ -221,7 +266,8 @@ impl OAuthQuotaProvider for GrokDriver {
         &self,
         token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
-        grok_quota::query_plan(token).map(Some)
+        let version = self.require_official_client_version()?;
+        grok_quota::query_plan(token, &version).map(Some)
     }
 
     fn classify_oauth_quota_rejection(

@@ -13,7 +13,6 @@ use any2api_protocol::{
     OpenAiResponsesAdapter,
     api::{DecodedRequest, IngressRequest, ProtocolRegistry},
 };
-use any2api_provider::CodexDriver;
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::stream;
@@ -126,7 +125,7 @@ async fn stateless_body(
             attempt_recorder: AttemptRecorder::disabled(),
             quota_activity: None,
             status_code: 200,
-            driver: Arc::new(CodexDriver::new()),
+            driver: Arc::new(crate::test_support::codex_driver()),
             upstream_operation: ProtocolOperation::Responses,
             upstream_headers: HeaderMap::new(),
             precommit_budget: PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),

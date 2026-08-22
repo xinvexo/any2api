@@ -5,6 +5,7 @@ mod gateway_usage;
 mod metrics;
 mod observation;
 mod policy;
+mod public_request_window;
 mod quota_fence;
 mod recorder;
 mod telemetry;

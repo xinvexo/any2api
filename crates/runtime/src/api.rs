@@ -29,6 +29,9 @@ pub use crate::oauth::{
     OAuthRefreshFailureReason, OAuthRefreshFailureScope, OAuthRefreshFailureStage,
     OAuthRefreshTrigger, OAuthService, OAuthStartFlow, OAuthStartResult,
 };
+pub use crate::official_client_version::{
+    OfficialClientVersionError, OfficialClientVersionService,
+};
 pub use crate::proxy::ProxyPasswordSecret;
 pub use crate::proxy::{
     ProxyTestError, ProxyTestFailureScope, ProxyTestFailureStage, ProxyTestOutcome,

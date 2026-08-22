@@ -94,6 +94,7 @@ async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
     assert_eq!(body["queue"]["timeout_secs"], 180);
     assert_eq!(body["queue"]["on_rate_limited"], "wait");
     assert_eq!(body["queue"]["fallback_on_rate_limit"], false);
+    assert_eq!(body["public_requests_in_window"], 0);
     assert!(body.get("auxiliary").is_none());
     assert_eq!(body["totals"]["in_flight"], 1);
     assert_eq!(body["totals"]["credential_count"], 1);

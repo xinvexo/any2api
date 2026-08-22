@@ -86,8 +86,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "gpt-5.6-terra"
         ])
     );
-    // Test fixture token has no id_token plan claim.
-    assert_eq!(account["plan_type"], Value::Null);
+    assert_eq!(account["plan_type"], "free");
     assert_eq!(account["usage"]["total_requests"], 2);
     assert_eq!(account["usage"]["successful_requests"], 1);
     assert_eq!(account["usage"]["failed_requests"], 1);
@@ -318,7 +317,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
             vec!["gpt-5.5".to_owned()],
             OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":null,"account_id":null,"email":"person@example.com"}"#
+                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIn19.signature","account_id":null,"email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )
@@ -368,7 +367,7 @@ fn oauth_document(access_token: &str, email: &str) -> OAuthAccountDocument {
         serde_json::to_vec(&json!({
             "access_token": access_token,
             "refresh_token": null,
-            "id_token": null,
+            "id_token": "header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIn19.signature",
             "account_id": null,
             "email": email,
         }))
