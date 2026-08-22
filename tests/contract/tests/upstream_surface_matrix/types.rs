@@ -42,16 +42,16 @@ pub(super) fn assert_complete_matrix(cases: &[SurfaceCase]) {
             .iter()
             .filter(|case| case.surface == Surface::DataDirect)
             .count(),
-        18,
-        "12 API Key and 6 OAuth direct operations"
+        23,
+        "17 API Key and 6 OAuth direct operations"
     );
     assert_eq!(
         cases
             .iter()
             .filter(|case| case.surface == Surface::DataBridge)
             .count(),
-        6,
-        "two registered bridges across three Chat-capable Providers"
+        8,
+        "two registered bridges across four Chat-capable Providers"
     );
     assert_eq!(
         cases
@@ -67,5 +67,5 @@ pub(super) fn assert_complete_matrix(cases: &[SurfaceCase]) {
             .count(),
         6
     );
-    assert_eq!(cases.len(), 37);
+    assert_eq!(cases.len(), 44);
 }

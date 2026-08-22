@@ -6,6 +6,23 @@ use super::{ConfigurationCapabilityError, ProviderProtocolOptions};
 #[test]
 fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
     let capabilities = crate::test_support::configuration_capabilities();
+    let openai = capabilities.provider_protocol_options(ProviderKind::OpenAi);
+    assert_eq!(openai.len(), 3);
+    assert_eq!(
+        openai[0].upstream_options[0].operations,
+        [
+            ProtocolOperation::Responses,
+            ProtocolOperation::ResponsesCompact,
+        ]
+    );
+    assert_eq!(
+        upstream_protocols(&openai[0]),
+        [
+            ProtocolDialect::OpenAiResponses,
+            ProtocolDialect::OpenAiChatCompletions,
+        ]
+    );
+
     let codex = capabilities.provider_protocol_options(ProviderKind::Codex);
 
     assert_eq!(codex.len(), 3);
@@ -35,7 +52,7 @@ fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
     let bridge = translated.bridge.expect("Responses bridge contract");
     assert_eq!(
         bridge.contract_id,
-        "openai-responses-to-chat-completions/v1"
+        "openai-responses-to-chat-completions/v2"
     );
     assert!(bridge.supports_tool_type("function"));
     assert_eq!(
@@ -62,6 +79,13 @@ fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
     let grok = capabilities.provider_protocol_options(ProviderKind::Grok);
     assert_eq!(grok.len(), 3);
     assert_eq!(grok[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
+    assert_eq!(
+        grok[0].upstream_options[0].operations,
+        [
+            ProtocolOperation::Responses,
+            ProtocolOperation::ResponsesCompact,
+        ]
+    );
     assert_eq!(
         upstream_protocols(&grok[0]),
         [
@@ -95,6 +119,13 @@ fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
 #[test]
 fn endpoint_validation_uses_the_registered_pair_and_provider_driver() {
     let capabilities = crate::test_support::configuration_capabilities();
+    capabilities
+        .validate_endpoint(
+            ProviderKind::OpenAi,
+            ProtocolDialect::OpenAiResponses,
+            ProtocolDialect::OpenAiResponses,
+        )
+        .expect("standard OpenAI Responses capability");
     capabilities
         .validate_endpoint(
             ProviderKind::Codex,

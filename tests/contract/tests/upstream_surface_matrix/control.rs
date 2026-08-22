@@ -87,7 +87,9 @@ pub(super) fn append_control_plane_cases(
                         .expect("Grok refresh plan"),
                 );
             }
-            ProviderKind::Kimi => unreachable!("Kimi has no OAuth token"),
+            ProviderKind::OpenAi | ProviderKind::Kimi => {
+                unreachable!("API-key-only Provider has no OAuth token")
+            }
         }
 
         let query = driver
@@ -152,7 +154,9 @@ pub(super) fn oauth_tokens() -> Vec<(ProviderKind, OAuthTokenMaterial)> {
                 Some(format!("fixture-{}-account", kind.as_str()))
             }
             ProviderKind::Claude => None,
-            ProviderKind::Kimi => unreachable!("Kimi has no OAuth token"),
+            ProviderKind::OpenAi | ProviderKind::Kimi => {
+                unreachable!("API-key-only Provider has no OAuth token")
+            }
         };
         let token = OAuthTokenMaterial::new(
             kind,

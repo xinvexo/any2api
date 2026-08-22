@@ -16,7 +16,7 @@ export type RouteProtocolOperation =
   | "messages"
   | "messages_count_tokens";
 
-export type RouteProviderKind = "codex" | "claude" | "grok" | "kimi";
+export type RouteProviderKind = "openai" | "codex" | "claude" | "grok" | "kimi";
 
 export interface RouteInspectionCandidateGroup {
   providerKind: RouteProviderKind;
@@ -60,7 +60,7 @@ const OPERATIONS = [
   "messages",
   "messages_count_tokens",
 ] as const;
-const PROVIDERS = ["codex", "claude", "grok", "kimi"] as const;
+const PROVIDERS = ["openai", "codex", "claude", "grok", "kimi"] as const;
 const STATUSES = ["available", "no_enabled_candidate"] as const;
 
 export function parseRouteInspection(value: unknown): RouteInspection {

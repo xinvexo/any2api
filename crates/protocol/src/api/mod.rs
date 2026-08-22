@@ -1,3 +1,4 @@
+mod bridge_context;
 mod capability;
 mod continuation;
 mod contracts;
@@ -7,6 +8,7 @@ mod response;
 mod upstream_failure;
 
 pub use crate::sse::SseDecoder;
+pub use bridge_context::ProtocolBridgeContext;
 pub use capability::*;
 pub(crate) use continuation::ResumableProtocolContinuation;
 pub use continuation::{

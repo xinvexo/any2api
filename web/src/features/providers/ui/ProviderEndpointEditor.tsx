@@ -31,7 +31,7 @@ interface ProviderEndpointEditorProps {
 
 export function ProviderEndpointEditor({
   endpoint,
-  defaultKind = "codex",
+  defaultKind = "openai",
   protocolOptions,
   sourceConflict,
   configRevision,

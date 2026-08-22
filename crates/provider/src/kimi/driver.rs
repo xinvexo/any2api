@@ -1,6 +1,9 @@
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    TransportMode,
+    CredentialKind, OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile,
+    OpenAiChatCustomToolMode, OpenAiChatInstructionRole, OpenAiChatReasoningRequest,
+    OpenAiChatReasoningResponse, OpenAiChatRequestField, OpenAiChatRequestFields,
+    OpenAiChatTokenLimitField, OpenAiChatToolNamePolicy, ProtocolDialect, ProtocolOperation,
+    ProtocolTargetProfile, ProviderBaseUrl, ProviderKind, TransportMode,
 };
 use http::HeaderMap;
 
@@ -49,6 +52,16 @@ impl ProviderDriver for KimiDriver {
 
     fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
+    }
+
+    fn protocol_target_profile(
+        &self,
+        dialect: ProtocolDialect,
+        upstream_model: &str,
+    ) -> Option<ProtocolTargetProfile> {
+        (dialect == ProtocolDialect::OpenAiChatCompletions).then_some(
+            ProtocolTargetProfile::OpenAiChatCompletions(kimi_chat_profile(upstream_model)),
+        )
     }
 
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError> {
@@ -103,5 +116,32 @@ impl ProviderDriver for KimiDriver {
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamError {
         kimi_error::classify(meta, bounded_body)
+    }
+}
+
+fn kimi_chat_profile(upstream_model: &str) -> OpenAiChatCompletionsProfile {
+    let request_fields = OpenAiChatRequestFields::NONE
+        .with(OpenAiChatRequestField::Logprobs)
+        .with(OpenAiChatRequestField::PromptCacheKey)
+        .with(OpenAiChatRequestField::ResponseFormat)
+        .with(OpenAiChatRequestField::Stop)
+        .with(OpenAiChatRequestField::TopLogprobs);
+    OpenAiChatCompletionsProfile {
+        token_limit_field: OpenAiChatTokenLimitField::MaxCompletionTokens,
+        instruction_role: OpenAiChatInstructionRole::System,
+        reasoning_request: if upstream_model == "kimi-k3" {
+            OpenAiChatReasoningRequest::ReasoningEffort
+        } else {
+            OpenAiChatReasoningRequest::Unsupported
+        },
+        reasoning_response: OpenAiChatReasoningResponse::ReasoningContent,
+        cached_tokens_field: OpenAiChatCachedTokensField::TopLevel,
+        custom_tools: OpenAiChatCustomToolMode::FunctionEnvelope,
+        tool_name_policy: OpenAiChatToolNamePolicy::new(64),
+        request_fields,
+        supports_image_url: true,
+        supports_image_detail: false,
+        supports_input_audio: false,
+        supports_file: false,
     }
 }

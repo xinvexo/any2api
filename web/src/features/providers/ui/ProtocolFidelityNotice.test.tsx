@@ -26,7 +26,7 @@ test("renders the selected Translated bridge contract and limitations", () => {
     fidelity: "translated",
     operations: ["responses"],
     bridge: {
-      contractId: "openai-responses-to-chat-completions/v1",
+      contractId: "openai-responses-to-chat-completions/v2",
       requestFields: [
         { path: "input", behavior: "translated" },
         { path: "client_metadata", behavior: "validated_only" },
@@ -45,7 +45,7 @@ test("renders the selected Translated bridge contract and limitations", () => {
 
   expect(screen.getByText("Translated")).toBeInTheDocument();
   expect(
-    screen.getByText("openai-responses-to-chat-completions/v1"),
+    screen.getByText("openai-responses-to-chat-completions/v2"),
   ).toBeInTheDocument();
   expect(screen.getByText("client_metadata · 仅校验")).toBeInTheDocument();
   expect(screen.getByText("The request is reconstructed.")).toBeInTheDocument();

@@ -344,7 +344,7 @@ pub trait ProtocolBridge: Send + Sync {
     fn start(
         &self,
         request: &DecodedRequest,
-        upstream_model: &str,
+        context: super::ProtocolBridgeContext<'_>,
     ) -> Result<StartedProtocolBridge, ProtocolError>;
 }
 

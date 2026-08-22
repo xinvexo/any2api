@@ -1,17 +1,21 @@
 mod history;
 mod input;
+mod ledger;
 mod options;
-mod tools;
+mod target;
 
-use serde_json::{Map, Value, json};
+use any2api_domain::OpenAiChatCompletionsProfile;
+use serde_json::{Map, Value};
 
-use crate::{ProtocolError, api::BridgeRequestFieldBehavior};
+use crate::ProtocolError;
 
 use super::capabilities::CAPABILITIES;
+use super::tool_projection::ToolProjection;
 
 pub(super) struct ConvertedRequest {
     pub(super) body: Value,
     conversation_start: usize,
+    projection: ToolProjection,
 }
 
 impl ConvertedRequest {
@@ -35,12 +39,18 @@ impl ConvertedRequest {
         };
         messages.split_off(self.conversation_start)
     }
+
+    pub(super) fn projection(&self) -> &ToolProjection {
+        &self.projection
+    }
 }
 
 pub(super) fn convert(
     body: &Value,
     upstream_model: &str,
+    profile: OpenAiChatCompletionsProfile,
     previous: Vec<Value>,
+    previous_projection: Option<&ToolProjection>,
 ) -> Result<ConvertedRequest, ProtocolError> {
     let source = body
         .as_object()
@@ -50,58 +60,26 @@ pub(super) fn convert(
     validate_prompt_cache_key(source.get("prompt_cache_key"))?;
     options::validate_include(source.get("include"))?;
     options::validate_client_metadata(source.get("client_metadata"))?;
+    let mut projection = ToolProjection::new(profile, previous_projection);
+    projection.configure(source.get("tools"))?;
     let mut conversation = previous;
-    input::append_input(source.get("input"), &mut conversation)?;
+    input::append_input(
+        source.get("input"),
+        &mut conversation,
+        &mut projection,
+        profile,
+    )?;
     let mut messages = Vec::with_capacity(conversation.len().saturating_add(1));
-    input::append_instructions(source.get("instructions"), &mut messages)?;
+    input::append_instructions(source.get("instructions"), &mut messages, profile)?;
     let conversation_start = messages.len();
     messages.extend(conversation);
 
-    let mut target = Map::new();
-    target.insert("model".into(), Value::String(upstream_model.to_owned()));
-    target.insert("messages".into(), Value::Array(messages));
-    for field in CAPABILITIES
-        .request_fields
-        .iter()
-        .filter(|field| field.behavior == BridgeRequestFieldBehavior::Forwarded)
-    {
-        if let Some(value) = source.get(field.path) {
-            target.insert(field.path.into(), value.clone());
-        }
-    }
-    if let Some(value) = source.get("max_output_tokens") {
-        target.insert("max_tokens".into(), value.clone());
-    }
-    if let Some(value) = source.get("stream") {
-        target.insert("stream".into(), value.clone());
-        if value == &Value::Bool(true) {
-            target.insert("stream_options".into(), json!({"include_usage": true}));
-        }
-    }
-    if let Some(reasoning) = source.get("reasoning")
-        && let Some(effort) = options::convert_reasoning(reasoning)?
-    {
-        target.insert("reasoning_effort".into(), effort);
-    }
-    if let Some(text) = source.get("text") {
-        let converted = options::convert_text_config(text)?;
-        if let Some(response_format) = converted.response_format {
-            target.insert("response_format".into(), response_format);
-        }
-        if let Some(verbosity) = converted.verbosity {
-            target.insert("verbosity".into(), verbosity);
-        }
-    }
-    if let Some(value) = source.get("tools") {
-        target.insert("tools".into(), tools::convert_tools(value)?);
-    }
-    if let Some(value) = source.get("tool_choice") {
-        target.insert("tool_choice".into(), tools::convert_tool_choice(value)?);
-    }
+    let target = target::build(source, upstream_model, profile, messages, &projection)?;
 
     Ok(ConvertedRequest {
-        body: Value::Object(target),
+        body: target,
         conversation_start,
+        projection,
     })
 }
 

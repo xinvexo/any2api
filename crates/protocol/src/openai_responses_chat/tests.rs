@@ -15,6 +15,9 @@ mod buffered;
 mod continuation;
 mod streaming;
 mod streaming_tools;
+mod strictness_v2;
+mod tools_v2;
+mod tools_v2_streaming;
 mod validation;
 
 pub(super) fn registry() -> ProtocolRegistry {

@@ -24,7 +24,7 @@ export function ProviderManagement() {
   const [deleteTarget, setDeleteTarget] = useState<ProviderEndpoint | null>(null);
   const editorId = searchParams.get("editor");
   const kindParam = searchParams.get("kind");
-  const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
+  const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "openai";
 
   async function refreshEndpoints() {
     const result = await endpoints.refetch();

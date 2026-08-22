@@ -16,6 +16,7 @@ export interface ProviderKindOption {
 
 /** Supported provider kinds shown in the admin UI. Extend when new kinds ship. */
 export const PROVIDER_KIND_OPTIONS: readonly ProviderKindOption[] = [
+  { kind: "openai", label: "OpenAI", icon: OpenAiIcon },
   { kind: "codex", label: "Codex", icon: OpenAiIcon },
   { kind: "claude", label: "Claude", icon: ClaudeIcon },
   { kind: "grok", label: "Grok", icon: GrokIcon },

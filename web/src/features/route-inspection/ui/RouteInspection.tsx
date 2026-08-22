@@ -221,7 +221,9 @@ function Status({ status }: { status: RouteInspectionStatus }) {
 }
 
 function providerLabel(provider: RouteProviderKind) {
-  return { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[provider];
+  return { openai: "OpenAI", codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
+    provider
+  ];
 }
 
 function dialectLabel(dialect: RouteProtocolDialect) {

@@ -1,8 +1,8 @@
 # any2api 架构基线
 
 > 状态：Current<br>
-> 版本：1.7<br>
-> 最后更新：2026-08-21<br>
+> 版本：1.8<br>
+> 最后更新：2026-08-22<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 文档所有权
@@ -18,9 +18,9 @@
 
 any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚合代理。
 
-项目目标是把多个 Codex、Claude、Grok、Kimi 凭据聚合为统一入口，提供：
+项目目标是把多个标准 OpenAI、Codex、Claude、Grok、Kimi 凭据聚合为统一入口，提供：
 
-- Codex、Claude 原生协议、OpenAI Images API，以及 Grok/Kimi 的 OpenAI 兼容协议接入；
+- 标准 OpenAI Responses / Chat Completions / Images、Codex、Claude 原生协议，以及 Grok/Kimi 的 OpenAI 线协议接入；
 - 多 Provider Credential 管理；
 - 多个网关 API Key 管理；
 - 可选的账号级 RPM 限速与轮询负载均衡；
@@ -36,7 +36,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 当前已经确认的需求如下：
 
 1. 后端使用 Rust，前端使用 React Web。
-2. 首批支持 Codex、Claude、Grok 和 Kimi；四者的上游 `ProviderCredential` 都只使用 API Key。Codex、Claude 和 Grok 还可以通过独立 `OAuthAccount` 接入订阅账号；Kimi 首版不支持 OAuthAccount。
+2. 首批支持标准 OpenAI、Codex、Claude、Grok 和 Kimi；五者的上游 `ProviderCredential` 都只使用 API Key。Codex、Claude 和 Grok 还可以通过独立 `OAuthAccount` 接入订阅账号；OpenAI 与 Kimi 不支持 OAuthAccount。
 3. 一个 Provider URL 可以配置多个独立 `ProviderCredential`；当前只支持 API Key。
 4. 每个 `ProviderCredential` 可以分别启用、禁用、绑定代理和设置可选 RPM；未设置时不做本地限速。
 5. 代理类型仅支持：
@@ -54,7 +54,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。当前注册 OpenAI Responses → Chat Completions 与 OpenAI Images → Chat Completions 两座协议桥，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. 首版 TransportMode 只有 JSON 和 SSE，上游和公开入口均不使用 WebSocket。`GET /v1/responses` 对尝试 Upgrade 的客户端返回 HTTP 426，作为明确的 HTTP 回退信号；服务端不建立连接内状态、不持有长连接。
-17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化；公开模型名默认等于上游模型名，凭据模型条目可配置可选公开别名，同一 Endpoint 内公开名与上游名映射必须双向一致。OAuthAccount 的模型目录不得硬编码在 Provider 或 Runtime 代码中：登录成功时读取上游目录，之后只在管理面手动刷新额度时读取。Provider Driver 从当前 Token 导出非敏感的“目录身份”，共享目录快照按 `Provider + directory_scope` 存储，单次批量刷新中每个身份至多请求一次。Codex 以规范化套餐归类目录身份；其他 Provider 只在 Driver 能证明目录相同的订阅身份内共享，无法证明时必须退回更细身份。每组选择一个当前账号的 Token 与实际 OAuth 出口发起请求。排序去重后的安全模型名和抓取时间写入独立 SQLite 目录快照，既不自动改变已选模型，也不触发配置发布，更绝不附着到按活跃度触发的自动额度刷新。没有成功目录快照的账号只显示其已保存模型；新账号目录读取失败时不创建路由账号，导入账号则以空模型选择等待手动刷新。管理员可保存经确认的最新或手工模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
+17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；OpenAI/Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化；公开模型名默认等于上游模型名，凭据模型条目可配置可选公开别名，同一 Endpoint 内公开名与上游名映射必须双向一致。OAuthAccount 的模型目录不得硬编码在 Provider 或 Runtime 代码中：登录成功时读取上游目录，之后只在管理面手动刷新额度时读取。Provider Driver 从当前 Token 导出非敏感的“目录身份”，共享目录快照按 `Provider + directory_scope` 存储，单次批量刷新中每个身份至多请求一次。Codex 以规范化套餐归类目录身份；其他 Provider 只在 Driver 能证明目录相同的订阅身份内共享，无法证明时必须退回更细身份。每组选择一个当前账号的 Token 与实际 OAuth 出口发起请求。排序去重后的安全模型名和抓取时间写入独立 SQLite 目录快照，既不自动改变已选模型，也不触发配置发布，更绝不附着到按活跃度触发的自动额度刷新。没有成功目录快照的账号只显示其已保存模型；新账号目录读取失败时不创建路由账号，导入账号则以空模型选择等待手动刷新。管理员可保存经确认的最新或手工模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. 普通部署者确实需要按环境调整的 TTL、排队、上游读取、流式、总重试时限、停机和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。Attempt 次数、Credential 切换数、同号重试数、指数退避、抖动、冷却和 breaker 阈值属于 Runtime 内部可靠性策略，不再作为普通设置暴露。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
@@ -63,7 +63,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均只展示最近 3 天，并以 `(started_at_ms, request_id)` 头部锚点和排他边界做单向 Keyset 连续读取；管理 API 每批最多返回 100 条摘要及可选 `next_cursor`/`has_more`，不再返回页码、页大小、精确总数或执行任何 OFFSET 跳页。系统日志列表提供默认开启的“显示管理操作”查询开关；关闭时服务端从锚点和每个游标批次中统一排除 `/api/admin` 及其子路径、`/assets/*` 编译资源和管理 Web 的固定根资源，且筛选状态必须进入 Cursor 作用域。该开关是每个浏览器独立、使用带版本 `localStorage` key 持久化的非敏感界面偏好，只改变查询视图，不改变日志采集、保留或清理。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知；请求日志与系统日志页面在已认证且挂载时始终订阅统一 SSE，不提供系统日志自动刷新开关或对应浏览器偏好。Web 把约 100 ms 内的事件合并并单飞执行 HTTP 追赶，从最新锚点沿 Cursor 读取到已知持久化 ID 或 3000 条缓存边界，断线重连依靠服务端立即发送当前 epoch 恢复一致。浏览历史时不改写可见链、不显示新日志计数横幅；固定右下角“回到顶部”执行待追赶同步并回到最新。固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。总览的“请求数/成功率/Token”严格按一条客户端逻辑请求（一个 RequestLog）统计，不把重试中的 RequestAttempt 重复计入。调用分析同时按所选范围展示 Prompt Cache 命中率，固定以 RequestLog 的 `cache_read_tokens / input_tokens` 计算；单条缓存读取最多按该条归一化输入量计入，没有输入 Token 时显示未知，缓存读取不能再次计入 Token 总量。总览首屏只展示能够回答“当前负载、负载位置和调用趋势”的指标：进程/主机资源、尚未结束的上游请求、排队、近 60 秒请求率、已启用账号与密钥数量和受保护状态；前端以四项资源 tile 加一个请求负载面板建立主次层级，并在同一首屏保留调用统计与趋势入口。总览当前状态通过已认证的统一 `/api/admin/events` SSE 获取：服务端一个共享 sampler 每 2 秒构建并广播最新资源/运行态快照，浏览器管理员壳只创建一个 EventSource 并向各视图分发。断线保留最近快照并标示 stale；连接存在但 7 秒未收到 fresh snapshot 时同样标示 stale；重连立即以最新快照恢复，session 失效时停止重连。历史调用统计继续通过 HTTP 按当前范围每 60 秒刷新，实时事件不得触发统计重算。scheduler epoch、遥测丢弃数、Transport Client 缓存条目与命中等运行诊断字段保留在受认证 API 中但不得占据总览视觉空间；它们与 Prompt Cache Token 命中率不是同一口径。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
-26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
+26. 标准 OpenAI 与 Codex API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流通过根级 `pnpm package` 生成发行归档，并在归档前执行二进制 `--version` 精确核对输入。首版官方 Release 只发布 Linux AMD64 GNU 归档及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
@@ -529,7 +529,7 @@ app       -> memory-reclaimer + server + runtime + updater + 所有具体 Adapte
 
 - Provider Driver 负责构建请求计划、注入规则、响应解析和错误分类，不直接创建 HTTP Client；
 - Runtime 负责调度、重试、刷新编排和调用 Transport；
-- `provider`、`protocol`、`transport`、`storage` 各自提供稳定的 `api` 模块；Runtime 只能导入这些公开端口。Adapter 契约类型只允许从对应 `api` 模块公开一次，crate 根不得再提供平行路径；`provider` 根只公开 `app` 静态注册所需的 Codex、Claude、Grok、Kimi 四个具体 Driver，Registry、trait、错误、Secret、OAuth 类型与辅助函数均只属于 `provider::api`；
+- `provider`、`protocol`、`transport`、`storage` 各自提供稳定的 `api` 模块；Runtime 只能导入这些公开端口。Adapter 契约类型只允许从对应 `api` 模块公开一次，crate 根不得再提供平行路径；`provider` 根只公开 `app` 静态注册所需的 OpenAI、Codex、Claude、Grok、Kimi 五个具体 Driver，Registry、trait、错误、Secret、OAuth 类型与辅助函数均只属于 `provider::api`；
 - SQLite 类型、Axum 类型、`reqwest` 类型不得穿透到 `domain`；
 - 每个功能模块公开最小 API，内部实现默认 `pub(crate)` 或私有；
 - 新 Provider 只允许在 `provider/<name>`、必要的协议模块、注册表和契约测试中产生局部变更；
@@ -603,7 +603,7 @@ host target，输出 `dist/any2api-v<product-version>-<platform>-<arch>.tar.gz` 
 - 对 `main.rs/lib.rs/mod.rs` 应用更低的行数阈值；“是否存在大段业务实现”保留为评审规则；
 - 检查迁移文件编号和 checksum；
 - 检查前端 feature 不能直接跨层导入其他 feature 的内部实现。
-- 检查 Runtime 生产代码只能导入 Adapter 的稳定 `api`，并固定 Provider crate 根只公开 Composition Root 所需的四个具体 Driver，禁止恢复 Adapter 类型的重复根导出。
+- 检查 Runtime 生产代码只能导入 Adapter 的稳定 `api`，并固定 Provider crate 根只公开 Composition Root 所需的五个具体 Driver，禁止恢复 Adapter 类型的重复根导出。
 
 契约测试不是按文件名猜测是否存在，而是枚举实际 Registry 中注册的每个 Provider/Protocol 实现并运行统一测试套件。
 
@@ -1345,7 +1345,7 @@ TransportKey
 
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
-Transport 线路行为由单一 `generic-rustls-hyper-v3` profile 集中声明：宿主根证书、Rustls 默认 TLS 1.3/1.2 crypto policy、无 client certificate、ALPN `h2` 后 `http/1.1`、HTTP/1+2、TCP keepalive 30 秒、H2 keepalive 30 秒/超时 10 秒、禁重定向与禁请求级自动重试，以及响应 `gzip, br, zstd` Content-Encoding 的解码能力。请求侧不再声明固定压缩偏好；同方言客户端的受支持 `Accept-Encoding` 原样透传，缺失时保持缺失。该 profile 是诚实的通用 gateway transport 契约，不声称复制 Codex、Claude、Grok 或 Kimi 官方客户端的 ClientHello、HTTP/2 SETTINGS、HPACK、压缩偏好或 TCP 行为。任何字段或依赖升级都必须提升 profile policy version 并更新 capture 契约；不得为“降低特征”添加每请求随机化。
+Transport 线路行为由单一 `generic-rustls-hyper-v3` profile 集中声明：宿主根证书、Rustls 默认 TLS 1.3/1.2 crypto policy、无 client certificate、ALPN `h2` 后 `http/1.1`、HTTP/1+2、TCP keepalive 30 秒、H2 keepalive 30 秒/超时 10 秒、禁重定向与禁请求级自动重试，以及响应 `gzip, br, zstd` Content-Encoding 的解码能力。请求侧不再声明固定压缩偏好；同方言客户端的受支持 `Accept-Encoding` 原样透传，缺失时保持缺失。该 profile 是诚实的通用 gateway transport 契约，不声称复制 OpenAI、Codex、Claude、Grok 或 Kimi 官方客户端的 ClientHello、HTTP/2 SETTINGS、HPACK、压缩偏好或 TCP 行为。任何字段或依赖升级都必须提升 profile policy version 并更新 capture 契约；不得为“降低特征”添加每请求随机化。
 
 仓库为该 profile 保存三类 loopback conformance fixture：TLS 规范化记录稳定的 ClientHello cipher、extension 集合、group、signature algorithm、ALPN 与 supported version，不保存随机数、key share 公钥或 session material；Rustls 0.23 使用 `order_seed` 随机排列无顺序要求的 extension，因此 fixture 明确记录该顺序策略并另以多次真实握手验证顺序不是固定常量，禁止冻结某一次随机排列。HTTP/2 记录明文 preface 与首个请求前的 SETTINGS/WINDOW_UPDATE，并在同一隔离域验证顺序请求复用一条连接且 stream ID 递增、首个响应返回前的并发请求形成独立活跃 stream、收到 GOAWAY 后只在新连接从 stream 1 重新开始；HTTP/1.1 记录实际 raw request head，并只规范化动态 authority。测试必须从真实 `ReqwestTransportManager` 发起请求并与提交的文本 fixture 精确比较，禁止经 `HeaderMap` 或 h2 高层对象重建后冒充 wire capture。fixture 变化是需要审核的线路契约变化，不证明也不追求与任何官方客户端相同。
 
@@ -1394,6 +1394,7 @@ ProxyRuntime
 
 首批 Provider：
 
+- OpenAI（当前官方 API 契约，API Key only）
 - Codex
 - Claude
 - Grok（xAI，API Key + 独立 OAuthAccount）
@@ -1402,10 +1403,11 @@ ProxyRuntime
 首批协议方言实现为 `openai_responses`、`openai_chat_completions`、`openai_images` 和
 `anthropic_messages`；转换实现为 `openai_responses_chat` 与 `openai_images_chat`。
 
-四个具体 Provider 各自拥有独立 feature 目录：
+五个具体 Provider 各自拥有独立 feature 目录：
 
 ```text
 provider/
+├─ openai/             # 标准 Responses、Chat、Images、Bearer、目录与 OpenAI 错误
 ├─ codex/              # API Key、OAuth、目录、额度、请求 Profile 与身份
 ├─ claude/             # API Key、OAuth、目录、额度与错误
 ├─ grok/               # API Key、OAuth、目录、额度与上游错误
@@ -1420,6 +1422,7 @@ Provider 表示上游供应方，ProtocolDialect 表示线协议。首批至少�
 
 ```text
 ProviderKind
+├─ openai
 ├─ codex
 ├─ claude
 ├─ grok
@@ -1435,6 +1438,13 @@ TransportMode
 ├─ json
 └─ sse
 ```
+
+`openai` 表示当前官方 OpenAI API 契约，不是“OpenAI-compatible”的宽松总类。它使用
+Bearer API Key、Base URL 下的 `/models`、`/responses`、`/responses/compact`、
+`/chat/completions` 和 Images 路径，不声明 Codex `alpha/search`、OAuth、客户端 persona、
+quota 或 Codex 请求改写。选择该类型时，管理员可以填写自定义 Base URL，但这代表明确
+声明该上游符合当前标准 OpenAI 契约；不根据 URL、模型名或试错请求自动改类。
+Codex 仍是独立 Provider：已有 Codex Endpoint 不自动迁移，也不继承 `openai` 的纯标准请求面。
 
 不能把所有 Codex 路径都视为同一种协议。每个 Route Target 在配置发布时必须解析为：
 
@@ -1453,7 +1463,7 @@ ProviderKind
 | 入口 | 用途 | 上游方言 | 模式 |
 |---|---|---|---|
 | `GET /v1/models` | 返回已发布并放行的公开模型 | 本地 PublishedSnapshot | JSON |
-| `POST /v1/responses` | Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
+| `POST /v1/responses` | OpenAI/Codex/Grok 原生 Responses、Kimi 等显式 Chat Bridge 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
 | `POST /v1/alpha/search` | Codex 客户端 `web__run` 独立联网搜索 | openai_responses alpha search | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
@@ -1475,7 +1485,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 
 - Images 使用独立 `openai_images` 入口方言和 `images_generations`、`images_edits` 操作；原生上游继续使用 Images 方言，只有管理员显式选择 `openai_chat_completions` 内部转换时，生成操作才进入独立 Bridge。两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、流式 Guard 和请求遥测。Images 协议没有会话或续接语义，显式 Session Header、`conversation_id` 和其他未知字段都不得为 Images 建立粘性绑定，每次请求都按普通候选调度。
 - `images/generations` 接受 OpenAI JSON；`images/edits` 同时接受 JSON 的 `images`/`mask` 引用和 `multipart/form-data` 的 `image`/`image[]`、可选 `mask` 及其他字段。ProtocolAdapter 只提取并校验路由必需的 `model`、`stream`，保留未知 JSON 字段、multipart 字段顺序、文件字节和安全 Part Header；替换上游模型时重新编码结构化 multipart，禁止用字符串搜索修改二进制 Body。multipart `model` 必须恰好出现一次并是 UTF-8；结构化解析时使用 Unicode whitespace `trim` 一次，空值拒绝，得到的精确规范名称同时用于 `DecodedRequest.model`、允许列表/Route 查找和请求日志，禁止校验 trim 值却使用原始带空白值。重复字段即使规范值相同也拒绝。
-- OpenAI API Key 的 Codex Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
+- 标准 OpenAI 与 Codex API Key Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 - Images → Chat Completions Bridge 只声明 `images_generations`，把标准 `prompt` 投影为单条 user message，并把经过登记的图片生成选项作为 Chat 图片上游扩展字段原值携带；`images_edits` 不进入该 Bridge。首版只接受非流式请求和 URL 结果：要求 partial image、`b64_json` 或 `stream=true` 的请求在 RPM 预留和上游 I/O 前失败。Chat 成功响应必须为每个 choice 提供唯一的 HTTP(S) Markdown 图片或裸 URL，Bridge 将其转换为标准 Images `data[].url`，并把 Chat prompt/completion usage 投影为 Images input/output usage。Bridge 不下载 URL、不伪造 base64，也不把文本内容冒充图片。
 - Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名默认等于上游模型名；凭据模型条目的公开别名规则对 Images 方言同样适用，不提供图片专用的别名编辑。
 - 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
@@ -1519,7 +1529,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
   不透明原样转发，any2api 不在本地实现搜索，也不解析 `results`/`encrypted_output`；
 - 只支持非流式 JSON；请求包含 `stream=true` 时返回 400；
 - 使用与 `/v1/responses` 相同的模型路由、公开模型允许列表、Provider API Key、代理和账号
-  RPM；只有 Codex Driver（OAuth 与 OpenAI API Key）声明该操作并追加固定 `alpha/search`
+  RPM；只有 Codex Driver 的 OAuth 与 API Key 数据面声明该操作并追加固定 `alpha/search`
   路径。跨方言 Bridge 不声明；OAuth 候选按 `oauth_supports_operation`、API Key 候选按
   Driver endpoint 计划在候选构造阶段过滤，不声明该操作的 Provider 在 RPM 预留和上游 I/O
   前排除；
@@ -1568,6 +1578,18 @@ anthropic_messages       -> anthropic_messages
 当前注册 Responses → Chat Completions 与 Images → Chat Completions 两座转换桥。Runtime 只按协议对查询注册表，不对这些组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥必须按 `supports_operation` 精确声明可表达的操作，并在自身已声明的请求模式内覆盖请求、响应、usage 和适用的流式/多轮状态；未声明的操作、模式或无法无损表达的输入必须在请求提交上游前明确报错，禁止静默删除字段。最终上游非 2xx 仍透明返回。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
 `ProtocolRegistry` 还必须为每个实际可选协议对导出可查询的 fidelity capability。Direct 路径的 operation 从入口方言静态派生，且没有 Bridge contract；Translated 路径必须引用 Bridge 自身的版本化 contract ID，并从同一静态表导出 operation、顶层请求字段及其 `Forwarded` / `Translated` / `ValidatedOnly` / `LocalState` 处理方式、允许的工具类型和静态 limitation code/说明。`supports_operation`、未知顶层字段校验和工具类型校验都读取该表，禁止维护一份用于执行、另一份用于管理展示的平行清单。管理 Endpoint API 只返回实际注册且 Provider Driver 支持的 upstream option，每项都携带上述 fidelity；静态 contract 不得包含配置值、客户端字段内容或 Secret。Direct 只说明不经过 Bridge：模型替换、stream 裁剪、重复 key 消歧、Responses replay ID 归一化和 Provider profile 仍可能触发局部 materialization，不能在 UI 或 API 中宣称 byte-transparent。
+
+跨协议桥还必须在开始转换前取得最终上游协议的声明式 target profile。该 profile 属于 Provider
+契约事实，由 Driver 根据最终 upstream model 的已知供应商契约通过稳定 API 返回、Runtime 原样放入通用
+`ProtocolBridgeContext`，Bridge session 在
+请求、buffered 响应和 SSE 生命周期内共同持有；Protocol 不依赖 Provider 类型，Runtime 和 Bridge 禁止按
+`provider_kind`、base URL 或模型名增加兼容分支。OpenAI Chat Completions profile 至少声明 token limit
+字段（`max_tokens` / `max_completion_tokens`）、instruction role（`system` / `developer`）、reasoning 请求与
+响应线格式、cached token usage 路径、允许透传的可选请求字段、native custom tool 支持、tool name 约束、
+多模态 content part 与 image detail 支持。新增 Provider 可以声明已有 profile 或组合这些正交能力并增加
+契约 fixture；不得复制一座新的 Responses → Chat Bridge。只有 Driver 可以按官方、精确的模型身份选择
+已登记 profile；无法从 Provider 契约确定的模型或能力使用保守 profile，不以试错请求、URL 特征或 Runtime
+中的模型名分支猜测协议。
 
 跨协议请求在上游 I/O 前因 `ProtocolError::InvalidPayload` 被拒绝时，公开
 `invalid_request` 必须保留协议对与 Bridge 返回的定位信息，格式固定为
@@ -1618,7 +1640,9 @@ Chat Completions 线协议等价字段、且不参与模型输入/工具/采样/
 历史约束。当前 input 中出现的每个 `function_call` 都必须在同一 input 中具有唯一匹配
 `function_call_output.call_id`；中断历史中的孤立 call 无法无损投影为 Chat 消息序列，必须在编码上游
 请求和执行上游 I/O 前 fail-closed，禁止生成虚假 tool output。仅有 output 的当前项仍可合法响应
-continuation 中上一轮已保存的 assistant call，不要求在当前 input 重复 call。Chat Completions 流式
+continuation 中上一轮已保存且尚未结算的 assistant call，不要求在当前 input 重复 call；Bridge 必须用
+同一 conversation ledger 验证 previous/current call ID 的唯一性、调用与输出的邻接和未结算集合，未知
+`call_id`、重复 output、output 先于其当前 call 或结算后再次输出都必须 fail-closed。Chat Completions 流式
 `delta.tool_calls[]` 必须携带非负整数 `index`，Bridge 只用该字段
 关联同一调用的跨事件片段；缺失、负数或类型错误必须立即 fail-closed，禁止默认成 `0`、按出现顺序
 猜测或把多个调用拼接。流结束时每个已观察到的工具调用还必须具有完整的非空 `id` 与 `name`，
@@ -1639,13 +1663,38 @@ Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止
 非空 legacy `function_call`、`refusal` 和 `audio` 仍 fail-closed。该向前兼容规则只适用于上游响应，
 客户端请求的其他 reasoning 子字段、include 值和未知字段仍 fail-closed。
 
+Responses → Chat Completions 使用版本化 v2 contract。它在 function tools 之外支持可逆的客户端执行
+`custom`、`namespace` 和 `tool_search` 投影：target profile 声明 native custom 时保留 Chat custom tool
+及 custom tool call；否则 `custom` 使用带唯一保留字段的 function envelope，返回时恢复为
+`custom_tool_call`。`namespace` 子工具按 target profile 的名称长度与字符集确定性展平，Bridge session
+保存原始 namespace/name 与 Chat name 的一一映射并在 buffered、SSE 和 continuation 中恢复；名称冲突
+必须在上游 I/O 前拒绝或用确定性有界后缀消歧，禁止静默覆盖。客户端执行的 `tool_search` 同样使用保留
+Chat tool 名称与可逆映射，返回时生成对应 Responses item/event。Bridge 只实现调用由客户端执行的工具；
+`defer_loading=true` 的 function/custom/namespace 子工具只登记而不进入首轮 Chat `tools`；只有同一会话中
+已经结算的 `tool_search_output.tools` 才按完整工具定义激活到当前 Chat 请求，且仍经过同一名称、类型和
+target profile 校验。没有 client `tool_search`、搜索结果不是完整可投影定义或结果与已激活工具冲突时
+必须 fail-closed，禁止提前暴露 deferred 工具或仅把搜索结果当普通文本后假装支持动态加载。
+`web_search`、`file_search`、remote MCP、computer、code interpreter、image generation 等需要上游托管
+执行的工具没有通用 Chat 等价，继续以精确 tool type 在上游 I/O 前 fail-closed。
+
+转换后的 `tools` 为空时必须省略 `tools`，并同时省略 `tool_choice` 与 `parallel_tool_calls`；非空时
+`tool_choice` 必须引用转换后确实存在的唯一工具。buffered 与 SSE 响应必须验证 choice index、assistant
+role、tool call type、唯一非空 call ID/name、完成态 arguments 和显式支持的 finish reason。流式 tool
+call 的 id/name 是 set-once identity：后续片段只能缺省或与已观察值相同，只有 arguments 可以追加；禁止
+把重复完整 identity 拼接。上游未提供 usage 时 Responses `usage` 保持 `null`，不得把未知伪造成零；缺失
+created/model 时分别使用 Bridge 创建时间和实际 upstream model，unknown finish reason 或已知不可表达
+content part 必须 fail-closed。最终 Responses 对象中能够由当前请求确定的 instructions、
+max_output_tokens、parallel_tool_calls、previous_response_id、reasoning、text、tool_choice、tools、
+temperature、top_p、service_tier、store、metadata 等字段由 Bridge request snapshot 一致回填，SSE
+created/in_progress/terminal 与 buffered 使用同一 response projection，不能维护两套默认值。
+
 ### 11.4 公开模型命名
 
 `public_model` 是客户端在请求 `model` 字段中填写、并由 `/v1/models` 返回的本地名称；`upstream_model` 是实际发给 Provider 的名称。
 
 规则：
 
-- 不强制 `codex/`、`claude/`、`grok/` 或 `kimi/` 前缀；
+- 不强制 `openai/`、`codex/`、`claude/`、`grok/` 或 `kimi/` 前缀；
 - 保存 Credential 模型选择时，`public_model` 默认等于 `upstream_model`；条目可配置可选公开别名，
   别名与上游名同规校验（`PublicModelName`），等值别名归一为空，不保存冗余表示；
 - Credential 模型可来自上游目录勾选或管理员手工输入；来源不进入持久化模型，
@@ -1653,7 +1702,7 @@ Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止
 - 别名编辑内嵌在凭据模型选择中（每条目可选公开名称），不暴露 Route/Target/tier 内部结构，
   也不提供手工 Target/tier 编辑；同一凭据内别名后的公开名必须唯一，同一 Endpoint 内
   公开名与上游名映射必须双向一致，冲突在配置发布时拒绝；
-- `codex/`、`claude/`、`grok/`、`kimi/` 只作为可选命名习惯；
+- `openai/`、`codex/`、`claude/`、`grok/`、`kimi/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。
 - `models.allowed` 使用显式模型访问策略；`"all"` 表示允许当前 PublishedSnapshot 中的全部公开模型，
@@ -1677,6 +1726,7 @@ Provider Driver 不直接发网络请求，其职责边界示意：
 trait ProviderDriver: Send + Sync {
     fn kind(&self) -> ProviderKind;
     fn capabilities(&self) -> &CapabilitySet;
+    fn supports_api_key_operation(&self, operation: ProtocolOperation) -> bool;
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<()>;
     fn endpoint_plan(&self, base_url: &ProviderBaseUrl, operation: ProtocolOperation) -> Result<EndpointPlan>;
     fn credential_test_plan(&self, base_url: &ProviderBaseUrl) -> Result<CredentialTestPlan>;
@@ -1724,6 +1774,12 @@ trait ProtocolBridgeSession: Send {
 }
 ```
 
+`CapabilitySet.protocols` 只声明 Driver 能作为上游承接哪些方言，不能推导它支持该方言下的每个操作。
+API Key 直通选项和同方言候选还必须通过 `supports_api_key_operation` 过滤；跨协议候选先按 Bridge 的入口
+操作能力过滤，再在请求完成转换后用最终上游操作构造 `endpoint_plan`。这样标准 OpenAI/Grok 的
+Responses 能力不会连带开放 Codex `alpha/search`，Responses/Images → Chat 的 Kimi 等目标也不会被入口
+操作误判为不支持。
+
 同协议路径的 `AdapterPayload` 使用共享 Raw JSON Body 与顶层字段范围索引；入口只按需解析模型、stream、
 会话、思考级别、远程压缩标记和 Responses item 身份，不为未知嵌套内容构造完整 `serde_json::Value`。
 最终上游模型和字段集合不变且顶层字段名唯一时，Transport Body 直接克隆同一 `Bytes` 句柄；确需模型
@@ -1768,7 +1824,7 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 
 Provider 默认值、ProtocolAdapter 重建字段和当前 Credential 认证不属于客户端值重放，不受该 owner 开关影响。所有分类声明位于各 Provider Driver 内；Runtime 只传递“当前 Attempt 是否仍属于原 Credential owner”“是否命中现有绑定”与“会话域标识是否允许跨号重放”事实，不按 Provider 分支。任何原始标识值都不记录、不持久化、不生成也不改写。
 
-Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央调度器不得新增按 Provider 扩张的 `match`。Kimi API Key 数据面只声明 Moonshot 官方 Chat Completions、`GET /models` 与 Bearer 认证，不发送 Codex/Grok persona Header，不声明 OAuth 或原生 Responses/Images 能力；Responses 接入只能通过已注册的通用 Responses → Chat Completions Bridge。`x-grok-model-override` 必须由最终上游模型重建，并把 Rust 模型字符串按 UTF-8 原始字节确定性写入 Header，禁止 percent/base64 等未定义的二次编码。xAI 官方 Grok Build 客户端使用相同的直接字符串 Header 路径；当前 `http`/Reqwest 栈允许 HTTP `obs-text` 字节，通用 `UpstreamModelName` 已排除控制字符，因此不得错误地把非 ASCII 模型限制为不可用。Driver 原始字符串边界仍须拒绝非法控制字节，并报告 `UnsupportedOAuthModel`，不能误报为上游 `InvalidResponse`。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前 Credential owner 的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
+OpenAI、Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央调度器不得新增按 Provider 扩张的 `match`。标准 OpenAI Driver 只声明官方 Responses、Chat Completions、Images、`GET /models` 与 Bearer 认证，不发送 Codex persona Header，不执行 Codex Body 改写，也不声明 OAuth、quota 或 `alpha/search`。Kimi API Key 数据面只声明 Moonshot 官方 Chat Completions、`GET /models` 与 Bearer 认证，不发送 Codex/Grok persona Header，不声明 OAuth 或原生 Responses/Images 能力；Responses 接入只能通过已注册的通用 Responses → Chat Completions Bridge。`x-grok-model-override` 必须由最终上游模型重建，并把 Rust 模型字符串按 UTF-8 原始字节确定性写入 Header，禁止 percent/base64 等未定义的二次编码。xAI 官方 Grok Build 客户端使用相同的直接字符串 Header 路径；当前 `http`/Reqwest 栈允许 HTTP `obs-text` 字节，通用 `UpstreamModelName` 已排除控制字符，因此不得错误地把非 ASCII 模型限制为不可用。Driver 原始字符串边界仍须拒绝非法控制字节，并报告 `UnsupportedOAuthModel`，不能误报为上游 `InvalidResponse`。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前 Credential owner 的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
 
 `x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的现有会话绑定时才允许发送；没有绑定、绑定丢失或首次创建会话时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
 
@@ -1779,8 +1835,8 @@ Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央
 ### 11.7 Provider URL 语义
 
 - `base_url` 表示配置中固定的上游 Origin 与可选固定 API 前缀，不是任意完整请求 URL；
-- Web 中 Codex、Claude、Grok 与 Kimi 的官方默认 Base URL 分别为 `https://api.openai.com/v1`、`https://api.anthropic.com`、`https://api.x.ai/v1` 和 `https://api.moonshot.cn/v1`；
-- Claude Base URL 表示 Anthropic API 版本路径之前的根地址或固定代理前缀，Driver 必须统一追加 `/v1/messages`、`/v1/messages/count_tokens` 或 `/v1/models`，管理员不填写结尾 `/v1`；Codex、Grok 与 Kimi 的 Base URL 包含自身固定 API 前缀；
+- Web 中 OpenAI、Codex、Claude、Grok 与 Kimi 的官方默认 Base URL 分别为 `https://api.openai.com/v1`、`https://api.openai.com/v1`、`https://api.anthropic.com`、`https://api.x.ai/v1` 和 `https://api.moonshot.cn/v1`；
+- Claude Base URL 表示 Anthropic API 版本路径之前的根地址或固定代理前缀，Driver 必须统一追加 `/v1/messages`、`/v1/messages/count_tokens` 或 `/v1/models`，管理员不填写结尾 `/v1`；OpenAI、Codex、Grok 与 Kimi 的 Base URL 包含自身固定 API 前缀；
 - Claude 官方 `https://api.anthropic.com` API Key 使用 `x-api-key`；自定义 Claude Endpoint 使用 `Authorization: Bearer`，凭据认证选择只能由 Driver 根据已发布 Base URL 决定；
 - 路径由 ProtocolDialect 使用结构化 URL API 安全拼接；
 - 客户端的 Host、absolute-form URL 和转发头不得改变上游 authority；
@@ -1846,7 +1902,7 @@ OpenAI Responses 的完整历史在同方言目标之间重放时，顶层 `inpu
 Responses → Chat Completions Bridge 自己生成的 `msg_*`、`rs_*`、`fc_*` 已是合法的类型化身份，
 归一化必须原值保留；归一化删除规则只修复外部带入的错误可省略 ID，不能掩盖本地生成器的前缀错误。
 
-Codex、Claude、Grok 与 Kimi 的上游 `ProviderCredential` 当前都只支持 API Key。只有 Codex、Claude 与 Grok 的 OAuth 登录结果可以创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。Kimi `supports_oauth=false`，不得出现在 OAuth 登录、导入或账号表中。普通 API Key 管理端点不接受 OAuth JSON。
+OpenAI、Codex、Claude、Grok 与 Kimi 的上游 `ProviderCredential` 当前都只支持 API Key。只有 Codex、Claude 与 Grok 的 OAuth 登录结果可以创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。OpenAI 与 Kimi 的 `supports_oauth=false`，不得出现在 OAuth 登录、导入或账号表中。普通 API Key 管理端点不接受 OAuth JSON。
 
 Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录按 session 选择的 OAuth 代理解析，账号刷新与数据面按账号绑定解析。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）和自身代理绑定；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
 
@@ -3182,7 +3238,7 @@ oauth_token_refresh_failed
 
 Provider Endpoint 页面中的搜索框、Provider 类型导航以及刷新/新增操作区固定在管理面板顶部；纵向滚动只发生在 Endpoint 列表内容槽中，不能让这组页面操作随列表滚走。窄屏与宽屏遵守同一不变量，只改变工具区的响应式排列。
 
-Provider 类型由左侧 Codex、Claude、Grok、Kimi 分组决定。新增 Endpoint 时，当前分组直接写入
+Provider 类型由左侧 OpenAI、Codex、Claude、Grok、Kimi 分组决定。新增 Endpoint 时，当前分组直接写入
 `provider_kind`；编辑时沿用 Endpoint 已有类型。Endpoint 抽屉不得重复展示或提供 Provider 类型字段，
 避免页面分组与提交类型产生两套可编辑来源。抽屉说明必须从当前 Provider 注册目录的展示名称生成
 `配置 {Provider} 上游地址`，新增 Provider 适配时沿用同一规则，不维护按 Provider 分支的文案。

@@ -1,4 +1,4 @@
-type ProviderKind = "codex" | "claude" | "grok" | "kimi";
+type ProviderKind = "openai" | "codex" | "claude" | "grok" | "kimi";
 
 interface BalancingTotals {
   credentialCount: number;
@@ -112,7 +112,7 @@ function parseTelemetry(value: unknown) {
 function parseProvider(value: unknown): BalancingProvider {
   const item = record(value);
   return {
-    providerKind: oneOf(item.provider_kind, ["codex", "claude", "grok", "kimi"]),
+    providerKind: oneOf(item.provider_kind, ["openai", "codex", "claude", "grok", "kimi"]),
     ...parseTotals(item),
   };
 }

@@ -1,32 +1,17 @@
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::super::wire::{SynthesizedEvent, content_telemetry, event, event_default};
 use super::ChatToResponsesStream;
-use crate::{
-    ProtocolError,
-    openai_responses_chat::response::{
-        function_call_item, function_call_item_id, message_item, message_item_id, reasoning_item,
-        reasoning_item_id,
-    },
+use crate::openai_responses_chat::response::{
+    message_item, message_item_id, reasoning_item, reasoning_item_id,
 };
 
 #[derive(Default)]
 pub(super) struct TextState {
-    output_index: Option<usize>,
-    item_id: String,
-    text: String,
-    done: bool,
-}
-
-#[derive(Default)]
-pub(super) struct ToolState {
-    output_index: Option<usize>,
-    item_id: String,
-    call_id: String,
-    name: String,
-    arguments: String,
-    emitted_arguments: usize,
-    done: bool,
+    pub(super) output_index: Option<usize>,
+    pub(super) item_id: String,
+    pub(super) text: String,
+    pub(super) done: bool,
 }
 
 impl ChatToResponsesStream {
@@ -38,7 +23,7 @@ impl ChatToResponsesStream {
         if self.message.output_index.is_none() {
             let index = self.allocate_output();
             self.message.output_index = Some(index);
-            self.message.item_id = message_item_id(&self.response_id);
+            self.message.item_id = message_item_id(self.response_id());
             events.push(event_default(
                 "response.output_item.added",
                 json!({"type":"response.output_item.added","output_index":index,"item":{
@@ -72,11 +57,12 @@ impl ChatToResponsesStream {
         if self.reasoning.output_index.is_none() {
             let index = self.allocate_output();
             self.reasoning.output_index = Some(index);
-            self.reasoning.item_id = reasoning_item_id(&self.response_id);
+            self.reasoning.item_id = reasoning_item_id(self.response_id());
             events.push(event_default(
                 "response.output_item.added",
                 json!({"type":"response.output_item.added","output_index":index,"item":{
-                    "id":self.reasoning.item_id,"type":"reasoning","status":"in_progress","summary":[]
+                    "id":self.reasoning.item_id,"type":"reasoning","status":"in_progress",
+                    "summary":[]
                 }}),
             ));
             events.push(event_default(
@@ -98,48 +84,6 @@ impl ChatToResponsesStream {
         events
     }
 
-    pub(super) fn push_tool(
-        &mut self,
-        call: &Value,
-    ) -> Result<Vec<SynthesizedEvent>, ProtocolError> {
-        let key = call
-            .get("index")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| invalid("streamed tool call index must be a non-negative integer"))?;
-        let state = self.tools.entry(key).or_default();
-        append_fragment(&mut state.call_id, call.get("id"));
-        let function = call.get("function").unwrap_or(&Value::Null);
-        append_fragment(&mut state.name, function.get("name"));
-        append_fragment(&mut state.arguments, function.get("arguments"));
-        let mut events = Vec::new();
-        if state.output_index.is_none() && !state.call_id.is_empty() && !state.name.is_empty() {
-            let index = self.next_output_index;
-            self.next_output_index += 1;
-            state.output_index = Some(index);
-            state.item_id = function_call_item_id(&self.response_id, key);
-            events.push(event_default(
-                "response.output_item.added",
-                json!({"type":"response.output_item.added","output_index":index,"item":{
-                    "id":state.item_id,"type":"function_call","status":"in_progress",
-                    "call_id":state.call_id,"name":state.name,"arguments":""
-                }}),
-            ));
-        }
-        if let Some(index) = state.output_index
-            && state.arguments.len() > state.emitted_arguments
-        {
-            let delta = state.arguments[state.emitted_arguments..].to_owned();
-            state.emitted_arguments = state.arguments.len();
-            events.push(event(
-                "response.function_call_arguments.delta",
-                json!({"type":"response.function_call_arguments.delta","item_id":state.item_id,
-                    "output_index":index,"delta":delta}),
-                content_telemetry(),
-            ));
-        }
-        Ok(events)
-    }
-
     pub(super) fn finish_message(&mut self) -> Vec<SynthesizedEvent> {
         let Some(index) = self.message.output_index else {
             return Vec::new();
@@ -148,7 +92,7 @@ impl ChatToResponsesStream {
             return Vec::new();
         }
         self.message.done = true;
-        let item = message_item(&self.response_id, &self.message.text);
+        let item = message_item(self.response_id(), &self.message.text);
         self.completed_items.push((index, item.clone()));
         vec![
             event_default(
@@ -178,7 +122,7 @@ impl ChatToResponsesStream {
             return Vec::new();
         }
         self.reasoning.done = true;
-        let item = reasoning_item(&self.response_id, &self.reasoning.text);
+        let item = reasoning_item(self.response_id(), &self.reasoning.text);
         self.completed_items.push((index, item.clone()));
         vec![
             event_default(
@@ -200,85 +144,9 @@ impl ChatToResponsesStream {
         ]
     }
 
-    pub(super) fn finish_tools(&mut self) -> Result<Vec<SynthesizedEvent>, ProtocolError> {
-        let mut events = Vec::new();
-        for (key, state) in &mut self.tools {
-            if state.done {
-                continue;
-            }
-            let index = state
-                .output_index
-                .ok_or_else(|| invalid("streamed tool call identity is incomplete"))?;
-            state.done = true;
-            let item = function_call_item(
-                &self.response_id,
-                key,
-                &state.call_id,
-                &state.name,
-                &state.arguments,
-            );
-            self.completed_items.push((index, item.clone()));
-            events.push(event_default(
-                "response.function_call_arguments.done",
-                json!({"type":"response.function_call_arguments.done","item_id":state.item_id,
-                    "output_index":index,"arguments":state.arguments}),
-            ));
-            events.push(event_default(
-                "response.output_item.done",
-                json!({"type":"response.output_item.done","output_index":index,"item":item}),
-            ));
-        }
-        Ok(events)
-    }
-
-    pub(super) fn validate_tool_identities(&self) -> Result<(), ProtocolError> {
-        if self.tools.values().any(|state| {
-            state.output_index.is_none()
-                || state.item_id.is_empty()
-                || state.call_id.is_empty()
-                || state.name.is_empty()
-        }) {
-            return Err(invalid("streamed tool call identity is incomplete"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn assistant_message(&self) -> Value {
-        let mut message = json!({"role":"assistant","content": if self.message.text.is_empty() {
-            Value::Null
-        } else {
-            Value::String(self.message.text.clone())
-        }});
-        if !self.reasoning.text.is_empty() {
-            message["reasoning_content"] = Value::String(self.reasoning.text.clone());
-        }
-        let calls = self
-            .tools
-            .values()
-            .map(|state| {
-                json!({"id":state.call_id,"type":"function",
-                    "function":{"name":state.name,"arguments":state.arguments}})
-            })
-            .collect::<Vec<_>>();
-        if !calls.is_empty() {
-            message["tool_calls"] = Value::Array(calls);
-        }
-        message
-    }
-
-    fn allocate_output(&mut self) -> usize {
+    pub(super) fn allocate_output(&mut self) -> usize {
         let index = self.next_output_index;
         self.next_output_index += 1;
         index
     }
-}
-
-fn append_fragment(target: &mut String, value: Option<&Value>) {
-    if let Some(value) = value.and_then(Value::as_str) {
-        target.push_str(value);
-    }
-}
-
-fn invalid(message: &'static str) -> ProtocolError {
-    ProtocolError::InvalidPayload(message.into())
 }

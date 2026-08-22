@@ -59,6 +59,15 @@ impl ProviderDriver for GrokDriver {
         &self.capabilities
     }
 
+    fn supports_api_key_operation(&self, operation: ProtocolOperation) -> bool {
+        matches!(
+            operation,
+            ProtocolOperation::Responses
+                | ProtocolOperation::ResponsesCompact
+                | ProtocolOperation::ChatCompletions
+        )
+    }
+
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError> {
         api_key::validate_secret(secret)
     }
@@ -68,12 +77,7 @@ impl ProviderDriver for GrokDriver {
         base_url: &any2api_domain::ProviderBaseUrl,
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError> {
-        if !matches!(
-            operation,
-            ProtocolOperation::Responses
-                | ProtocolOperation::ResponsesCompact
-                | ProtocolOperation::ChatCompletions
-        ) {
+        if !self.supports_api_key_operation(operation) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Grok".into(),
             ));

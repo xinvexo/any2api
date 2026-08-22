@@ -207,6 +207,6 @@ const fn provider_kind_text(kind: ProviderKind) -> Result<&'static str, StorageE
         ProviderKind::Codex => Ok("codex"),
         ProviderKind::Claude => Ok("claude"),
         ProviderKind::Grok => Ok("grok"),
-        ProviderKind::Kimi => Err(StorageError::CorruptConfiguration),
+        ProviderKind::OpenAi | ProviderKind::Kimi => Err(StorageError::CorruptConfiguration),
     }
 }

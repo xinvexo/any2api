@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, QuotaCostUnit,
-    RequestSpeedTier, TransportMode,
+    OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation, ProtocolTargetProfile,
+    ProviderBaseUrl, ProviderKind, QuotaCostUnit, RequestSpeedTier, TransportMode,
 };
 use base64::Engine as _;
 use http::{HeaderMap, StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
@@ -25,6 +25,22 @@ fn request_context(
         allow_session_replay: true,
         allow_turn_state: false,
     }
+}
+
+#[test]
+fn declares_the_current_openai_chat_target_profile() {
+    let driver = CodexDriver::new();
+
+    assert_eq!(
+        driver.protocol_target_profile(ProtocolDialect::OpenAiChatCompletions, "gpt-5.4"),
+        Some(ProtocolTargetProfile::OpenAiChatCompletions(
+            OpenAiChatCompletionsProfile::CURRENT_OPENAI,
+        ))
+    );
+    assert_eq!(
+        driver.protocol_target_profile(ProtocolDialect::OpenAiResponses, "gpt-5.4"),
+        None
+    );
 }
 
 #[test]

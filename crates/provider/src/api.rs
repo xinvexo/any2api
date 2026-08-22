@@ -1,8 +1,9 @@
 use std::{collections::BTreeSet, fmt};
 
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    QuotaCostUnit, RequestBodyEncoding, RequestSpeedTier, TransportMode, UpstreamError,
+    CredentialKind, OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation,
+    ProtocolTargetProfile, ProviderBaseUrl, ProviderKind, QuotaCostUnit, RequestBodyEncoding,
+    RequestSpeedTier, TransportMode, UpstreamError,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -76,6 +77,22 @@ pub trait ProviderDriver: Send + Sync {
     fn kind(&self) -> ProviderKind;
 
     fn capabilities(&self) -> &CapabilitySet;
+
+    fn supports_api_key_operation(&self, operation: ProtocolOperation) -> bool {
+        self.capabilities().protocols.contains(&operation.dialect())
+    }
+
+    fn protocol_target_profile(
+        &self,
+        dialect: ProtocolDialect,
+        _upstream_model: &str,
+    ) -> Option<ProtocolTargetProfile> {
+        (dialect == ProtocolDialect::OpenAiChatCompletions
+            && self.capabilities().protocols.contains(&dialect))
+        .then_some(ProtocolTargetProfile::OpenAiChatCompletions(
+            OpenAiChatCompletionsProfile::COMPATIBLE_BASELINE,
+        ))
+    }
 
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError>;
 

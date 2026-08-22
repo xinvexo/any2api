@@ -5,6 +5,7 @@ mod id;
 mod kind;
 mod network;
 mod oauth_account;
+mod protocol_profile;
 mod provider;
 mod proxy;
 mod revision;
@@ -36,6 +37,12 @@ pub use network::{canonical_ip, is_loopback_ip};
 pub use oauth_account::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountValidationError,
     OAuthProxySelection,
+};
+pub use protocol_profile::{
+    OpenAiChatCachedTokensField, OpenAiChatCompletionsProfile, OpenAiChatCustomToolMode,
+    OpenAiChatInstructionRole, OpenAiChatReasoningRequest, OpenAiChatReasoningResponse,
+    OpenAiChatRequestField, OpenAiChatRequestFields, OpenAiChatTokenLimitField,
+    OpenAiChatToolNamePolicy, ProtocolTargetProfile,
 };
 pub use provider::{
     ProviderBaseUrl, ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,

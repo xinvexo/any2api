@@ -296,12 +296,11 @@ pub(crate) fn build_route_candidates(
         let Some(driver) = providers.get(endpoint.provider_kind()) else {
             continue;
         };
-        // Mirrors the OAuth path's `oauth_supports_operation` filter: API Key
-        // candidates whose driver cannot plan an endpoint for this operation
-        // (e.g. `alpha/search` outside Codex) never reach RPM or upstream I/O.
-        if driver
-            .endpoint_plan(endpoint.base_url(), requirements.operation())
-            .is_err()
+        // A direct API Key target must support this exact ingress operation.
+        // A bridge maps it to another operation later; that final operation is
+        // validated while building the prepared upstream request.
+        if route.ingress_protocol() == target.upstream_protocol_dialect()
+            && !driver.supports_api_key_operation(requirements.operation())
         {
             continue;
         }

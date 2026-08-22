@@ -1,13 +1,18 @@
-use std::{
-    collections::BTreeMap,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::collections::BTreeMap;
 
-use any2api_domain::TokenUsage;
+use any2api_domain::{OpenAiChatCompletionsProfile, TokenUsage};
 use serde_json::{Value, json};
 
-use super::super::super::response::{incomplete_reason, responses_usage, token_usage};
-use super::items::{TextState, ToolState};
+use super::{
+    super::super::{
+        response::{incomplete_reason, responses_usage, token_usage},
+        response_projection::ResponseProjection,
+        tool_projection::ToolProjection,
+    },
+    chunk,
+    items::TextState,
+    tools::ToolState,
+};
 use crate::{
     ProtocolError,
     api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination},
@@ -22,9 +27,14 @@ pub(crate) struct StreamUpdate {
 }
 
 pub(crate) struct ChatToResponsesStream {
-    pub(super) response_id: String,
+    pub(super) response: ResponseProjection,
+    pub(super) profile: OpenAiChatCompletionsProfile,
+    pub(super) projection: ToolProjection,
     pub(super) model: String,
     pub(super) created_at: u64,
+    pub(super) observed_model: Option<String>,
+    pub(super) observed_created_at: Option<u64>,
+    pub(super) observed_role: bool,
     pub(super) started: bool,
     pub(super) completed: bool,
     pub(super) finish_reason: Option<String>,
@@ -39,13 +49,22 @@ pub(crate) struct ChatToResponsesStream {
 }
 
 impl ChatToResponsesStream {
-    pub(crate) fn new(response_id: String, model: String) -> Self {
+    pub(crate) fn new(
+        response: ResponseProjection,
+        profile: OpenAiChatCompletionsProfile,
+        projection: ToolProjection,
+    ) -> Self {
+        let model = response.upstream_model().to_owned();
+        let created_at = response.created_at();
         Self {
-            response_id,
+            response,
+            profile,
+            projection,
             model,
-            created_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_secs()),
+            created_at,
+            observed_model: None,
+            observed_created_at: None,
+            observed_role: false,
             started: false,
             completed: false,
             finish_reason: None,
@@ -61,6 +80,11 @@ impl ChatToResponsesStream {
     }
 
     pub(crate) fn push(&mut self, event: AdapterEvent) -> Result<StreamUpdate, ProtocolError> {
+        if self.completed {
+            return Err(invalid(
+                "Chat Completions stream continued after termination",
+            ));
+        }
         self.usage.merge(event.telemetry().token_usage);
         let termination = event.termination();
         let upstream_failure = event.upstream_failure().cloned();
@@ -81,11 +105,9 @@ impl ChatToResponsesStream {
             }
         };
         if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
+            responses_usage(Some(usage), self.profile)?;
             self.usage_json = Some(usage.clone());
-            self.usage.merge(token_usage(Some(usage)));
-        }
-        if let Some(model) = value.get("model").and_then(Value::as_str) {
-            self.model = model.to_owned();
+            self.usage.merge(token_usage(Some(usage), self.profile)?);
         }
         if termination == StreamTermination::Failed {
             let events = self.sequence_events(vec![failure::convert(&value, upstream_failure)?])?;
@@ -95,6 +117,7 @@ impl ChatToResponsesStream {
                 assistant_message: None,
             });
         }
+        chunk::observe_metadata(self, &value)?;
         let mut events = self.ensure_started();
         let choices = match value.get("choices") {
             Some(Value::Array(choices)) => choices,
@@ -110,33 +133,9 @@ impl ChatToResponsesStream {
                 ));
             }
         };
-        if choices.len() > 1 {
-            return Err(invalid(
-                "Chat Completions stream event must contain at most one choice",
-            ));
-        }
-        if let Some(choice) = choices.first() {
-            if let Some(delta) = choice.get("delta") {
-                if let Some(reasoning) = delta
-                    .get("reasoning_content")
-                    .or_else(|| delta.get("reasoning"))
-                    .and_then(Value::as_str)
-                {
-                    events.extend(self.push_reasoning(reasoning));
-                }
-                if let Some(content) = delta.get("content").and_then(Value::as_str) {
-                    events.extend(self.push_text(content));
-                }
-                if let Some(calls) = delta.get("tool_calls").and_then(Value::as_array) {
-                    for call in calls {
-                        events.extend(self.push_tool(call)?);
-                    }
-                }
-            }
-            if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
-                self.finish_reason = Some(reason.to_owned());
-                self.validate_tool_identities()?;
-            }
+        chunk::apply_choices(self, choices, &mut events)?;
+        if self.finish_reason.is_some() {
+            self.validate_tool_identities()?;
         }
         Ok(StreamUpdate {
             events: self.sequence_events(events)?,
@@ -152,6 +151,25 @@ impl ChatToResponsesStream {
             });
         }
         self.validate_tool_identities()?;
+        let finish_reason = self
+            .finish_reason
+            .clone()
+            .ok_or_else(|| invalid("Chat Completions stream ended without finish_reason"))?;
+        if !self.observed_role {
+            return Err(invalid(
+                "Chat Completions stream never identified the assistant role",
+            ));
+        }
+        if finish_reason == "tool_calls" && self.tools.is_empty() {
+            return Err(invalid(
+                "finish_reason tool_calls requires at least one tool call",
+            ));
+        }
+        if finish_reason != "tool_calls" && !self.tools.is_empty() {
+            return Err(invalid(
+                "streamed tool calls require finish_reason tool_calls",
+            ));
+        }
         let mut events = self.ensure_started();
         events.extend(self.finish_reasoning());
         events.extend(self.finish_message());
@@ -162,19 +180,17 @@ impl ChatToResponsesStream {
             .iter()
             .map(|(_, item)| item.clone())
             .collect::<Vec<_>>();
-        let incomplete_reason = incomplete_reason(self.finish_reason.as_deref());
+        let incomplete_reason = incomplete_reason(Some(&finish_reason));
         let status = if incomplete_reason.is_some() {
             "incomplete"
         } else {
             "completed"
         };
-        let usage = self
-            .usage_json
-            .as_ref()
-            .map(|usage| responses_usage(Some(usage)))
-            .unwrap_or_else(|| usage_from_tokens(self.usage));
-        let mut response = self.base_response(status, output);
-        response["usage"] = usage;
+        let usage = match self.usage_json.as_ref() {
+            Some(usage) => responses_usage(Some(usage), self.profile)?,
+            None => Value::Null,
+        };
+        let mut response = self.base_response(status, output, usage);
         if let Some(reason) = incomplete_reason {
             response["incomplete_details"] = json!({"reason":reason});
         }
@@ -231,7 +247,7 @@ impl ChatToResponsesStream {
             return Vec::new();
         }
         self.started = true;
-        let response = self.base_response("in_progress", Vec::new());
+        let response = self.base_response("in_progress", Vec::new(), Value::Null);
         vec![
             event(
                 "response.created",
@@ -252,20 +268,14 @@ impl ChatToResponsesStream {
         ]
     }
 
-    fn base_response(&self, status: &str, output: Vec<Value>) -> Value {
-        json!({"id":self.response_id,"object":"response","created_at":self.created_at,
-            "status":status,"model":self.model,"output":output,"error":Value::Null,
-            "incomplete_details":Value::Null,"usage":Value::Null})
+    fn base_response(&self, status: &str, output: Vec<Value>, usage: Value) -> Value {
+        self.response
+            .base_response(status, output, self.created_at, &self.model, usage)
     }
-}
 
-fn usage_from_tokens(usage: TokenUsage) -> Value {
-    let input = usage.input_tokens().unwrap_or(0);
-    let output = usage.output_tokens().unwrap_or(0);
-    json!({"input_tokens":input,"output_tokens":output,
-        "total_tokens":input.saturating_add(output),
-        "input_tokens_details":{"cached_tokens":usage.cache_read_tokens().unwrap_or(0)},
-        "output_tokens_details":{"reasoning_tokens":0}})
+    pub(super) fn response_id(&self) -> &str {
+        self.response.response_id()
+    }
 }
 
 fn invalid(message: &'static str) -> ProtocolError {

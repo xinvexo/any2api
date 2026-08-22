@@ -1,11 +1,50 @@
 use any2api_domain::{
-    ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, TransportMode,
-    UpstreamErrorKind, UpstreamFailureAttribution,
+    OpenAiChatCachedTokensField, OpenAiChatReasoningRequest, OpenAiChatTokenLimitField,
+    ProtocolDialect, ProtocolOperation, ProtocolTargetProfile, ProviderBaseUrl, ProviderKind,
+    RetrySafety, TransportMode, UpstreamErrorKind, UpstreamFailureAttribution,
 };
 use http::{HeaderMap, HeaderValue, StatusCode, header::AUTHORIZATION};
 
 use super::KimiDriver;
 use crate::api::{ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta};
+
+#[test]
+fn declares_model_aware_kimi_chat_target_profiles() {
+    let driver = KimiDriver::new();
+
+    let Some(ProtocolTargetProfile::OpenAiChatCompletions(k3)) =
+        driver.protocol_target_profile(ProtocolDialect::OpenAiChatCompletions, "kimi-k3")
+    else {
+        panic!("Kimi Chat target profile");
+    };
+    assert_eq!(
+        k3.token_limit_field,
+        OpenAiChatTokenLimitField::MaxCompletionTokens
+    );
+    assert_eq!(
+        k3.reasoning_request,
+        OpenAiChatReasoningRequest::ReasoningEffort
+    );
+    assert_eq!(
+        k3.cached_tokens_field,
+        OpenAiChatCachedTokensField::TopLevel
+    );
+    assert!(!k3.supports_image_detail);
+
+    let Some(ProtocolTargetProfile::OpenAiChatCompletions(k2)) =
+        driver.protocol_target_profile(ProtocolDialect::OpenAiChatCompletions, "kimi-k2.6")
+    else {
+        panic!("Kimi Chat target profile");
+    };
+    assert_eq!(
+        k2.reasoning_request,
+        OpenAiChatReasoningRequest::Unsupported
+    );
+    assert_eq!(
+        driver.protocol_target_profile(ProtocolDialect::OpenAiResponses, "kimi-k3"),
+        None
+    );
+}
 
 #[test]
 fn exposes_only_chat_completions_and_builds_moonshot_paths() {

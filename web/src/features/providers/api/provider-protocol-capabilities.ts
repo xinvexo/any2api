@@ -1,4 +1,4 @@
-export type ProviderKind = "codex" | "claude" | "grok" | "kimi";
+export type ProviderKind = "openai" | "codex" | "claude" | "grok" | "kimi";
 export type ProtocolDialect =
   | "openai_responses"
   | "openai_chat_completions"
@@ -126,7 +126,13 @@ function parseBridgeCapability(value: unknown): ProtocolBridgeCapability {
 }
 
 export function readProviderKind(value: unknown): ProviderKind {
-  if (value !== "codex" && value !== "claude" && value !== "grok" && value !== "kimi") {
+  if (
+    value !== "openai" &&
+    value !== "codex" &&
+    value !== "claude" &&
+    value !== "grok" &&
+    value !== "kimi"
+  ) {
     throw invalid();
   }
   return value;

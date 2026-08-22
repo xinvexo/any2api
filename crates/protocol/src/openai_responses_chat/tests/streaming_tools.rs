@@ -59,7 +59,9 @@ async fn streaming_bridge_rejects_incomplete_tool_identity_at_finish_reason() {
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
-        json!({"model":"public-model","input":"hello","stream":true}),
+        json!({"model":"public-model","input":"hello","stream":true,"tools":[{
+            "type":"function","name":"weather","parameters":{"type":"object"}
+        }]}),
     )
     .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
@@ -97,7 +99,10 @@ async fn streaming_bridge_rejects_incomplete_tool_identity_at_done_without_parti
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
-        json!({"model":"public-model","input":"hello","stream":true}),
+        json!({"model":"public-model","input":"hello","stream":true,"tools":[
+            {"type":"function","name":"valid","parameters":{"type":"object"}},
+            {"type":"function","name":"missing_id","parameters":{"type":"object"}}
+        ]}),
     )
     .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);

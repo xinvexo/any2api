@@ -99,7 +99,7 @@ async fn remote_compaction_excludes_responses_to_chat_bridge_targets() {
             endpoint_id,
             ProviderEndpointDraft::new(
                 "Chat bridge",
-                ProviderKind::Codex,
+                ProviderKind::Kimi,
                 "https://api.example.com/v1",
                 ProtocolDialect::OpenAiResponses,
                 Some(ProtocolDialect::OpenAiChatCompletions),

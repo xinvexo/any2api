@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation};
+use any2api_domain::{OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -9,13 +9,20 @@ use crate::{
     api::{
         AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedResponsePayload,
         DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge,
-        ProtocolBridgeCapabilities, ProtocolBridgeSession, ProtocolContinuationState,
-        ResumableProtocolContinuation, StartedProtocolBridge,
+        ProtocolBridgeCapabilities, ProtocolBridgeContext, ProtocolBridgeSession,
+        ProtocolContinuationState, StartedProtocolBridge,
     },
     json_codec,
 };
 
-use super::{capabilities::CAPABILITIES, request, response, stream::ChatToResponsesStream};
+use super::{
+    capabilities::CAPABILITIES,
+    continuation::{ResponsesChatContinuation, serialized_json_bytes},
+    request, response,
+    response_projection::ResponseProjection,
+    stream::ChatToResponsesStream,
+    tool_projection::ToolProjection,
+};
 
 #[derive(Default)]
 pub struct ResponsesToChatCompletionsBridge;
@@ -43,7 +50,7 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
     fn start(
         &self,
         decoded: &DecodedRequest,
-        upstream_model: &str,
+        context: ProtocolBridgeContext<'_>,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         if decoded.operation != ProtocolOperation::Responses {
             return Err(ProtocolError::Unsupported(format!(
@@ -51,16 +58,22 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
                 decoded.operation
             )));
         }
-        start_session(decoded, upstream_model, None)
+        let profile = context
+            .target_profile
+            .openai_chat_completions()
+            .ok_or_else(|| ProtocolError::Unsupported("Chat target profile is required".into()))?;
+        start_session(decoded, context.upstream_model, profile, None)
     }
 }
 
 struct ResponsesToChatSession {
     conversation: Vec<Value>,
     stream: ChatToResponsesStream,
-    response_id: String,
+    response_projection: ResponseProjection,
     continuation: Option<ProtocolContinuationState>,
     accumulated_stream_bytes: usize,
+    profile: OpenAiChatCompletionsProfile,
+    projection: ToolProjection,
 }
 
 impl ResponsesToChatSession {
@@ -69,7 +82,10 @@ impl ResponsesToChatSession {
             return Ok(());
         }
         self.conversation.push(assistant_message);
-        let continuation = ResponsesChatContinuation::new(std::mem::take(&mut self.conversation))?;
+        let continuation = ResponsesChatContinuation::new(
+            std::mem::take(&mut self.conversation),
+            self.projection.clone(),
+        )?;
         self.continuation = Some(ProtocolContinuationState::new(Arc::new(continuation))?);
         Ok(())
     }
@@ -102,7 +118,12 @@ impl ProtocolBridgeSession for ResponsesToChatSession {
                 "protocol bridge requires a structured response".into(),
             ));
         };
-        let converted = response::convert(parsed, &self.response_id)?;
+        let converted = response::convert(
+            parsed,
+            &self.response_projection,
+            &self.projection,
+            self.profile,
+        )?;
         self.complete(converted.assistant_message)?;
         decoded.payload = DecodedResponsePayload::StructuredJson(converted.body);
         Ok(decoded)
@@ -134,57 +155,11 @@ impl ProtocolBridgeSession for ResponsesToChatSession {
     }
 }
 
-struct ResponsesChatContinuation {
-    conversation: Arc<[Value]>,
-    serialized_bytes: usize,
-}
-
-impl ResponsesChatContinuation {
-    fn new(conversation: Vec<Value>) -> Result<Self, ProtocolError> {
-        let serialized_bytes = serialized_json_bytes(&conversation)?;
-        if serialized_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
-            return Err(ProtocolError::ContinuationTooLarge {
-                bytes: serialized_bytes,
-                max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
-            });
-        }
-        Ok(Self {
-            conversation: conversation.into(),
-            serialized_bytes,
-        })
-    }
-}
-
-impl ResumableProtocolContinuation for ResponsesChatContinuation {
-    fn ingress_dialect(&self) -> ProtocolDialect {
-        ProtocolDialect::OpenAiResponses
-    }
-
-    fn upstream_dialect(&self) -> ProtocolDialect {
-        ProtocolDialect::OpenAiChatCompletions
-    }
-
-    fn operation(&self) -> ProtocolOperation {
-        ProtocolOperation::Responses
-    }
-
-    fn serialized_bytes(&self) -> usize {
-        self.serialized_bytes
-    }
-
-    fn resume(
-        &self,
-        request: &DecodedRequest,
-        upstream_model: &str,
-    ) -> Result<StartedProtocolBridge, ProtocolError> {
-        start_session(request, upstream_model, Some(self.conversation.as_ref()))
-    }
-}
-
-fn start_session(
+pub(super) fn start_session(
     decoded: &DecodedRequest,
     upstream_model: &str,
-    previous: Option<&[Value]>,
+    profile: OpenAiChatCompletionsProfile,
+    previous: Option<&ResponsesChatContinuation>,
 ) -> Result<StartedProtocolBridge, ProtocolError> {
     let value = decoded.payload.materialize_json().map_err(|_| {
         ProtocolError::InvalidPayload("Responses bridge requires a JSON request body".into())
@@ -193,9 +168,16 @@ fn start_session(
     let converted = request::convert(
         value.as_ref(),
         upstream_model,
-        previous.map_or_else(Vec::new, <[Value]>::to_vec),
+        profile,
+        previous.map_or_else(Vec::new, |state| state.conversation().to_vec()),
+        previous.map(ResponsesChatContinuation::projection),
     )?;
-    let accumulated_stream_bytes = serialized_json_bytes(converted.conversation())?;
+    let accumulated_stream_bytes = serialized_json_bytes(converted.conversation())?
+        .checked_add(converted.projection().serialized_bytes())
+        .ok_or(ProtocolError::ContinuationTooLarge {
+            bytes: usize::MAX,
+            max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
+        })?;
     if accumulated_stream_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
         return Err(ProtocolError::ContinuationTooLarge {
             bytes: accumulated_stream_bytes,
@@ -208,17 +190,28 @@ fn start_session(
         &converted.body,
         upstream_model,
     )?;
+    let projection = converted.projection().clone();
     let conversation = converted.into_conversation();
-    let response_id = format!("resp_{}", Uuid::new_v4().simple());
+    let response_projection = ResponseProjection::new(
+        format!("resp_{}", Uuid::new_v4().simple()),
+        upstream_model.to_owned(),
+        value.as_ref(),
+    );
     Ok(StartedProtocolBridge::new(
         ProtocolOperation::ChatCompletions,
         request,
         Box::new(ResponsesToChatSession {
             conversation,
-            stream: ChatToResponsesStream::new(response_id.clone(), upstream_model.into()),
-            response_id,
+            stream: ChatToResponsesStream::new(
+                response_projection.clone(),
+                profile,
+                projection.clone(),
+            ),
+            response_projection,
             continuation: None,
             accumulated_stream_bytes,
+            profile,
+            projection,
         }),
     ))
 }
@@ -236,27 +229,6 @@ fn validate_continuation_reference(
             "previous_response_id must be a string".into(),
         )),
     }
-}
-
-fn serialized_json_bytes(value: &[Value]) -> Result<usize, ProtocolError> {
-    struct CountingWriter(usize);
-
-    impl std::io::Write for CountingWriter {
-        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-            self.0 = self.0.saturating_add(buffer.len());
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    let mut writer = CountingWriter(0);
-    serde_json::to_writer(&mut writer, value).map_err(|_| {
-        ProtocolError::InvalidPayload("continuation state is not serializable".into())
-    })?;
-    Ok(writer.0)
 }
 
 impl std::fmt::Debug for ResponsesToChatCompletionsBridge {

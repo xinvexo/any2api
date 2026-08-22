@@ -22,7 +22,7 @@ export type ProviderEditorErrors = Partial<Record<EditorField, string>>;
 
 export function useProviderEditor(
   endpoint?: ProviderEndpoint,
-  defaultKind: ProviderKind = "codex",
+  defaultKind: ProviderKind = "openai",
   protocolOptions: ProviderProtocolOptions[] = [],
 ) {
   const [draft, setDraft] = useState<ProviderEditorDraft>(() =>
@@ -105,6 +105,7 @@ function initialDraft(
 
 function defaultBaseUrl(kind: ProviderKind) {
   const defaults: Record<ProviderKind, string> = {
+    openai: "https://api.openai.com/v1",
     codex: "https://api.openai.com/v1",
     claude: "https://api.anthropic.com",
     grok: "https://api.x.ai/v1",

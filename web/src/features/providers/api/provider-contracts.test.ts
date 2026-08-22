@@ -67,6 +67,26 @@ test("parses Grok as an OpenAI-compatible provider", () => {
   });
 });
 
+test("parses standard OpenAI separately from Codex", () => {
+  const parsed = parseProviderEndpointConfiguration({
+    config_revision: 2,
+    items: [
+      endpoint({
+        name: "OpenAI Primary",
+        provider_kind: "openai",
+        base_url: "https://api.openai.com/v1",
+      }),
+    ],
+    protocol_options: protocolOptions(),
+  });
+
+  expect(parsed.items[0]).toMatchObject({
+    providerKind: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    protocolDialect: "openai_responses",
+  });
+});
+
 test("parses Kimi with an explicit Responses to Chat bridge", () => {
   const parsed = parseProviderEndpointConfiguration({
     config_revision: 3,
@@ -124,6 +144,29 @@ function endpoint(overrides: Record<string, unknown> = {}) {
 function protocolOptions() {
   return [
     {
+      provider_kind: "openai",
+      accepted_protocol: "openai_responses",
+      upstream_options: [
+        directOption("openai_responses", ["responses", "responses_compact"]),
+        translatedOption("openai_chat_completions", ["responses"]),
+      ],
+    },
+    {
+      provider_kind: "openai",
+      accepted_protocol: "openai_chat_completions",
+      upstream_options: [
+        directOption("openai_chat_completions", ["chat_completions"]),
+      ],
+    },
+    {
+      provider_kind: "openai",
+      accepted_protocol: "openai_images",
+      upstream_options: [
+        translatedOption("openai_chat_completions", ["images_generations"]),
+        directOption("openai_images", ["images_generations", "images_edits"]),
+      ],
+    },
+    {
       provider_kind: "codex",
       accepted_protocol: "openai_responses",
       upstream_options: [
@@ -150,7 +193,7 @@ function protocolOptions() {
       provider_kind: "grok",
       accepted_protocol: "openai_responses",
       upstream_options: [
-        directOption("openai_responses", ["responses", "responses_compact", "alpha_search"]),
+        directOption("openai_responses", ["responses", "responses_compact"]),
         translatedOption("openai_chat_completions", ["responses"]),
       ],
     },
@@ -202,7 +245,7 @@ function translatedOption(protocol: string, operations: string[]) {
     bridge: {
       contract_id: "test-bridge/v1",
       request_fields: [{ path: "input", behavior: "translated" }],
-      tool_types: ["function"],
+      tool_types: ["function", "custom", "namespace", "tool_search"],
       limitations: [
         {
           code: "canonical_request_reconstruction",

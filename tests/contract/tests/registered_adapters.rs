@@ -200,6 +200,7 @@ fn composition_root_provider_registry_runs_every_contract() {
             .map(|(kind, _)| *kind)
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
+            ProviderKind::OpenAi,
             ProviderKind::Codex,
             ProviderKind::Claude,
             ProviderKind::Grok,
@@ -263,7 +264,7 @@ fn provider_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
     let request_headers = driver
         .prepare_request_headers(request_context)
         .expect("registered provider projects request headers");
-    if kind == ProviderKind::Kimi {
+    if matches!(kind, ProviderKind::OpenAi | ProviderKind::Kimi) {
         assert!(request_headers.is_empty());
     } else {
         assert_eq!(request_headers["user-agent"], "official-client/contract");
@@ -323,6 +324,23 @@ struct ProviderFixture {
 impl ProviderFixture {
     fn for_kind(kind: ProviderKind) -> Self {
         match kind {
+            ProviderKind::OpenAi => Self {
+                protocols: BTreeSet::from([
+                    ProtocolDialect::OpenAiResponses,
+                    ProtocolDialect::OpenAiChatCompletions,
+                    ProtocolDialect::OpenAiImages,
+                ]),
+                base_url: base_url("https://api.openai.com/v1"),
+                ingress_dialect: ProtocolDialect::OpenAiResponses,
+                operation: ProtocolOperation::ResponsesCompact,
+                expected_url: "https://api.openai.com/v1/responses/compact",
+                secret: "openai-contract-key",
+                safe_header: "originator",
+                error_status: StatusCode::TOO_MANY_REQUESTS,
+                error_body: br#"{"error":{"type":"insufficient_quota","message":"OpenAI detail"}}"#,
+                error_kind: UpstreamErrorKind::QuotaExhausted,
+                error_message: "OpenAI detail",
+            },
             ProviderKind::Codex => Self {
                 protocols: BTreeSet::from([
                     ProtocolDialect::OpenAiResponses,

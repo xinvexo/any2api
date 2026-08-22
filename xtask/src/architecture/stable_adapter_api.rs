@@ -8,11 +8,12 @@ const ADAPTER_CRATES: [&str; 4] = [
     "any2api_storage",
     "any2api_transport",
 ];
-const PROVIDER_ROOT_EXPORTS: [&str; 4] = [
+const PROVIDER_ROOT_EXPORTS: [&str; 5] = [
     "pub use claude::ClaudeDriver;",
     "pub use codex::CodexDriver;",
     "pub use grok::GrokDriver;",
     "pub use kimi::KimiDriver;",
+    "pub use openai::OpenAiDriver;",
 ];
 const PROTOCOL_ROOT_EXPORTS: [&str; 6] = [
     "pub use anthropic_messages::AnthropicMessagesAdapter;",
@@ -154,7 +155,7 @@ mod tests {
     fn provider_root_exposes_only_composition_root_drivers() {
         assert_eq!(
             root_exports(
-                "pub use kimi::KimiDriver;\npub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
+                "pub use openai::OpenAiDriver;\npub use kimi::KimiDriver;\npub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
             ),
             PROVIDER_ROOT_EXPORTS
         );

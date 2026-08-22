@@ -18,7 +18,9 @@ async fn streaming_bridge_emits_responses_events_tools_and_usage() {
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
-        json!({"model":"public-model","input":"hello","stream":true}),
+        json!({"model":"public-model","input":"hello","stream":true,"tools":[{
+            "type":"function","name":"weather","parameters":{"type":"object"}
+        }]}),
     )
     .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
@@ -155,7 +157,7 @@ async fn streaming_reasoning_closes_text_part_and_item_in_order() {
     let frames = [
         chat_frame(json!({
             "id":"chatcmpl_reasoning","model":"upstream-model",
-            "choices":[{"index":0,"delta":{"reasoning_content":"plan "}}]
+            "choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"plan "}}]
         })),
         chat_frame(json!({
             "id":"chatcmpl_reasoning","model":"upstream-model",
@@ -303,7 +305,7 @@ async fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
                 "id":"chatcmpl_incomplete","model":"upstream-model",
                 "choices":[{
                     "index":0,
-                    "delta":{"content":"partial"},
+                    "delta":{"role":"assistant","content":"partial"},
                     "finish_reason":finish_reason
                 }]
             })))

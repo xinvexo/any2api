@@ -31,6 +31,7 @@ mod oauth_quota_snapshot_v9;
 mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod provider_kind_kimi;
+mod provider_kind_openai;
 mod query_indexes;
 mod removed_reliability_setting_overrides;
 mod request_attempt_routing_diagnostics;
@@ -123,6 +124,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (39, "stabilize oauth quota identity".to_owned()),
             (40, "freeze codex quota before purchased credits".to_owned()),
             (41, "optimize request attempt usage aggregates".to_owned()),
+            (42, "add openai provider kind".to_owned()),
         ]
     );
 
@@ -166,6 +168,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;
     assert!(endpoint_schema.contains("'grok'"));
     assert!(endpoint_schema.contains("'kimi'"));
+    assert!(endpoint_schema.contains("'openai'"));
     assert!(endpoint_schema.contains("'openai_images'"));
     assert!(!endpoint_schema.contains("'codex_backend'"));
     let model_route_schema = table_schema(&pool, "model_routes").await;

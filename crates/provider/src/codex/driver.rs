@@ -3,8 +3,8 @@ use super::{
     oauth as codex_oauth, quota as codex_quota, request as codex_request,
 };
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
-    RequestSpeedTier, TransportMode,
+    CredentialKind, OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation,
+    ProtocolTargetProfile, ProviderKind, RequestBodyEncoding, RequestSpeedTier, TransportMode,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -62,6 +62,18 @@ impl ProviderDriver for CodexDriver {
 
     fn capabilities(&self) -> &CapabilitySet {
         &self.capabilities
+    }
+
+    fn protocol_target_profile(
+        &self,
+        dialect: ProtocolDialect,
+        _upstream_model: &str,
+    ) -> Option<ProtocolTargetProfile> {
+        (dialect == ProtocolDialect::OpenAiChatCompletions).then_some(
+            ProtocolTargetProfile::OpenAiChatCompletions(
+                OpenAiChatCompletionsProfile::CURRENT_OPENAI,
+            ),
+        )
     }
 
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<(), ProviderError> {

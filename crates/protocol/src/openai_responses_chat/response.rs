@@ -1,16 +1,36 @@
-use std::fmt::Display;
+mod items;
+mod metadata;
+mod usage;
 
-use any2api_domain::TokenUsage;
+use std::collections::HashSet;
+
+use any2api_domain::{OpenAiChatCompletionsProfile, OpenAiChatReasoningResponse};
 use serde_json::{Map, Value, json};
 
 use crate::ProtocolError;
+
+use super::{
+    response_projection::ResponseProjection,
+    tool_projection::{RestoredToolCall, ToolProjection},
+};
+
+pub(super) use items::{
+    custom_call_item_id, function_call_item_id, message_item, message_item_id, reasoning_item,
+    reasoning_item_id, restored_call_item, tool_search_call_item_id,
+};
+pub(super) use usage::{responses_usage, token_usage};
 
 pub(super) struct ConvertedResponse {
     pub(super) body: Value,
     pub(super) assistant_message: Value,
 }
 
-pub(super) fn convert(body: Value, response_id: &str) -> Result<ConvertedResponse, ProtocolError> {
+pub(super) fn convert(
+    body: Value,
+    projection: &ResponseProjection,
+    tools: &ToolProjection,
+    profile: OpenAiChatCompletionsProfile,
+) -> Result<ConvertedResponse, ProtocolError> {
     let choices = body
         .get("choices")
         .and_then(Value::as_array)
@@ -20,44 +40,62 @@ pub(super) fn convert(body: Value, response_id: &str) -> Result<ConvertedRespons
             "Chat Completions response must contain exactly one choice",
         ));
     }
-    let choice = &choices[0];
+    let choice = choices[0]
+        .as_object()
+        .ok_or_else(|| invalid("Chat Completions choice must be an object"))?;
+    if choice.get("index").and_then(Value::as_u64) != Some(0) {
+        return Err(invalid("Chat Completions choice index must be 0"));
+    }
+    let finish_reason = finish_reason(choice.get("finish_reason"))?;
     let message = choice
         .get("message")
         .and_then(Value::as_object)
         .ok_or_else(|| invalid("Chat Completions choice has no message"))?;
     validate_message(message)?;
-    let finish_reason = choice.get("finish_reason").and_then(Value::as_str);
-    let incomplete_reason = incomplete_reason(finish_reason);
+
+    let mut output = Vec::new();
+    if let Some(reasoning) = reasoning_text(message, profile)?
+        && !reasoning.is_empty()
+    {
+        output.push(reasoning_item(projection.response_id(), &reasoning));
+    }
+    if let Some(text) = message_text(message)?
+        && !text.is_empty()
+    {
+        output.push(message_item(projection.response_id(), &text));
+    }
+    append_tool_calls(message, projection.response_id(), tools, &mut output)?;
+    if finish_reason == "tool_calls"
+        && message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+    {
+        return Err(invalid(
+            "finish_reason tool_calls requires at least one tool call",
+        ));
+    }
+    if finish_reason != "tool_calls"
+        && message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| !calls.is_empty())
+    {
+        return Err(invalid(
+            "Chat Completions tool calls require finish_reason tool_calls",
+        ));
+    }
+
+    let incomplete_reason = incomplete_reason(Some(finish_reason));
     let status = if incomplete_reason.is_some() {
         "incomplete"
     } else {
         "completed"
     };
-    let mut output = Vec::new();
-    if let Some(reasoning) = reasoning_text(message)
-        && !reasoning.is_empty()
-    {
-        output.push(reasoning_item(response_id, &reasoning));
-    }
-    if let Some(text) = message_text(message)
-        && !text.is_empty()
-    {
-        output.push(message_item(response_id, &text));
-    }
-    append_tool_calls(message, response_id, &mut output)?;
-
-    let mut response = json!({
-        "id":response_id,
-        "object":"response",
-        "created_at":body.get("created").and_then(Value::as_u64).unwrap_or(0),
-        "status":status,
-        "model":body.get("model").cloned().unwrap_or(Value::Null),
-        "output":output,
-        "parallel_tool_calls":true,
-        "usage":responses_usage(body.get("usage")),
-        "error":Value::Null,
-        "incomplete_details":Value::Null
-    });
+    let created_at = metadata::created_at(body.get("created"), projection.created_at())?;
+    let model = metadata::response_model(body.get("model"), projection.upstream_model())?;
+    let usage = responses_usage(body.get("usage"), profile)?;
+    let mut response = projection.base_response(status, output, created_at, &model, usage);
     if let Some(reason) = incomplete_reason {
         response["incomplete_details"] = json!({"reason":reason});
     }
@@ -76,6 +114,22 @@ pub(super) fn incomplete_reason(finish_reason: Option<&str>) -> Option<&'static 
     }
 }
 
+pub(super) fn validate_finish_reason(value: &str) -> Result<(), ProtocolError> {
+    if matches!(value, "stop" | "length" | "tool_calls" | "content_filter") {
+        Ok(())
+    } else {
+        Err(ProtocolError::unsupported_value("finish_reason", value))
+    }
+}
+
+fn finish_reason(value: Option<&Value>) -> Result<&str, ProtocolError> {
+    let value = value
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid("Chat Completions finish_reason must be a string"))?;
+    validate_finish_reason(value)?;
+    Ok(value)
+}
+
 fn validate_message(message: &Map<String, Value>) -> Result<(), ProtocolError> {
     if message.get("role").and_then(Value::as_str) != Some("assistant") {
         return Err(invalid(
@@ -92,146 +146,149 @@ fn validate_message(message: &Map<String, Value>) -> Result<(), ProtocolError> {
     Ok(())
 }
 
-pub(super) fn responses_usage(value: Option<&Value>) -> Value {
-    let prompt = token(value, &["prompt_tokens"]).unwrap_or(0);
-    let completion = token(value, &["completion_tokens"]).unwrap_or(0);
-    let cached = token(value, &["prompt_tokens_details", "cached_tokens"]).unwrap_or(0);
-    let reasoning = token(value, &["completion_tokens_details", "reasoning_tokens"]).unwrap_or(0);
-    json!({
-        "input_tokens":prompt,
-        "output_tokens":completion,
-        "total_tokens":prompt.saturating_add(completion),
-        "input_tokens_details":{"cached_tokens":cached},
-        "output_tokens_details":{"reasoning_tokens":reasoning}
-    })
-}
-
-pub(super) fn token_usage(value: Option<&Value>) -> TokenUsage {
-    TokenUsage::new(
-        token(value, &["prompt_tokens"]),
-        token(value, &["completion_tokens"]),
-        token(value, &["prompt_tokens_details", "cached_tokens"]),
-    )
-}
-
-pub(super) fn message_item(response_id: &str, text: &str) -> Value {
-    json!({
-        "id":message_item_id(response_id),
-        "type":"message",
-        "status":"completed",
-        "role":"assistant",
-        "content":[{
-            "type":"output_text",
-            "text":text,
-            "annotations":[]
-        }]
-    })
-}
-
-pub(super) fn reasoning_item(response_id: &str, text: &str) -> Value {
-    json!({
-        "id":reasoning_item_id(response_id),
-        "type":"reasoning",
-        "status":"completed",
-        "summary":[{"type":"summary_text","text":text}]
-    })
-}
-
-pub(super) fn function_call_item(
-    response_id: &str,
-    index: impl Display,
-    call_id: &str,
-    name: &str,
-    arguments: &str,
-) -> Value {
-    json!({
-        "id":function_call_item_id(response_id, index),
-        "type":"function_call",
-        "status":"completed",
-        "call_id":call_id,
-        "name":name,
-        "arguments":arguments
-    })
-}
-
-pub(super) fn message_item_id(response_id: &str) -> String {
-    format!("msg_{response_id}")
-}
-
-pub(super) fn reasoning_item_id(response_id: &str) -> String {
-    format!("rs_{response_id}")
-}
-
-pub(super) fn function_call_item_id(response_id: &str, index: impl Display) -> String {
-    format!("fc_{response_id}_{index}")
-}
-
 fn append_tool_calls(
     message: &Map<String, Value>,
     response_id: &str,
+    projection: &ToolProjection,
     output: &mut Vec<Value>,
 ) -> Result<(), ProtocolError> {
-    let Some(calls) = message.get("tool_calls").and_then(Value::as_array) else {
+    let Some(value) = message.get("tool_calls") else {
         return Ok(());
     };
+    let calls = value
+        .as_array()
+        .ok_or_else(|| invalid("Chat Completions tool_calls must be an array"))?;
+    let mut seen_ids = HashSet::new();
     for (index, call) in calls.iter().enumerate() {
-        let call_id = required_string(call.get("id"), "tool call id")?;
-        let function = call
-            .get("function")
-            .ok_or_else(|| invalid("tool call function is missing"))?;
-        let name = required_string(function.get("name"), "tool call name")?;
-        let arguments = required_string(function.get("arguments"), "tool call arguments")?;
-        output.push(function_call_item(
+        let object = call
+            .as_object()
+            .ok_or_else(|| invalid("Chat Completions tool call must be an object"))?;
+        let call_id = required_string(object.get("id"), "tool call id")?;
+        if !seen_ids.insert(call_id) {
+            return Err(invalid("Chat Completions tool call ids must be unique"));
+        }
+        let restored = restore_tool_call(object, projection)?;
+        output.push(restored_call_item(
             response_id,
             index,
             call_id,
-            name,
-            arguments,
+            &restored,
+            "completed",
         ));
     }
     Ok(())
 }
 
-fn message_text(message: &Map<String, Value>) -> Option<String> {
-    match message.get("content")? {
-        Value::String(value) => Some(value.clone()),
-        Value::Array(parts) => Some(
-            parts
-                .iter()
-                .filter_map(|part| {
-                    part.as_str()
-                        .or_else(|| part.get("text").and_then(Value::as_str))
-                })
-                .collect::<Vec<_>>()
-                .join(""),
-        ),
-        _ => None,
+pub(super) fn restore_tool_call(
+    call: &Map<String, Value>,
+    projection: &ToolProjection,
+) -> Result<RestoredToolCall, ProtocolError> {
+    match call.get("type").and_then(Value::as_str) {
+        Some("function") => {
+            let function = call
+                .get("function")
+                .and_then(Value::as_object)
+                .ok_or_else(|| invalid("function tool call payload is missing"))?;
+            let name = required_string(function.get("name"), "tool call name")?;
+            let arguments =
+                required_string_allow_empty(function.get("arguments"), "tool call arguments")?;
+            projection.restore_function_call(name, arguments)
+        }
+        Some("custom") => {
+            let custom = call
+                .get("custom")
+                .and_then(Value::as_object)
+                .ok_or_else(|| invalid("custom tool call payload is missing"))?;
+            let name = required_string(custom.get("name"), "custom tool call name")?;
+            let input = required_string_allow_empty(custom.get("input"), "custom tool call input")?;
+            projection.restore_custom_call(name, input)
+        }
+        Some(kind) => Err(ProtocolError::unsupported_value("tool call type", kind)),
+        None => Err(invalid("Chat Completions tool call type is required")),
     }
 }
 
-fn reasoning_text(message: &Map<String, Value>) -> Option<String> {
-    message
-        .get("reasoning_content")
-        .or_else(|| message.get("reasoning"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+fn message_text(message: &Map<String, Value>) -> Result<Option<String>, ProtocolError> {
+    let Some(content) = message.get("content") else {
+        return Ok(None);
+    };
+    match content {
+        Value::Null => Ok(None),
+        Value::String(value) => Ok(Some(value.clone())),
+        Value::Array(parts) => parts
+            .iter()
+            .map(|part| match part {
+                Value::String(value) => Ok(value.as_str()),
+                Value::Object(object)
+                    if object.get("type").and_then(Value::as_str) == Some("text") =>
+                {
+                    required_string(object.get("text"), "assistant text content")
+                }
+                _ => Err(invalid("assistant content part type is unsupported")),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|parts| Some(parts.concat())),
+        _ => Err(invalid(
+            "assistant content must be null, a string, or an array",
+        )),
+    }
 }
 
-fn token(mut value: Option<&Value>, path: &[&str]) -> Option<u64> {
-    for part in path {
-        value = value?.get(*part);
+fn reasoning_text(
+    message: &Map<String, Value>,
+    profile: OpenAiChatCompletionsProfile,
+) -> Result<Option<String>, ProtocolError> {
+    let content = optional_reasoning(message.get("reasoning_content"))?;
+    let reasoning = optional_reasoning(message.get("reasoning"))?;
+    match profile.reasoning_response {
+        OpenAiChatReasoningResponse::Unsupported if content.is_some() || reasoning.is_some() => {
+            Err(invalid(
+                "Chat target returned unsupported reasoning content",
+            ))
+        }
+        OpenAiChatReasoningResponse::Unsupported => Ok(None),
+        OpenAiChatReasoningResponse::ReasoningContent if reasoning.is_some() => Err(invalid(
+            "Chat target returned an undeclared reasoning field",
+        )),
+        OpenAiChatReasoningResponse::ReasoningContent => Ok(content),
+        OpenAiChatReasoningResponse::Reasoning if content.is_some() => Err(invalid(
+            "Chat target returned an undeclared reasoning field",
+        )),
+        OpenAiChatReasoningResponse::Reasoning => Ok(reasoning),
+        OpenAiChatReasoningResponse::ReasoningContentOrReasoning => match (content, reasoning) {
+            (Some(left), Some(right)) if left != right => {
+                Err(invalid("Chat target returned conflicting reasoning fields"))
+            }
+            (Some(value), _) | (_, Some(value)) => Ok(Some(value)),
+            (None, None) => Ok(None),
+        },
     }
-    value?.as_u64()
+}
+
+fn optional_reasoning(value: Option<&Value>) -> Result<Option<String>, ProtocolError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(invalid("Chat reasoning content must be a string")),
+    }
 }
 
 fn required_string<'a>(
     value: Option<&'a Value>,
     field: &'static str,
 ) -> Result<&'a str, ProtocolError> {
-    value
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| invalid(field))
+    required_string_allow_empty(value, field).and_then(|value| {
+        (!value.is_empty())
+            .then_some(value)
+            .ok_or_else(|| invalid(field))
+    })
+}
+
+fn required_string_allow_empty<'a>(
+    value: Option<&'a Value>,
+    field: &'static str,
+) -> Result<&'a str, ProtocolError> {
+    value.and_then(Value::as_str).ok_or_else(|| invalid(field))
 }
 
 fn invalid(message: &'static str) -> ProtocolError {

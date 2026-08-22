@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use any2api_domain::{ProtocolDialect, ProtocolOperation};
 
-use super::{DecodedRequest, StartedProtocolBridge};
+use super::{DecodedRequest, ProtocolBridgeContext, StartedProtocolBridge};
 use crate::ProtocolError;
 
 /// Hard per-entry limit for protocol-owned continuation state. Runtime also
@@ -18,7 +18,7 @@ pub(crate) trait ResumableProtocolContinuation: Send + Sync {
     fn resume(
         &self,
         request: &DecodedRequest,
-        upstream_model: &str,
+        context: ProtocolBridgeContext<'_>,
     ) -> Result<StartedProtocolBridge, ProtocolError>;
 }
 
@@ -57,7 +57,7 @@ impl ProtocolContinuationState {
         upstream: ProtocolDialect,
         operation: ProtocolOperation,
         request: &DecodedRequest,
-        upstream_model: &str,
+        context: ProtocolBridgeContext<'_>,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         if self.inner.ingress_dialect() != ingress
             || self.inner.upstream_dialect() != upstream
@@ -65,7 +65,7 @@ impl ProtocolContinuationState {
         {
             return Err(ProtocolError::SessionBindingLost);
         }
-        self.inner.resume(request, upstream_model)
+        self.inner.resume(request, context)
     }
 }
 

@@ -283,5 +283,5 @@ function resolveSelectedKind(value: string | null): ProviderKind {
   if (isProviderKind(value)) {
     return value;
   }
-  return PROVIDER_KIND_OPTIONS[0]?.kind ?? "codex";
+  return PROVIDER_KIND_OPTIONS[0]?.kind ?? "openai";
 }

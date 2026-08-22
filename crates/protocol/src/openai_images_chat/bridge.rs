@@ -4,7 +4,8 @@ use crate::{
     ProtocolError,
     api::{
         AdapterEvent, DecodedRequest, DecodedResponsePayload, DecodedUpstreamResponse,
-        ProtocolBridge, ProtocolBridgeCapabilities, ProtocolBridgeSession, StartedProtocolBridge,
+        ProtocolBridge, ProtocolBridgeCapabilities, ProtocolBridgeContext, ProtocolBridgeSession,
+        StartedProtocolBridge,
     },
     json_codec,
 };
@@ -37,7 +38,7 @@ impl ProtocolBridge for ImagesToChatCompletionsBridge {
     fn start(
         &self,
         decoded: &DecodedRequest,
-        upstream_model: &str,
+        context: ProtocolBridgeContext<'_>,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         if decoded.operation != ProtocolOperation::ImagesGenerations {
             return Err(ProtocolError::Unsupported(format!(
@@ -48,6 +49,7 @@ impl ProtocolBridge for ImagesToChatCompletionsBridge {
         let value = decoded.payload.materialize_json().map_err(|_| {
             ProtocolError::InvalidPayload("Images bridge requires a JSON request body".into())
         })?;
+        let upstream_model = context.upstream_model;
         let converted = request::convert(value.as_ref(), upstream_model)?;
         let request = json_codec::encode_json_request(
             ProtocolOperation::ChatCompletions,

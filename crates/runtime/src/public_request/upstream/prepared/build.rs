@@ -167,7 +167,15 @@ fn build_request<'a>(
         )
         .map_err(|_| internal_error())?;
     let prepared = exchange
-        .prepare_request(decoded, &candidate.upstream_model, continuation_state)
+        .prepare_request_with_target_profile(
+            decoded,
+            &candidate.upstream_model,
+            driver.protocol_target_profile(
+                candidate.upstream_protocol_dialect,
+                &candidate.upstream_model,
+            ),
+            continuation_state,
+        )
         .map_err(|error| {
             protocol_request_error(decoded.dialect, candidate.upstream_protocol_dialect, error)
         })?;

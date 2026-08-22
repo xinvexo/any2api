@@ -4,7 +4,7 @@ use any2api_domain::{ProtocolDialect, ProtocolOperation, ProviderBaseUrl, Provid
 use http::{HeaderMap, HeaderValue};
 
 use any2api_provider::{
-    ClaudeDriver, CodexDriver, GrokDriver, KimiDriver,
+    ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, OpenAiDriver,
     api::{ProviderDriver, ProviderRegistry, ProviderRequestContext},
 };
 
@@ -77,6 +77,7 @@ fn assert_projection_contract(
 fn provider_registry() -> ProviderRegistry {
     let mut registry = ProviderRegistry::new();
     for driver in [
+        Arc::new(OpenAiDriver::new()) as Arc<dyn ProviderDriver>,
         Arc::new(CodexDriver::new()) as Arc<dyn ProviderDriver>,
         Arc::new(ClaudeDriver::new()),
         Arc::new(GrokDriver::new()),
@@ -133,6 +134,8 @@ fn client_headers() -> HeaderMap {
 
 fn golden(kind: ProviderKind, oauth: bool, projection: Projection) -> String {
     let value = match (kind, oauth, projection) {
+        (ProviderKind::OpenAi, false, _) => "",
+        (ProviderKind::OpenAi, true, _) => panic!("OpenAI has no OAuth operation"),
         (ProviderKind::Codex, _, Projection::CredentialOwner) => CODEX_OWNER,
         (ProviderKind::Codex, _, Projection::CredentialSwitched) => CODEX_SWITCHED,
         (ProviderKind::Codex, _, Projection::StickyCredentialSwitched) => CODEX_SWITCHED_STICKY,

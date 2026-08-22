@@ -489,6 +489,117 @@ content-length: 96\r\n
 \r\n
 {"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
 
+=== data.openai.api_key.bridge.openai_images_to_openai_chat_completions.images_generations ===
+provider: openai
+surface: data_bridge
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 102\r\n
+\r\n
+{"messages":[{"content":"draw a moon","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.openai.api_key.bridge.openai_responses_to_openai_chat_completions.responses ===
+provider: openai
+surface: data_bridge
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"content":"hello","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.openai.api_key.direct.chat_completions ===
+provider: openai
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.openai.api_key.direct.images_edits ===
+provider: openai
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/images/edits
+POST /v1/images/edits HTTP/1.1\r\n
+content-type: multipart/form-data; boundary=<multipart-boundary>\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 421\r\n
+\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="model"\r\n
+\r\n
+fixture-upstream-model\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="prompt"\r\n
+\r\n
+edit the moon\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="image"; filename="moon.png"\r\n
+content-type: image/png\r\n
+\r\n
+PNG-FIXTURE\r\n
+--<multipart-boundary>--\r\n
+
+=== data.openai.api_key.direct.images_generations ===
+provider: openai
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/images/generations
+POST /v1/images/generations HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"model":"fixture-upstream-model","prompt":"draw a moon","response_format":"url","stream":false}
+
+=== data.openai.api_key.direct.responses ===
+provider: openai
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/responses
+POST /v1/responses HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 65\r\n
+\r\n
+{"input":"hello","model":"fixture-upstream-model","stream":false}
+
+=== data.openai.api_key.direct.responses_compact ===
+provider: openai
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/responses/compact
+POST /v1/responses/compact HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-openai-api-key\r\n
+host: <authority>\r\n
+content-length: 83\r\n
+\r\n
+{"input":[{"role":"user","content":"compact me"}],"model":"fixture-upstream-model"}
+
 === quota.claude.usage ===
 provider: claude
 surface: oauth_quota

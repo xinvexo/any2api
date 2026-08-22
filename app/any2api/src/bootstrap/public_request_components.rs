@@ -5,7 +5,9 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, ImagesToChatCompletionsBridge, OpenAiChatCompletionsAdapter,
     OpenAiImagesAdapter, OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, api::ProviderRegistry};
+use any2api_provider::{
+    ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, OpenAiDriver, api::ProviderRegistry,
+};
 use any2api_runtime::api::{
     ConfigurationCapabilities, ProviderCredentialTestService, ProxyTestService,
     PublicRequestService, RequestTelemetry,
@@ -81,6 +83,7 @@ pub fn build_public_request_components_with_telemetry(
     let protocols = Arc::new(protocols);
 
     let mut providers = ProviderRegistry::new();
+    providers.register(Arc::new(OpenAiDriver::new()))?;
     providers.register(Arc::new(CodexDriver::new()))?;
     providers.register(Arc::new(ClaudeDriver::new()))?;
     providers.register(Arc::new(GrokDriver::new()))?;

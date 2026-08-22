@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use any2api_domain::ProtocolOperation;
+use any2api_domain::{
+    OpenAiChatCompletionsProfile, ProtocolDialect, ProtocolOperation, ProtocolTargetProfile,
+};
 
 use super::{
     AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-    EncodedUpstreamRequest, ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession,
-    ProtocolContinuationState, ProtocolUpstreamFailureEvidence, SseFrame, StreamCompletionPolicy,
-    UpstreamResponse,
+    EncodedUpstreamRequest, ProtocolAdapter, ProtocolBridge, ProtocolBridgeContext,
+    ProtocolBridgeSession, ProtocolContinuationState, ProtocolUpstreamFailureEvidence, SseFrame,
+    StreamCompletionPolicy, UpstreamResponse,
 };
 use crate::ProtocolError;
 
@@ -89,6 +91,29 @@ impl ProtocolExchange {
         upstream_model: &str,
         continuation: Option<ProtocolContinuationState>,
     ) -> Result<PreparedProtocolRequest, ProtocolError> {
+        let target_profile = match self.upstream.dialect() {
+            ProtocolDialect::OpenAiChatCompletions => {
+                Some(ProtocolTargetProfile::OpenAiChatCompletions(
+                    OpenAiChatCompletionsProfile::COMPATIBLE_BASELINE,
+                ))
+            }
+            _ => None,
+        };
+        self.prepare_request_with_target_profile(
+            request,
+            upstream_model,
+            target_profile,
+            continuation,
+        )
+    }
+
+    pub fn prepare_request_with_target_profile(
+        &mut self,
+        request: &DecodedRequest,
+        upstream_model: &str,
+        target_profile: Option<ProtocolTargetProfile>,
+        continuation: Option<ProtocolContinuationState>,
+    ) -> Result<PreparedProtocolRequest, ProtocolError> {
         if request.dialect != self.ingress.dialect() || request.operation != self.operation {
             return Err(ProtocolError::Unsupported(format!(
                 "{:?} request on {:?} exchange",
@@ -112,15 +137,19 @@ impl ProtocolExchange {
                 request: encoded,
             });
         };
+        let target_profile = target_profile.ok_or_else(|| {
+            ProtocolError::Unsupported("bridge target profile is unavailable".into())
+        })?;
+        let context = ProtocolBridgeContext::new(upstream_model, target_profile);
         let started = match continuation {
             Some(continuation) => continuation.resume(
                 self.ingress.dialect(),
                 self.upstream.dialect(),
                 self.operation,
                 request,
-                upstream_model,
+                context,
             )?,
-            None => bridge.start(request, upstream_model)?,
+            None => bridge.start(request, context)?,
         };
         let (upstream_operation, request, session) = started.into_parts();
         self.upstream_operation = upstream_operation;

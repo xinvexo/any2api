@@ -52,8 +52,12 @@ const LIMITATIONS: &[BridgeLimitation] = &[
         "The request supports exactly one response choice; n must be absent or equal to 1.",
     ),
     BridgeLimitation::new(
-        "function_tools_only",
-        "Only function tools and function tool choices can be represented.",
+        "client_executed_tools_only",
+        "Function, custom, namespace, and tool_search are projected only when execution remains client-side; hosted tools have no generic Chat Completions equivalent.",
+    ),
+    BridgeLimitation::new(
+        "target_profile_dependent",
+        "Token fields, instruction roles, optional request fields, multimodal parts, reasoning wire fields, custom tools, and tool names follow the selected Provider's declared Chat target profile.",
     ),
     BridgeLimitation::new(
         "validated_client_metadata_not_forwarded",
@@ -70,9 +74,9 @@ const LIMITATIONS: &[BridgeLimitation] = &[
 ];
 
 pub(super) static CAPABILITIES: ProtocolBridgeCapabilities = ProtocolBridgeCapabilities {
-    contract_id: "openai-responses-to-chat-completions/v1",
+    contract_id: "openai-responses-to-chat-completions/v2",
     operations: &[ProtocolOperation::Responses],
     request_fields: REQUEST_FIELDS,
-    tool_types: &["function"],
+    tool_types: &["function", "custom", "namespace", "tool_search"],
     limitations: LIMITATIONS,
 };

@@ -175,14 +175,20 @@ impl ConfigurationCapabilities {
                         let capabilities = self
                             .protocols
                             .pair_capabilities(accepted_protocol, upstream)?;
-                        (!capabilities.operations.is_empty()).then_some(
-                            ProviderUpstreamProtocolOption {
-                                protocol: upstream,
-                                fidelity: capabilities.fidelity,
-                                operations: capabilities.operations,
-                                bridge: capabilities.bridge,
-                            },
-                        )
+                        let operations = capabilities
+                            .operations
+                            .into_iter()
+                            .filter(|operation| {
+                                accepted_protocol != upstream
+                                    || driver.supports_api_key_operation(*operation)
+                            })
+                            .collect::<Vec<_>>();
+                        (!operations.is_empty()).then_some(ProviderUpstreamProtocolOption {
+                            protocol: upstream,
+                            fidelity: capabilities.fidelity,
+                            operations,
+                            bridge: capabilities.bridge,
+                        })
                     })
                     .collect::<Vec<_>>();
                 upstream_options.sort_unstable_by_key(|option| option.protocol);

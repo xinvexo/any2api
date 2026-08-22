@@ -31,6 +31,29 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
     let protocol_options = initial["protocol_options"]
         .as_array()
         .expect("protocol options");
+    let openai_responses = protocol_option(protocol_options, "openai", "openai_responses");
+    let openai_direct = upstream_option(openai_responses, "openai_responses");
+    assert_eq!(
+        openai_direct["operations"],
+        json!(["responses", "responses_compact"])
+    );
+    assert!(
+        openai_direct["operations"]
+            .as_array()
+            .is_some_and(|operations| !operations
+                .iter()
+                .any(|operation| operation == "alpha_search"))
+    );
+    assert_eq!(
+        upstream_option(openai_responses, "openai_chat_completions")["operations"],
+        json!(["responses"])
+    );
+    let openai_images = protocol_option(protocol_options, "openai", "openai_images");
+    assert_eq!(
+        upstream_option(openai_images, "openai_images")["operations"],
+        json!(["images_generations", "images_edits"])
+    );
+
     let responses = protocol_option(protocol_options, "codex", "openai_responses");
     let direct = upstream_option(responses, "openai_responses");
     assert_eq!(direct["fidelity"], "direct");
@@ -45,7 +68,7 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
     assert_eq!(translated["operations"], json!(["responses"]));
     assert_eq!(
         translated["bridge"]["contract_id"],
-        "openai-responses-to-chat-completions/v1"
+        "openai-responses-to-chat-completions/v2"
     );
     assert!(
         translated["bridge"]["request_fields"]
@@ -54,7 +77,10 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
                 field["path"] == "client_metadata" && field["behavior"] == "validated_only"
             }))
     );
-    assert_eq!(translated["bridge"]["tool_types"], json!(["function"]));
+    assert_eq!(
+        translated["bridge"]["tool_types"],
+        json!(["function", "custom", "namespace", "tool_search"])
+    );
 
     let images = protocol_option(protocol_options, "codex", "openai_images");
     let images_bridge = upstream_option(images, "openai_chat_completions");

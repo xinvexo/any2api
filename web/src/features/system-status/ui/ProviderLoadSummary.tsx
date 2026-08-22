@@ -39,5 +39,7 @@ function formatCount(value: number) {
 }
 
 function providerLabel(provider: BalancingRuntime["providers"][number]["providerKind"]) {
-  return { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[provider];
+  return { openai: "OpenAI", codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
+    provider
+  ];
 }

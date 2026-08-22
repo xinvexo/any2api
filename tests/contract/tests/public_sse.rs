@@ -841,6 +841,16 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
             "stream":true,
             "store":false,
             "input":"hello",
+            "tools":[{
+                "type":"function",
+                "name":"weather",
+                "description":"Look up weather by city",
+                "parameters":{
+                    "type":"object",
+                    "properties":{"city":{"type":"string"}},
+                    "required":["city"]
+                }
+            }],
             "reasoning":{"effort":"high","summary":"concise"},
             "include":["reasoning.encrypted_content"]
         }),
@@ -869,6 +879,7 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
     assert_eq!(upstream.body["store"], false);
     assert_eq!(upstream.body["reasoning_effort"], "high");
     assert_eq!(upstream.body["stream_options"]["include_usage"], true);
+    assert_eq!(upstream.body["tools"][0]["function"]["name"], "weather");
     assert!(upstream.body.get("reasoning").is_none());
     assert!(upstream.body.get("include").is_none());
 }

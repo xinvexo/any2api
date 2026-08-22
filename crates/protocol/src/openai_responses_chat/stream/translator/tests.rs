@@ -4,11 +4,24 @@ use serde_json::json;
 use super::super::wire::{encoding_count, reset_encoding_count};
 use super::ChatToResponsesStream;
 use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData};
+use crate::openai_responses_chat::{
+    response_projection::ResponseProjection, tool_projection::ToolProjection,
+};
+use any2api_domain::OpenAiChatCompletionsProfile;
 
 #[test]
 fn synthesized_events_are_encoded_once_after_sequence_injection() {
     reset_encoding_count();
-    let mut stream = ChatToResponsesStream::new("resp_test".to_owned(), "model".to_owned());
+    let profile = OpenAiChatCompletionsProfile::COMPATIBLE_BASELINE;
+    let mut stream = ChatToResponsesStream::new(
+        ResponseProjection::new(
+            "resp_test".to_owned(),
+            "model".to_owned(),
+            &json!({"model":"public","input":"hello"}),
+        ),
+        profile,
+        ToolProjection::new(profile, None),
+    );
     let upstream = AdapterEvent::new(
         Bytes::from_static(b"upstream frame"),
         ProtocolEventTelemetry::default(),

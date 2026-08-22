@@ -40,3 +40,4 @@
 "0039_stabilize_oauth_quota_identity.sql" = "91aeabfa5be8721fa4cbb84316f6b513159601421e0d95786ff8cc44202f0dde"
 "0040_freeze_codex_quota_before_purchased_credits.sql" = "8611e59409bcbf9ef1239ad961083cc40af998101558d4b62616434a14916a9b"
 "0041_optimize_request_attempt_usage_aggregates.sql" = "15477ec507f0903443d762e75995b633a218a0e191a9f5c20bf7171a216791af"
+"0042_add_openai_provider_kind.sql" = "d93b6f6291dde900645ecc05bb77c29ab9cd890503799f3601d3a16418dd96d8"

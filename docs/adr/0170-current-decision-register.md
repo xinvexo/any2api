@@ -37,6 +37,12 @@
 
 - Provider、Protocol 和 Transport 分层，Provider 只描述供应商契约，Protocol 只负责线协议，Transport
   只负责出口和连接；这样新增 Provider 不需要改中央调度器，也避免把网络错误和业务错误混在一起。
+- 标准 OpenAI 与 Codex 即使共享 Responses、Chat 和 Images 线协议，也具有不同的认证、请求身份和操作面；
+  因此保留独立 Provider，由管理员显式选择当前官方 OpenAI 契约，不按 URL 或模型名把已有 Codex Endpoint
+  自动改类。也不设置宽松的 `OpenAICompatible` 总类，兼容差异继续由明确 Provider 与 target profile 表达。
+- Responses → Chat 的供应商差异收敛为 Driver 声明的正交 target profile，而不复制 Provider 专用 Bridge
+  或按 URL/模型名猜测能力；这样协议映射只有一份，可逆的客户端工具能够共享实现，没有通用 Chat 等价的
+  上游托管工具则明确拒绝，避免把有损降级伪装成兼容。
 - 同方言请求优先保留原始 wire bytes，跨协议才物化桥接结构；这同时保留未知字段并限制大请求的复制成本。
 - SSE 的网络 chunk 与协议帧没有一一对应关系，因此按协议增量分帧，并把 Guard、解码状态和未消费字节交给
   响应 Body 持有。首个可接受事件前使用有界预算，可以在提交下游前识别损坏或空流；提交后则保持单一路径，
@@ -128,6 +134,7 @@
 | 公开请求的全局内存准入、按 TPM/并发/权重的第二套调度限制 | 删除；只保留 RPM、QueueTicket 和明确的单对象容量上限 |
 | Responses WebSocket 入口、上游/下游 WebSocket 和跨 Provider 双向桥 | 首版不提供；Responses 走 HTTP JSON/SSE，GET 入口返回 426 |
 | 按 Credential 做 prompt-cache 软路由、修改同方言请求面以区分账号 | 删除；请求面保持缓存连续性，粘性只承担固定会话语义 |
+| 用一个 `OpenAICompatible` Provider 覆盖官方 OpenAI、Codex 和第三方兼容端点 | 拒绝宽松猜测；官方 OpenAI 独立成明确契约，其他供应商继续使用各自 Driver/profile |
 | 运行态恢复、请求回放、队列/会话/健康恢复、复杂备份容灾 | 进程重启后从空 Runtime 启动，备份属于部署操作 |
 | 旧 OAuth JSON、旧浏览器字段别名、启动期兼容读取和代码内迁移 | 在迁移或导入边界一次性收敛，生产路径只接受当前 Schema |
 | 逐条日志事件入口、页码/随机跳页和常驻客户端轮询 | 统一 `/api/admin/events`，用 epoch + Keyset Cursor + 短时合并追赶 |

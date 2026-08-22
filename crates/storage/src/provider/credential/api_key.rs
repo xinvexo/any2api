@@ -34,6 +34,7 @@ const fn provider_kind_code(kind: ProviderKind) -> u8 {
         ProviderKind::Claude => 2,
         ProviderKind::Grok => 3,
         ProviderKind::Kimi => 4,
+        ProviderKind::OpenAi => 5,
     }
 }
 
@@ -106,5 +107,13 @@ mod tests {
         )
         .expect("Kimi fingerprint");
         assert_ne!(kimi.digest(), fingerprint.digest());
+
+        let openai = build_fingerprint(
+            ProviderKind::OpenAi,
+            CredentialKind::ApiKey,
+            &b"sk-valid_123".to_vec().into(),
+        )
+        .expect("OpenAI fingerprint");
+        assert_ne!(openai.digest(), fingerprint.digest());
     }
 }

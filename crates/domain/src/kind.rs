@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
+    #[serde(rename = "openai")]
+    OpenAi,
     Codex,
     Claude,
     Grok,
@@ -10,11 +12,18 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    pub const ALL: [Self; 4] = [Self::Codex, Self::Claude, Self::Grok, Self::Kimi];
+    pub const ALL: [Self; 5] = [
+        Self::OpenAi,
+        Self::Codex,
+        Self::Claude,
+        Self::Grok,
+        Self::Kimi,
+    ];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OpenAi => "openai",
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Grok => "grok",
@@ -176,7 +185,18 @@ mod tests {
 
     #[test]
     fn provider_values_and_oauth_support_are_stable() {
-        assert_eq!(ProviderKind::ALL.len(), 4);
+        assert_eq!(ProviderKind::ALL.len(), 5);
+        assert_eq!(ProviderKind::OpenAi.as_str(), "openai");
+        assert!(!ProviderKind::OpenAi.supports_oauth());
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::OpenAi).expect("serialize OpenAI provider"),
+            r#""openai""#
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderKind>(r#""openai""#)
+                .expect("deserialize OpenAI provider"),
+            ProviderKind::OpenAi
+        );
         assert_eq!(ProviderKind::Kimi.as_str(), "kimi");
         assert!(!ProviderKind::Kimi.supports_oauth());
         assert_eq!(

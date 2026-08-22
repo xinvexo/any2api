@@ -60,7 +60,12 @@ pub(super) async fn data_case(
         .exchange(ingress, upstream, operation)
         .expect("surface protocol exchange");
     let prepared = exchange
-        .prepare_request(&decoded, "fixture-upstream-model", None)
+        .prepare_request_with_target_profile(
+            &decoded,
+            "fixture-upstream-model",
+            driver.protocol_target_profile(upstream, "fixture-upstream-model"),
+            None,
+        )
         .expect("surface upstream request");
     let endpoint = driver
         .endpoint_plan(base_url, prepared.upstream_operation)
@@ -139,6 +144,7 @@ pub(super) async fn data_case(
 
 pub(super) fn api_key_base_url(kind: ProviderKind) -> ProviderBaseUrl {
     let value = match kind {
+        ProviderKind::OpenAi => "https://api.openai.com/v1",
         ProviderKind::Codex => "https://api.openai.com/v1",
         ProviderKind::Claude => "https://api.anthropic.com",
         ProviderKind::Grok => "https://api.x.ai/v1",
@@ -194,6 +200,7 @@ fn ingress_fixture(provider: ProviderKind, operation: ProtocolOperation) -> (Hea
 fn client_identity_headers(provider: ProviderKind) -> HeaderMap {
     let mut headers = HeaderMap::new();
     match provider {
+        ProviderKind::OpenAi => {}
         ProviderKind::Codex => {
             insert(&mut headers, "user-agent", "fixture-codex-client/9");
             insert(&mut headers, "originator", "fixture-origin");

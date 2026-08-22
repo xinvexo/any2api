@@ -263,13 +263,19 @@ async fn protocol_change_with_credentials_rebuilds_routes_and_bumps_generation()
 }
 
 #[tokio::test]
-async fn openai_compatible_provider_kinds_round_trip_as_api_key_providers() {
+async fn openai_wire_provider_kinds_round_trip_as_api_key_providers() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
         .await
         .expect("store");
     let mut revision = ConfigRevision::INITIAL;
     for (kind, name, url, dialect) in [
+        (
+            ProviderKind::OpenAi,
+            "OpenAI Primary",
+            "https://api.openai.com/v1",
+            ProtocolDialect::OpenAiResponses,
+        ),
         (
             ProviderKind::Grok,
             "Grok Primary",
