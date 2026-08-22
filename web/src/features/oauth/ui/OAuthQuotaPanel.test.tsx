@@ -64,7 +64,12 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   // used 37.5% → remaining 62.5% rendered as 63%
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
   expect(await screen.findByText("已刷新「Primary Codex」的额度")).toBeInTheDocument();
-  expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 1");
+  const resetCount = within(panel).getByText("可重置");
+  expect(resetCount).toHaveTextContent("可重置 1");
+  expect(resetCount).toHaveAttribute(
+    "title",
+    `最早到期：${new Date("2026-07-30T00:00:00Z").toLocaleString()}`,
+  );
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
   expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
     "title",

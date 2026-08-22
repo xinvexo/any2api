@@ -118,6 +118,9 @@ export function OAuthQuotaPanel({
         ? getOAuthErrorMessage(quotaQuery.error)
         : null);
   const availableCount = quota?.resetCredits?.availableCount ?? 0;
+  const resetCreditExpiry = availableCount > 0
+    ? formatEarliestResetCreditExpiry(quota?.resetCredits?.expiresAt ?? [])
+    : undefined;
 
   async function refreshQuota() {
     setResetRefreshFailed(false);
@@ -163,7 +166,10 @@ export function OAuthQuotaPanel({
         <p className="text-[11px] font-medium text-secondary">{providerName} 额度</p>
         <div className="flex items-center gap-0.5">
           {canReset && quota ? (
-            <span className="mr-1 text-[10px] tabular-nums text-tertiary">
+            <span
+              className="mr-1 text-[10px] tabular-nums text-tertiary"
+              title={resetCreditExpiry}
+            >
               可重置 <span className="font-medium text-secondary">{availableCount}</span>
             </span>
           ) : null}
@@ -237,4 +243,15 @@ export function OAuthQuotaPanel({
       ) : null}
     </section>
   );
+}
+
+function formatEarliestResetCreditExpiry(values: readonly string[]): string | undefined {
+  const earliest = values.reduce<number | null>((current, value) => {
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) return current;
+    return current === null ? timestamp : Math.min(current, timestamp);
+  }, null);
+  return earliest === null
+    ? undefined
+    : `最早到期：${new Date(earliest).toLocaleString()}`;
 }
