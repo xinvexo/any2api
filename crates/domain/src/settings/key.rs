@@ -12,6 +12,7 @@ pub enum SettingKey {
     NetworkRequestBodyIdleTimeout,
     NetworkTrustedProxyCidrs,
     ModelsAllowed,
+    ModelsFastEnabled,
     AffinityEnabled,
     AffinityTtl,
     AffinityWaitTimeout,
@@ -42,7 +43,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 38] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -53,6 +54,7 @@ impl SettingKey {
         Self::NetworkRequestBodyIdleTimeout,
         Self::NetworkTrustedProxyCidrs,
         Self::ModelsAllowed,
+        Self::ModelsFastEnabled,
         Self::AffinityEnabled,
         Self::AffinityTtl,
         Self::AffinityWaitTimeout,
@@ -94,6 +96,7 @@ impl SettingKey {
             Self::NetworkRequestBodyIdleTimeout => "network.request_body_idle_timeout",
             Self::NetworkTrustedProxyCidrs => "network.trusted_proxy_cidrs",
             Self::ModelsAllowed => "models.allowed",
+            Self::ModelsFastEnabled => "models.fast_enabled",
             Self::AffinityEnabled => "affinity.enabled",
             Self::AffinityTtl => "affinity.ttl",
             Self::AffinityWaitTimeout => "affinity.wait_timeout",

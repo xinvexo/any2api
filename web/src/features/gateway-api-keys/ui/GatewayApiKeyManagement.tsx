@@ -75,6 +75,7 @@ export function GatewayApiKeyManagement() {
       await mutations.create.mutateAsync({
         expectedRevision: query.data?.configRevision ?? 0,
         name: input.name,
+        requestsPerMinute: input.requestsPerMinute,
         enabled: input.enabled,
       });
       notify.success(`已创建「${input.name}」`);
@@ -87,7 +88,9 @@ export function GatewayApiKeyManagement() {
     }
 
     const metaChanged =
-      selected.name !== input.name || selected.enabled !== input.enabled;
+      selected.name !== input.name ||
+      selected.requestsPerMinute !== input.requestsPerMinute ||
+      selected.enabled !== input.enabled;
 
     if (metaChanged) {
       await mutations.update.mutateAsync({
@@ -96,6 +99,7 @@ export function GatewayApiKeyManagement() {
           expectedRevision: query.data.configRevision,
           expectedConfigVersion: selected.configVersion,
           name: input.name,
+          requestsPerMinute: input.requestsPerMinute,
           enabled: input.enabled,
         },
       });
@@ -119,6 +123,7 @@ export function GatewayApiKeyManagement() {
           expectedRevision: query.data.configRevision,
           expectedConfigVersion: key.configVersion,
           name: key.name,
+          requestsPerMinute: key.requestsPerMinute,
           enabled: nextEnabled,
         },
       });
@@ -214,7 +219,7 @@ export function GatewayApiKeyManagement() {
   const drawerDescription =
     editorId === "new"
       ? "保存时由服务端生成强随机密钥，创建后可在列表复制。"
-      : "这里只修改名称和启用状态；轮换密钥请使用列表中的独立操作。";
+      : "这里可修改名称、RPM 限制和启用状态；轮换密钥请使用列表中的独立操作。";
   const editorError = mutations.create.error ?? mutations.update.error;
 
   return (

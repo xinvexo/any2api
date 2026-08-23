@@ -9,6 +9,7 @@ import { Switch } from "@/shared/ui/Switch";
 
 export interface GatewayApiKeyEditorSubmit {
   name: string;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -28,6 +29,11 @@ export function GatewayApiKeyEditor({
   onClose,
 }: GatewayApiKeyEditorProps) {
   const [name, setName] = useState(apiKey?.name ?? "");
+  const [requestsPerMinute, setRequestsPerMinute] = useState(
+    apiKey?.requestsPerMinute === null || apiKey === undefined
+      ? ""
+      : String(apiKey.requestsPerMinute),
+  );
   const [enabled, setEnabled] = useState(apiKey?.enabled ?? true);
   const [validation, setValidation] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -43,10 +49,19 @@ export function GatewayApiKeyEditor({
       nameRef.current?.focus();
       return;
     }
+    const rpm = Number(requestsPerMinute);
+    if (
+      requestsPerMinute.length > 0 &&
+      (!Number.isInteger(rpm) || rpm < 1 || rpm > 100_000)
+    ) {
+      setValidation("RPM 必须留空，或填写 1 到 100000 的整数。");
+      return;
+    }
     setValidation(null);
     try {
       await onSubmit({
         name,
+        requestsPerMinute: requestsPerMinute.length === 0 ? null : rpm,
         enabled,
       });
     } catch {
@@ -68,6 +83,31 @@ export function GatewayApiKeyEditor({
           aria-invalid={Boolean(validation?.includes("名称"))}
           onChange={(event) => {
             setName(event.target.value);
+            if (validation) {
+              setValidation(null);
+            }
+          }}
+        />
+      </Field>
+
+      <Field
+        label="RPM 限制"
+        error={validation?.includes("RPM") ? validation : undefined}
+        htmlFor="gateway-key-rpm"
+      >
+        <input
+          id="gateway-key-rpm"
+          className={controlClass(Boolean(validation?.includes("RPM")))}
+          type="number"
+          min={1}
+          max={100_000}
+          step={1}
+          value={requestsPerMinute}
+          placeholder="留空表示无限制"
+          disabled={pending}
+          aria-invalid={Boolean(validation?.includes("RPM"))}
+          onChange={(event) => {
+            setRequestsPerMinute(event.target.value);
             if (validation) {
               setValidation(null);
             }

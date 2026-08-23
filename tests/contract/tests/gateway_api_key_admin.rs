@@ -219,6 +219,72 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
 }
 
 #[tokio::test]
+async fn gateway_key_rpm_rejects_excess_public_requests_with_retry_after() {
+    let (_directory, app, _storage, telemetry) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let created = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/gateway-api-keys",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Rate limited client",
+            "requests_per_minute": 1,
+            "enabled": true
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::OK);
+    assert_eq!(created.body["items"][0]["requests_per_minute"], 1);
+    let token = gateway_token(&created.body);
+
+    let admitted = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(admitted.status, StatusCode::OK);
+
+    let limited = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.body["error"]["type"], "rate_limit_error");
+    assert_eq!(limited.body["error"]["code"], "local_rate_limit");
+    assert_eq!(limited.cache_control.as_deref(), Some("no-store"));
+    let retry_after = limited.headers["retry-after"]
+        .to_str()
+        .expect("Retry-After header")
+        .parse::<u64>()
+        .expect("Retry-After seconds");
+    assert!((1..=60).contains(&retry_after));
+
+    let balancing = request_json(
+        app,
+        Method::GET,
+        "/api/admin/balancing",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(balancing.body["public_requests_in_window"], 2);
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn models_list_reflects_credential_model_selection() {
     let (_directory, app, _storage, _telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));

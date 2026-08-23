@@ -6,7 +6,8 @@
 
 公开请求按以下所有权推进：
 
-1. `server` 分配 request ID、解析规范客户端地址、验证 Gateway API Key，并收集有界请求 Body。
+1. `server` 分配 request ID、解析规范客户端地址、验证 Gateway API Key、执行该 Key 的入口 RPM 准入，并收集
+   有界请求 Body。
 2. `runtime` 在同一个 `PublishedSnapshot` 上解析 Operation、公开模型和路由要求。
 3. 候选构建过滤未启用、已到期、模型或 Operation 不匹配、代理不可用以及配置 generation 不一致的凭据。
 4. 选择器在 fallback tier 内轮询，并原子完成本地 RPM 预留；必要时以 QueueTicket 等待下一次准入变化。
@@ -22,8 +23,14 @@ API Key 凭据与 OAuth 账号持久化生命周期不同，但发布后都编�
 健康、冷却、重试和粘性机制。公开模型名映射到一个或多个内部 target；同一 target 的候选按显式 fallback
 tier 分组，tier 内使用稳定 cursor 轮询。
 
-本地 RPM 是 Credential 唯一面向管理员的调度准入限制。`in_flight` 只记录尚未结算的资源生命周期，不形成
-第二套并发上限或权重。选择与 RPM 预留必须是一个原子决定，不能先选中后再与其他请求竞争额度。
+Gateway API Key 可以配置独立的入口 RPM，按 Key 对所有已鉴权公开请求使用进程内 60 秒滚动窗口；额度用尽时
+直接返回 `429` 和下一次可用时间。配置热更新与 token 轮换不清空同一 Key 的有效窗口。
+
+Provider Credential 的本地 RPM 是上游调度唯一面向管理员的准入限制。`in_flight` 只记录尚未结算的资源生命
+周期，不形成第二套并发上限或权重。选择与 RPM 预留必须是一个原子决定，不能先选中后再与其他请求竞争额度。
+
+Fast 是跨协议的全局请求策略，不属于某个 Provider。关闭 Fast 后，协议层在规划前把已识别的快速档请求规范为
+对应协议的标准档，因此 Codex Responses、Claude Messages 以及后续接入同一 speed-tier 契约的实现遵循同一开关。
 
 当所有候选只是等待 RPM、短暂健康恢复或配置变化时，QueueCoordinator 使用有界等待和统一 epoch 唤醒；
 不存在可恢复候选、达到等待预算、请求取消或进程进入停机时立即结束。热更新会重建候选投影，但同一凭据仍在

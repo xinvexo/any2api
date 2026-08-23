@@ -46,6 +46,14 @@ export function GatewayApiKeyTableRow({
           {apiKey.name}
         </p>
       </td>
+      <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:tabular-nums">
+        <MobileFieldLabel>RPM 限制</MobileFieldLabel>
+        <span className="min-w-0 text-right text-secondary tabular-nums sm:text-left">
+          {apiKey.requestsPerMinute === null
+            ? "无限制"
+            : `${apiKey.requestsPerMinute} / 分钟`}
+        </span>
+      </td>
       <td className="min-w-0 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <MobileFieldLabel>调用统计</MobileFieldLabel>
         <RequestUsageStats

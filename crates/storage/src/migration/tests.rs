@@ -13,6 +13,7 @@ mod correct_request_log_quota_tiers;
 mod credential_public_model_alias;
 mod duplicate_attempt_index;
 mod gateway_api_key_prefix;
+mod gateway_api_key_rate_limit;
 mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
@@ -130,6 +131,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (43, "remove raw http access capture".to_owned()),
             (44, "open provider endpoint kind".to_owned()),
             (45, "persist official client versions".to_owned()),
+            (46, "add gateway api key rate limit".to_owned()),
         ]
     );
 
@@ -168,6 +170,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let gateway_schema = table_schema(&pool, "gateway_api_keys").await;
     assert!(gateway_schema.contains("token TEXT NOT NULL"));
     assert!(gateway_schema.contains("substr(token, 1, 3) = 'sk-'"));
+    assert!(gateway_schema.contains("requests_per_minute"));
     assert!(!gateway_schema.contains("revoked_at"));
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;

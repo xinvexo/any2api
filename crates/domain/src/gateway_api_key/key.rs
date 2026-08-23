@@ -4,11 +4,12 @@ use super::validation::{
     GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError, next_version,
     valid_version, validate_name, validate_prefix, validate_timestamp, validate_token,
 };
-use crate::GatewayApiKeyId;
+use crate::{GatewayApiKeyId, RequestsPerMinute};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GatewayApiKeyDraft {
     name: String,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
 }
 
@@ -19,13 +20,28 @@ impl GatewayApiKeyDraft {
     ) -> Result<Self, GatewayApiKeyValidationError> {
         Ok(Self {
             name: validate_name(name.into())?,
+            requests_per_minute: None,
             enabled,
         })
     }
 
     #[must_use]
+    pub const fn with_requests_per_minute(
+        mut self,
+        requests_per_minute: Option<RequestsPerMinute>,
+    ) -> Self {
+        self.requests_per_minute = requests_per_minute;
+        self
+    }
+
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    #[must_use]
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     #[must_use]
@@ -44,6 +60,7 @@ pub struct GatewayApiKey {
     hash_version: u32,
     token_version: u64,
     config_version: u64,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
     created_at: String,
     last_used_at: Option<String>,
@@ -72,6 +89,7 @@ impl GatewayApiKey {
             hash_version: GATEWAY_TOKEN_HASH_VERSION,
             token_version: GATEWAY_TOKEN_VERSION,
             config_version: GATEWAY_TOKEN_VERSION,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             created_at,
             last_used_at: None,
@@ -112,6 +130,7 @@ impl GatewayApiKey {
             hash_version,
             token_version,
             config_version,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             created_at,
             last_used_at,
@@ -119,11 +138,15 @@ impl GatewayApiKey {
     }
 
     pub fn updated(&self, draft: GatewayApiKeyDraft) -> Result<Self, GatewayApiKeyValidationError> {
-        if self.name == draft.name && self.enabled == draft.enabled {
+        if self.name == draft.name
+            && self.requests_per_minute == draft.requests_per_minute
+            && self.enabled == draft.enabled
+        {
             return Ok(self.clone());
         }
         Ok(Self {
             name: draft.name,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             config_version: next_version(self.config_version)?,
             ..self.clone()
@@ -194,6 +217,11 @@ impl GatewayApiKey {
     }
 
     #[must_use]
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
+    }
+
+    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -226,6 +254,7 @@ impl fmt::Debug for GatewayApiKey {
             .field("hash_version", &self.hash_version)
             .field("token_version", &self.token_version)
             .field("config_version", &self.config_version)
+            .field("requests_per_minute", &self.requests_per_minute)
             .field("enabled", &self.enabled)
             .field("created_at", &self.created_at)
             .field("last_used_at", &self.last_used_at)
@@ -236,7 +265,7 @@ impl fmt::Debug for GatewayApiKey {
 #[cfg(test)]
 mod tests {
     use super::{GatewayApiKey, GatewayApiKeyDraft};
-    use crate::GatewayApiKeyId;
+    use crate::{GatewayApiKeyId, RequestsPerMinute};
 
     fn sample_token(seed: char) -> String {
         format!(
@@ -268,13 +297,26 @@ mod tests {
     }
 
     #[test]
-    fn rotation_updates_the_token_and_preserves_enabled_state() {
+    fn rpm_updates_config_version_and_rotation_preserves_the_limit() {
+        let rpm = RequestsPerMinute::new(120).expect("RPM");
+        let limited = key()
+            .updated(
+                GatewayApiKeyDraft::new("Desktop", true)
+                    .expect("draft")
+                    .with_requests_per_minute(Some(rpm)),
+            )
+            .expect("limited key");
+        assert_eq!(limited.config_version(), 2);
+        assert_eq!(limited.requests_per_minute(), Some(rpm));
+
         let token = sample_token('b');
-        let rotated = key()
+        let rotated = limited
             .rotated(token.clone(), &token[..16], [9; 32])
             .expect("rotated");
         assert_eq!(rotated.token_version(), 2);
+        assert_eq!(rotated.config_version(), 3);
         assert_eq!(rotated.token(), token);
+        assert_eq!(rotated.requests_per_minute(), Some(rpm));
         assert!(rotated.is_active());
     }
 }

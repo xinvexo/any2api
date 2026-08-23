@@ -17,6 +17,7 @@ use super::{PreparedPublishedSnapshot, SnapshotCompileError};
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry},
     credential::CredentialRuntimeBinding,
+    gateway_api_key::{GatewayApiKeyRateBindings, GatewayApiKeyRateLimitExceeded},
     health::{CandidatePathKey, EgressPathKey, HealthBindings, ReliabilityPolicy},
     proxy::ProxyAuthMaterials,
     registry::RuntimeRegistry,
@@ -33,6 +34,7 @@ pub struct PublishedSnapshot {
     pub(super) core: ConfigurationCore,
     pub(super) proxy_auth: ProxyAuthMaterials,
     pub(super) gateway_api_key_index: HashMap<[u8; 32], GatewayApiKeyId>,
+    pub(super) gateway_api_key_rates: GatewayApiKeyRateBindings,
     pub(super) affinity_registry: Arc<AffinityRegistry>,
     pub(super) affinity_policy: AffinityPolicy,
     pub(super) routing_credentials: RoutingCredentials,
@@ -136,6 +138,23 @@ impl PublishedSnapshot {
                 id: key.id(),
                 token_version: key.token_version(),
             })
+    }
+
+    /// Atomically admits one authenticated public request against the key's
+    /// rolling RPM window. `authentication` must have been produced by this
+    /// snapshot.
+    pub fn try_admit_gateway_api_key(
+        &self,
+        authentication: GatewayApiKeyAuthProof,
+    ) -> Result<(), GatewayApiKeyRateLimitExceeded> {
+        debug_assert!(
+            self.gateway_api_keys()
+                .get(authentication.id())
+                .is_some_and(
+                    |key| key.is_active() && key.token_version() == authentication.token_version()
+                )
+        );
+        self.gateway_api_key_rates.try_admit(authentication.id())
     }
 
     pub(crate) fn route_candidates(

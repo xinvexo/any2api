@@ -39,7 +39,8 @@ export function GatewayApiKeyList({
     }
     return configuration.items.filter((key) => {
       const status = key.enabled ? "已启用" : "已停用";
-      return [key.name, status].join(" ").toLowerCase().includes(needle);
+      const rpm = key.requestsPerMinute === null ? "无限制" : String(key.requestsPerMinute);
+      return [key.name, status, rpm].join(" ").toLowerCase().includes(needle);
     });
   }, [configuration.items, query]);
 
@@ -87,12 +88,13 @@ export function GatewayApiKeyList({
 
       <div className="sm:overflow-x-auto">
         <table
-          className="block w-full text-left text-[12px] sm:table sm:min-w-[70rem] sm:table-fixed sm:border-separate sm:border-spacing-x-0 sm:border-spacing-y-1"
+          className="block w-full text-left text-[12px] sm:table sm:min-w-[76rem] sm:table-fixed sm:border-separate sm:border-spacing-x-0 sm:border-spacing-y-1"
           data-responsive-table="cards"
         >
           <caption className="sr-only">网关密钥列表</caption>
           <colgroup className="hidden sm:table-column-group">
             <col className="w-48" />
+            <col className="w-32" />
             <col />
             <col className="w-44" />
             <col className="w-44" />
@@ -101,6 +103,7 @@ export function GatewayApiKeyList({
           <thead className="hidden sm:table-header-group">
             <tr className="text-[11px] text-tertiary whitespace-nowrap">
               <th className="px-3 py-2 font-medium">名称</th>
+              <th className="px-3 py-2 font-medium">RPM 限制</th>
               <th className="px-3 py-2 font-medium">调用统计</th>
               <th className="px-3 py-2 font-medium">最后使用</th>
               <th className="px-3 py-2 font-medium">创建时间</th>

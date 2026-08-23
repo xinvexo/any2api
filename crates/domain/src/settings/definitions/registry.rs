@@ -15,7 +15,7 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::NetworkRequestHeaderTimeout
         | SettingKey::NetworkRequestBodyIdleTimeout
         | SettingKey::NetworkTrustedProxyCidrs => network::definition(key),
-        SettingKey::ModelsAllowed => models::definition(key),
+        SettingKey::ModelsAllowed | SettingKey::ModelsFastEnabled => models::definition(key),
         SettingKey::AffinityEnabled | SettingKey::AffinityTtl | SettingKey::AffinityWaitTimeout => {
             affinity::definition(key)
         }

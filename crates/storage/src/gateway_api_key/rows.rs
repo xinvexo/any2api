@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use any2api_domain::{
     GatewayApiKey, GatewayApiKeyConfiguration, GatewayApiKeyDraft, GatewayApiKeyId,
+    RequestsPerMinute,
 };
 use sqlx::{FromRow, SqliteConnection};
 
@@ -17,6 +18,7 @@ struct GatewayApiKeyRow {
     hash_version: i64,
     token_version: i64,
     config_version: i64,
+    requests_per_minute: Option<i64>,
     enabled: i64,
     created_at: String,
     last_used_at: Option<String>,
@@ -28,7 +30,7 @@ pub(crate) async fn load_gateway_api_keys_from(
 ) -> Result<GatewayApiKeyConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, GatewayApiKeyRow>(
         "SELECT id, name, token, token_prefix, token_hash, hash_version, \
-         token_version, config_version, enabled, created_at, last_used_at \
+         token_version, config_version, requests_per_minute, enabled, created_at, last_used_at \
          FROM gateway_api_keys ORDER BY name ASC",
     )
     .fetch_all(connection)
@@ -53,7 +55,8 @@ fn parse_row(
         return Err(StorageError::CorruptConfiguration);
     }
     let draft = GatewayApiKeyDraft::new(row.name, parse_bool(row.enabled)?)
-        .map_err(|_| StorageError::CorruptConfiguration)?;
+        .map_err(|_| StorageError::CorruptConfiguration)?
+        .with_requests_per_minute(parse_requests_per_minute(row.requests_per_minute)?);
     GatewayApiKey::restore(
         id,
         draft,
@@ -82,4 +85,17 @@ fn parse_version(value: i64) -> Result<u64, StorageError> {
     (value > 0 && value <= u64::from(u32::MAX))
         .then_some(value)
         .ok_or(StorageError::CorruptConfiguration)
+}
+
+fn parse_requests_per_minute(
+    value: Option<i64>,
+) -> Result<Option<RequestsPerMinute>, StorageError> {
+    value
+        .map(|value| {
+            u32::try_from(value)
+                .ok()
+                .and_then(|value| RequestsPerMinute::new(value).ok())
+                .ok_or(StorageError::CorruptConfiguration)
+        })
+        .transpose()
 }

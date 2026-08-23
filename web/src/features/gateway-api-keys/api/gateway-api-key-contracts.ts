@@ -24,6 +24,7 @@ export interface GatewayApiKey {
   tokenPrefix: string;
   tokenVersion: number;
   configVersion: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
   createdAt: string;
   lastUsedAt: string | null;
@@ -38,6 +39,7 @@ export interface GatewayApiKeyConfiguration {
 export interface GatewayApiKeyCreateInput {
   expectedRevision: number;
   name: string;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -45,6 +47,7 @@ export interface GatewayApiKeyUpdateInput {
   expectedRevision: number;
   expectedConfigVersion: number;
   name: string;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -91,6 +94,7 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
     tokenPrefix: readVisibleAscii(value.token_prefix),
     tokenVersion: readPositiveInteger(value.token_version),
     configVersion: readPositiveInteger(value.config_version),
+    requestsPerMinute: readOptionalRpm(value.requests_per_minute),
     enabled: readBoolean(value.enabled),
     createdAt: readString(value.created_at),
     lastUsedAt: readNullableString(value.last_used_at),
@@ -135,6 +139,17 @@ function readPositiveInteger(value: unknown): number {
     throw new Error("invalid gateway API Key response");
   }
   return Number(value);
+}
+
+function readOptionalRpm(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = readPositiveInteger(value);
+  if (parsed > 100_000) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return parsed;
 }
 
 function readBoolean(value: unknown): boolean {

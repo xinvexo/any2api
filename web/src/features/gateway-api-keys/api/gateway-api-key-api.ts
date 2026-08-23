@@ -28,6 +28,7 @@ export function createGatewayApiKey(
   const body: GatewayApiKeyCreateRequest = {
     expected_revision: input.expectedRevision,
     name: input.name,
+    requests_per_minute: input.requestsPerMinute,
     enabled: input.enabled,
   };
   return requestJson<GatewayApiKeyCollectionResponse>(collection, {
@@ -44,6 +45,7 @@ export function updateGatewayApiKey(
     expected_revision: input.expectedRevision,
     expected_config_version: input.expectedConfigVersion,
     name: input.name,
+    requests_per_minute: input.requestsPerMinute,
     enabled: input.enabled,
   };
   return requestJson<GatewayApiKeyCollectionResponse>(`${collection}/${encodeURIComponent(id)}`, {

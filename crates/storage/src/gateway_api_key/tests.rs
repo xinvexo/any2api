@@ -1,4 +1,6 @@
-use any2api_domain::{ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId, GatewayApiKeyVerifier};
+use any2api_domain::{
+    ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId, GatewayApiKeyVerifier, RequestsPerMinute,
+};
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
@@ -17,13 +19,16 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let store = SqliteStore::connect(&database).await.expect("store");
     let id = GatewayApiKeyId::new();
     let first = token(7);
+    let initial_rpm = RequestsPerMinute::new(120).expect("initial RPM");
 
     let created = commit_configuration(
         &store,
         ConfigRevision::INITIAL,
         ConfigurationMutation::CreateGatewayApiKey {
             id,
-            draft: GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
+            draft: GatewayApiKeyDraft::new("Desktop", true)
+                .expect("draft")
+                .with_requests_per_minute(Some(initial_rpm)),
             token: secret(&first),
         },
     )
@@ -33,10 +38,12 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let key = created.gateway_api_keys().get(id).expect("created key");
     let verifier = GatewayApiKeyVerifier::new();
     assert_eq!(key.token(), first);
+    assert_eq!(key.requests_per_minute(), Some(initial_rpm));
     assert!(verifier.verify(first.as_bytes(), key.token_hash()));
     assert_ne!(key.token_prefix(), first);
-    let stored: (String, String, i64) = sqlx::query_as(
-        "SELECT token, token_prefix, length(token_hash) FROM gateway_api_keys WHERE id = ?",
+    let stored: (String, String, i64, Option<i64>) = sqlx::query_as(
+        "SELECT token, token_prefix, length(token_hash), requests_per_minute \
+         FROM gateway_api_keys WHERE id = ?",
     )
     .bind(id.to_string())
     .fetch_one(store.pool())
@@ -45,6 +52,7 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     assert_eq!(stored.0, first);
     assert_eq!(stored.1, key.token_prefix());
     assert_eq!(stored.2, 32);
+    assert_eq!(stored.3, Some(120));
 
     let unchanged = commit_configuration(
         &store,
@@ -52,21 +60,41 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
         ConfigurationMutation::UpdateGatewayApiKey {
             id,
             expected_config_version: key.config_version(),
-            draft: GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
+            draft: GatewayApiKeyDraft::new("Desktop", true)
+                .expect("draft")
+                .with_requests_per_minute(Some(initial_rpm)),
         },
     )
     .await
     .expect("no-op update");
     assert_eq!(unchanged.revision(), created.revision());
 
+    let updated_rpm = RequestsPerMinute::new(240).expect("updated RPM");
+    let updated = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateGatewayApiKey {
+            id,
+            expected_config_version: key.config_version(),
+            draft: GatewayApiKeyDraft::new("Desktop", true)
+                .expect("draft")
+                .with_requests_per_minute(Some(updated_rpm)),
+        },
+    )
+    .await
+    .expect("update RPM");
+    let updated_key = updated.gateway_api_keys().get(id).expect("updated key");
+    assert_eq!(updated_key.config_version(), 2);
+    assert_eq!(updated_key.requests_per_minute(), Some(updated_rpm));
+
     let second = token(9);
     let rotated = commit_configuration(
         &store,
-        created.revision(),
+        updated.revision(),
         ConfigurationMutation::RotateGatewayApiKey {
             id,
-            expected_config_version: key.config_version(),
-            expected_token_version: key.token_version(),
+            expected_config_version: updated_key.config_version(),
+            expected_token_version: updated_key.token_version(),
             token: secret(&second),
         },
     )
@@ -75,6 +103,7 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let rotated_key = rotated.gateway_api_keys().get(id).expect("rotated key");
     assert_eq!(rotated_key.token_version(), 2);
     assert_eq!(rotated_key.token(), second);
+    assert_eq!(rotated_key.requests_per_minute(), Some(updated_rpm));
     assert!(!verifier.verify(first.as_bytes(), rotated_key.token_hash()));
     assert!(verifier.verify(second.as_bytes(), rotated_key.token_hash()));
 

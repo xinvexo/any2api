@@ -11,6 +11,7 @@ const labels: Record<string, string> = {
   "network.request_body_idle_timeout": "请求体空闲超时",
   "network.trusted_proxy_cidrs": "可信反向代理地址",
   "models.allowed": "客户端可使用模型",
+  "models.fast_enabled": "允许 Fast 模式",
   "affinity.enabled": "启用会话粘性",
   "affinity.ttl": "会话绑定 TTL",
   "affinity.wait_timeout": "会话绑定等待超时",

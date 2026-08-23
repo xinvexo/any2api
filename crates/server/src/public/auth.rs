@@ -76,6 +76,10 @@ pub(crate) async fn require_gateway_api_key(
     let telemetry = state.request_telemetry();
     telemetry.record_public_request();
     telemetry.record_gateway_key_use(authentication.id(), snapshot.revision());
+    if let Err(limited) = snapshot.try_admit_gateway_api_key(authentication) {
+        return PublicApiError::gateway_rate_limited(limited.retry_after_seconds())
+            .into_response_for(&state, request.uri());
+    }
 
     strip_client_credentials(request.headers_mut());
     request.extensions_mut().insert(AuthenticatedGatewayApiKey {

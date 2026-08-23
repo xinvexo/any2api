@@ -17,6 +17,7 @@ const item = {
   token_prefix: token.slice(0, 16),
   token_version: 1,
   config_version: 1,
+  requests_per_minute: null,
   enabled: true,
   created_at: "2026-07-19 10:00:00",
   last_used_at: null,
@@ -34,6 +35,7 @@ describe("gateway API Key contracts", () => {
     const configuration = parseGatewayApiKeyConfiguration({ config_revision: 2, items: [item] });
     expect(configuration.items[0].name).toBe("Desktop");
     expect(configuration.items[0].token).toBe(token);
+    expect(configuration.items[0].requestsPerMinute).toBeNull();
     expect(configuration.items[0].usage).toMatchObject({
       totalRequests: 3,
       successfulRequests: 2,
@@ -47,6 +49,23 @@ describe("gateway API Key contracts", () => {
       successfulRequests: 1,
       failedRequests: 1,
     });
+  });
+
+  test("parses bounded RPM limits and rejects invalid values", () => {
+    expect(
+      parseGatewayApiKeyConfiguration({
+        config_revision: 2,
+        items: [{ ...item, requests_per_minute: 600 }],
+      }).items[0].requestsPerMinute,
+    ).toBe(600);
+    for (const requests_per_minute of [0, 100_001]) {
+      expect(() =>
+        parseGatewayApiKeyConfiguration({
+          config_revision: 2,
+          items: [{ ...item, requests_per_minute }],
+        }),
+      ).toThrow();
+    }
   });
 
   test("rejects invalid token formats on items", () => {

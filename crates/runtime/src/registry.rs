@@ -6,12 +6,15 @@ use std::{
     },
 };
 
-use any2api_domain::{CredentialId, ModelRouteConfiguration, RoutingCredentialId};
+use any2api_domain::{
+    CredentialId, GatewayApiKeyConfiguration, ModelRouteConfiguration, RoutingCredentialId,
+};
 use tokio::sync::watch;
 
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
     credential::CredentialRuntimeHandle,
+    gateway_api_key::{GatewayApiKeyRateBindings, GatewayApiKeyRateRegistry},
     health::{HealthBindings, HealthRegistry},
     lifecycle::ProcessLifecycle,
     routing::{
@@ -28,6 +31,7 @@ pub struct RuntimeRegistry {
     affinity: Arc<AffinityRegistry>,
     affinity_sweeper_started: AtomicBool,
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
+    gateway_api_key_rates: GatewayApiKeyRateRegistry,
     route_admissions: RouteAdmissionRegistry,
     route_tier_cursors: RouteTierCursorRegistry,
     queue_coordinator: Arc<QueueCoordinator>,
@@ -52,6 +56,7 @@ impl RuntimeRegistry {
             affinity_sweeper_started: AtomicBool::new(false),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
+            gateway_api_key_rates: GatewayApiKeyRateRegistry::default(),
             route_admissions: RouteAdmissionRegistry::default(),
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
@@ -145,6 +150,13 @@ impl RuntimeRegistry {
         handles.retain(|id, _| active_ids.contains(id));
 
         RoutingCredentials::new(credentials)
+    }
+
+    pub(crate) fn reconcile_gateway_api_keys(
+        &self,
+        configuration: &GatewayApiKeyConfiguration,
+    ) -> GatewayApiKeyRateBindings {
+        self.gateway_api_key_rates.reconcile(configuration)
     }
 
     pub(crate) fn publish_route_admissions(

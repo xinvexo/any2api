@@ -19,6 +19,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
       "admin.remote_enabled",
       "network.trusted_proxy_cidrs",
       "models.allowed",
+      "models.fast_enabled",
     ],
   },
   {

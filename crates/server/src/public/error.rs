@@ -20,6 +20,7 @@ enum PublicErrorKind {
     UnreadableBody,
     UnsupportedContentEncoding,
     Overloaded,
+    GatewayRateLimited { retry_after_seconds: u64 },
     Internal,
     NotFound,
     MethodNotAllowed,
@@ -70,6 +71,14 @@ impl PublicApiError {
     pub(crate) const fn overloaded() -> Self {
         Self {
             kind: PublicErrorKind::Overloaded,
+        }
+    }
+
+    pub(crate) const fn gateway_rate_limited(retry_after_seconds: u64) -> Self {
+        Self {
+            kind: PublicErrorKind::GatewayRateLimited {
+                retry_after_seconds,
+            },
         }
     }
 
@@ -125,6 +134,10 @@ impl PublicApiError {
                 PublicErrorCode::LocalRateLimit,
                 "the server is too busy to decompress this request; retry shortly",
             ),
+            PublicErrorKind::GatewayRateLimited { .. } => (
+                PublicErrorCode::LocalRateLimit,
+                "the Gateway API Key request rate limit was exceeded",
+            ),
             PublicErrorKind::Internal => (
                 PublicErrorCode::InternalError,
                 "internal request body processing failed",
@@ -138,7 +151,13 @@ impl PublicApiError {
                 "request method is not allowed for this public API route",
             ),
         };
-        let public_error = PublicError::new(code, message);
+        let mut public_error = PublicError::new(code, message);
+        if let PublicErrorKind::GatewayRateLimited {
+            retry_after_seconds,
+        } = self.kind
+        {
+            public_error = public_error.with_retry_after_seconds(retry_after_seconds);
+        }
         let mut response = super::response::from_runtime(
             state
                 .public_requests()

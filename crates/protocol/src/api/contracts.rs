@@ -76,6 +76,15 @@ impl AdapterPayload {
             )),
         }
     }
+
+    /// Replace an explicit Fast tier with the protocol's standard tier.
+    /// Payloads without a supported Fast field are left unchanged.
+    pub fn normalize_fast_tier_to_standard(
+        &mut self,
+        operation: ProtocolOperation,
+    ) -> Result<(), ProtocolError> {
+        crate::json_codec::normalize_fast_tier_to_standard(operation, self)
+    }
 }
 
 /// A parsed multipart body whose ordered fields can be safely re-encoded

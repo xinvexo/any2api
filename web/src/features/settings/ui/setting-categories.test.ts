@@ -2,6 +2,13 @@ import { expect, test } from "vitest";
 
 import { SETTING_SECTIONS } from "./setting-categories";
 
+test("basic settings feature the global Fast switch", () => {
+  const basic = SETTING_SECTIONS.find((section) => section.id === "basic");
+
+  expect(basic?.featuredKeys).toContain("models.fast_enabled");
+  expect(basic?.webGroups).toContain("公开模型");
+});
+
 test("running protection exposes only the configurable reliability budget", () => {
   const protection = SETTING_SECTIONS.find((section) => section.id === "protection");
 

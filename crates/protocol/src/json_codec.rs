@@ -290,11 +290,7 @@ fn raw_request_speed_tier(
     operation: ProtocolOperation,
     value: &RawJsonPayload,
 ) -> Option<RequestSpeedTier> {
-    let field = match operation.dialect() {
-        ProtocolDialect::OpenAiResponses => "service_tier",
-        ProtocolDialect::AnthropicMessages => "speed",
-        ProtocolDialect::OpenAiChatCompletions | ProtocolDialect::OpenAiImages => return None,
-    };
+    let field = speed_tier_wire(operation)?.field;
     parse_request_speed_tier(
         operation.dialect(),
         value.field(field).and_then(raw_string).as_deref(),
@@ -302,15 +298,68 @@ fn raw_request_speed_tier(
 }
 
 fn request_speed_tier(operation: ProtocolOperation, value: &Value) -> Option<RequestSpeedTier> {
-    let field = match operation.dialect() {
-        ProtocolDialect::OpenAiResponses => "service_tier",
-        ProtocolDialect::AnthropicMessages => "speed",
-        ProtocolDialect::OpenAiChatCompletions | ProtocolDialect::OpenAiImages => return None,
-    };
+    let field = speed_tier_wire(operation)?.field;
     parse_request_speed_tier(
         operation.dialect(),
         value.get(field).and_then(Value::as_str),
     )
+}
+
+#[derive(Clone, Copy)]
+struct SpeedTierWire {
+    field: &'static str,
+    fast: &'static str,
+    standard: &'static str,
+}
+
+fn speed_tier_wire(operation: ProtocolOperation) -> Option<SpeedTierWire> {
+    match operation.dialect() {
+        ProtocolDialect::OpenAiResponses => Some(SpeedTierWire {
+            field: "service_tier",
+            fast: "priority",
+            standard: "default",
+        }),
+        ProtocolDialect::AnthropicMessages => Some(SpeedTierWire {
+            field: "speed",
+            fast: "fast",
+            standard: "standard",
+        }),
+        ProtocolDialect::OpenAiChatCompletions | ProtocolDialect::OpenAiImages => None,
+    }
+}
+
+pub(crate) fn normalize_fast_tier_to_standard(
+    operation: ProtocolOperation,
+    payload: &mut AdapterPayload,
+) -> Result<(), ProtocolError> {
+    let Some(wire) = speed_tier_wire(operation) else {
+        return Ok(());
+    };
+    match payload {
+        AdapterPayload::Json(value) => {
+            let Some(tier) = value
+                .as_object_mut()
+                .and_then(|object| object.get_mut(wire.field))
+            else {
+                return Ok(());
+            };
+            if tier.as_str() == Some(wire.fast) {
+                *tier = Value::String(wire.standard.to_owned());
+            }
+            Ok(())
+        }
+        AdapterPayload::RawJson(value) => {
+            if value.field(wire.field).and_then(raw_string).as_deref() != Some(wire.fast) {
+                return Ok(());
+            }
+            value.rewrite_raw_field(wire.field, |_, encoded| {
+                serde_json::to_writer(encoded, wire.standard).map_err(|_| {
+                    ProtocolError::Internal("protocol payload allocation failed".into())
+                })
+            })
+        }
+        AdapterPayload::Multipart(_) => Ok(()),
+    }
 }
 
 fn parse_request_speed_tier(

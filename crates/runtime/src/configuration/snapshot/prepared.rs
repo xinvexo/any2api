@@ -70,6 +70,8 @@ impl PreparedPublishedSnapshot {
     #[must_use]
     pub fn bind(self, runtime: &RuntimeRegistry) -> PublishedSnapshot {
         let routing_credentials = runtime.reconcile_configuration(self.routing_specs);
+        let gateway_api_key_rates =
+            runtime.reconcile_gateway_api_keys(self.core.gateway_api_keys());
         let oauth_route_tiers = oauth::route_tiers(self.core.model_routes(), &routing_credentials);
         let route_tier_cursors =
             runtime.reconcile_route_tier_cursors(self.core.model_routes(), &oauth_route_tiers);
@@ -103,6 +105,7 @@ impl PreparedPublishedSnapshot {
             core: self.core,
             proxy_auth: self.proxy_auth,
             gateway_api_key_index,
+            gateway_api_key_rates,
             affinity_registry: runtime.affinity_registry(),
             affinity_policy: self.affinity_policy,
             routing_credentials,

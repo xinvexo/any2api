@@ -22,8 +22,8 @@ async fn insert(
     sqlx::query(
         "INSERT INTO gateway_api_keys \
          (id, name, name_key, token, token_prefix, token_hash, hash_version, \
-          token_version, config_version, enabled, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          token_version, config_version, requests_per_minute, enabled, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(key.id().to_string())
     .bind(key.name())
@@ -34,6 +34,10 @@ async fn insert(
     .bind(i64::from(key.hash_version()))
     .bind(to_i64(key.token_version())?)
     .bind(to_i64(key.config_version())?)
+    .bind(
+        key.requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(key.enabled())
     .bind(key.created_at())
     .execute(connection)
@@ -46,11 +50,15 @@ async fn update(
     key: &GatewayApiKey,
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
-        "UPDATE gateway_api_keys SET name = ?, name_key = ?, enabled = ?, \
-         config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "UPDATE gateway_api_keys SET name = ?, name_key = ?, requests_per_minute = ?, \
+         enabled = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     )
     .bind(key.name())
     .bind(key.name_key())
+    .bind(
+        key.requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(key.enabled())
     .bind(to_i64(key.config_version())?)
     .bind(key.id().to_string())

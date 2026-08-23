@@ -6,6 +6,7 @@ use crate::PublicModelName;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelSettings {
     allowed: Option<BTreeSet<PublicModelName>>,
+    fast_enabled: bool,
 }
 
 impl ModelSettings {
@@ -27,7 +28,15 @@ impl ModelSettings {
                     .map_err(|_| SettingsValidationError::InvalidListValue)?,
             ),
         };
-        Ok(Self { allowed })
+        let SettingValue::Boolean(fast_enabled) =
+            overrides.effective_value(SettingKey::ModelsFastEnabled)
+        else {
+            return Err(SettingsValidationError::InvalidType);
+        };
+        Ok(Self {
+            allowed,
+            fast_enabled,
+        })
     }
 
     #[must_use]
@@ -35,5 +44,10 @@ impl ModelSettings {
         self.allowed
             .as_ref()
             .is_none_or(|allowed| allowed.contains(model))
+    }
+
+    #[must_use]
+    pub const fn fast_enabled(&self) -> bool {
+        self.fast_enabled
     }
 }

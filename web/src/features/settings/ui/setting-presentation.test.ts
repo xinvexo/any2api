@@ -8,6 +8,26 @@ import {
   settingLabel,
 } from "./setting-presentation";
 
+test("labels the provider-agnostic Fast switch", () => {
+  const item: SettingItem = {
+    key: "models.fast_enabled",
+    valueType: "boolean",
+    defaultValue: true,
+    overrideValue: null,
+    effectiveValue: true,
+    minValue: null,
+    maxValue: null,
+    allowedValues: null,
+    options: null,
+    applyMode: "hot_reload",
+    webGroup: "公开模型",
+    description: "允许客户端请求各协议支持的 Fast 服务档位。",
+  };
+
+  expect(settingLabel(item)).toBe("允许 Fast 模式");
+  expect(settingDescription(item)).toBe(item.description);
+});
+
 test("labels the restart-required inbound connection limit", () => {
   const item: SettingItem = {
     key: "network.max_connections",

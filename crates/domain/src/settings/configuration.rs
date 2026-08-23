@@ -259,6 +259,7 @@ mod tests {
                 SettingKey::StreamPostcommitIdleTimeout,
                 SettingValue::DurationSecs(3),
             ),
+            (SettingKey::ModelsFastEnabled, SettingValue::Boolean(false)),
         ])
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
@@ -271,10 +272,21 @@ mod tests {
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 3);
+        assert!(!settings.models().fast_enabled());
         assert_eq!(
             settings.effective_value(SettingKey::AffinityTtl),
             SettingValue::DurationSecs(120)
         );
+    }
+
+    #[test]
+    fn fast_model_requests_default_to_enabled_and_hot_reload() {
+        let definition = SettingKey::ModelsFastEnabled.definition();
+
+        assert_eq!(definition.default(), SettingValue::Boolean(true));
+        assert_eq!(definition.value_type(), crate::SettingValueType::Boolean);
+        assert_eq!(definition.apply_mode(), crate::SettingApplyMode::HotReload);
+        assert!(SettingsConfiguration::defaults().models().fast_enabled());
     }
 
     #[test]

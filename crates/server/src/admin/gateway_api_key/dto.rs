@@ -1,4 +1,6 @@
-use any2api_domain::{ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
+use any2api_domain::{
+    ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId, RequestsPerMinute,
+};
 use any2api_runtime::api::{GatewayApiKeyUsageSummary, PublishedSnapshot, RequestTelemetry};
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +53,7 @@ struct GatewayApiKeyResponse {
     token_prefix: String,
     token_version: u64,
     config_version: u64,
+    requests_per_minute: Option<u32>,
     enabled: bool,
     created_at: String,
     last_used_at: Option<String>,
@@ -72,6 +75,7 @@ impl GatewayApiKeyResponse {
             token_prefix: key.token_prefix().to_owned(),
             token_version: key.token_version(),
             config_version: key.config_version(),
+            requests_per_minute: key.requests_per_minute().map(RequestsPerMinute::get),
             enabled: key.enabled(),
             created_at: key.created_at().to_owned(),
             last_used_at,
@@ -100,6 +104,7 @@ fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> 
 pub(crate) struct GatewayApiKeyCreateRequest {
     expected_revision: u64,
     name: String,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 }
 
@@ -107,7 +112,7 @@ impl GatewayApiKeyCreateRequest {
     pub(crate) fn into_domain(self) -> Result<(ConfigRevision, GatewayApiKeyDraft), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
-            build_draft(self.name, self.enabled)?,
+            build_draft(self.name, self.requests_per_minute, self.enabled)?,
         ))
     }
 }
@@ -123,6 +128,7 @@ pub(crate) struct GatewayApiKeyUpdateRequest {
     expected_revision: u64,
     expected_config_version: u64,
     name: String,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 }
 
@@ -136,7 +142,7 @@ impl GatewayApiKeyUpdateRequest {
                 self.expected_config_version,
                 "expected_config_version is invalid",
             )?,
-            build_draft(self.name, self.enabled)?,
+            build_draft(self.name, self.requests_per_minute, self.enabled)?,
         ))
     }
 }
@@ -194,8 +200,17 @@ impl GatewayApiKeyDeleteRequest {
     }
 }
 
-fn build_draft(name: String, enabled: bool) -> Result<GatewayApiKeyDraft, AdminApiError> {
+fn build_draft(
+    name: String,
+    requests_per_minute: Option<u32>,
+    enabled: bool,
+) -> Result<GatewayApiKeyDraft, AdminApiError> {
+    let requests_per_minute = requests_per_minute
+        .map(RequestsPerMinute::new)
+        .transpose()
+        .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))?;
     GatewayApiKeyDraft::new(name, enabled)
+        .map(|draft| draft.with_requests_per_minute(requests_per_minute))
         .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))
 }
 
@@ -214,4 +229,24 @@ pub(in crate::admin) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts
     GatewayApiKeyUpdateRequest::export_all(config)?;
     GatewayApiKeyRotateRequest::export_all(config)?;
     GatewayApiKeyDeleteRequest::export_all(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_draft;
+
+    #[test]
+    fn optional_gateway_rate_limit_is_bounded() {
+        let unlimited = build_draft("Unlimited".to_owned(), None, true).expect("unlimited draft");
+        assert_eq!(unlimited.requests_per_minute(), None);
+
+        let limited =
+            build_draft("Limited".to_owned(), Some(100_000), true).expect("limited draft");
+        assert_eq!(
+            limited.requests_per_minute().map(|value| value.get()),
+            Some(100_000)
+        );
+        assert!(build_draft("Invalid".to_owned(), Some(0), true).is_err());
+        assert!(build_draft("Invalid".to_owned(), Some(100_001), true).is_err());
+    }
 }

@@ -1,14 +1,20 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ModelRouteId, ProtocolDialect, PublicError, PublicErrorCode, PublicModelName, TransportMode,
+    ModelRouteId, ModelSettings, ProtocolDialect, PublicError, PublicErrorCode, PublicModelName,
+    TransportMode,
 };
-use any2api_protocol::api::IngressAffinity;
-use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter, ProtocolRegistry};
+use any2api_protocol::api::{
+    DecodedRequest, IngressAffinity, IngressRequest, ProtocolAdapter, ProtocolError,
+    ProtocolRegistry,
+};
 use any2api_provider::api::ProviderRegistry;
 use http::{Method, Uri};
 
-use super::{PublicRequest, response::invalid_request};
+use super::{
+    PublicRequest,
+    response::{internal_error, invalid_request},
+};
 use crate::{
     configuration::PublishedSnapshot,
     routing::{CandidateRequirements, OAuthRoute, RouteCandidateTiers, oauth_route_id},
@@ -74,10 +80,12 @@ pub(super) async fn decode(
 
 pub(super) fn plan(
     snapshot: &PublishedSnapshot,
-    request: DecodedPublicRequest,
+    mut request: DecodedPublicRequest,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
 ) -> Result<PlannedRequest, PublicError> {
+    apply_model_request_policy(snapshot.settings().models(), &mut request.decoded)
+        .map_err(|_| internal_error())?;
     plan_decoded(
         snapshot,
         Arc::new(request.decoded),
@@ -86,6 +94,18 @@ pub(super) fn plan(
         providers,
         snapshot.queue_policy().fallback_on_rate_limit(),
     )
+}
+
+fn apply_model_request_policy(
+    settings: &ModelSettings,
+    decoded: &mut DecodedRequest,
+) -> Result<(), ProtocolError> {
+    if !settings.fast_enabled() {
+        decoded
+            .payload
+            .normalize_fast_tier_to_standard(decoded.operation)?;
+    }
+    Ok(())
 }
 
 pub(super) fn replan(
@@ -231,4 +251,83 @@ fn model_not_found(model: &PublicModelName) -> PublicError {
             model.as_str()
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{
+        ProtocolDialect, ProtocolOperation, SettingKey, SettingOverrides, SettingValue,
+        SettingsConfiguration,
+    };
+    use any2api_protocol::api::{
+        AdapterPayload, DecodedRequest, IngressAffinity, RequestExecutionProfile,
+    };
+    use http::HeaderMap;
+    use serde_json::json;
+
+    use super::apply_model_request_policy;
+
+    fn request(operation: ProtocolOperation, payload: serde_json::Value) -> DecodedRequest {
+        DecodedRequest {
+            dialect: operation.dialect(),
+            operation,
+            execution_profile: RequestExecutionProfile::Standard,
+            client_headers: HeaderMap::new(),
+            headers: HeaderMap::new(),
+            body_encoding: Default::default(),
+            model: Some("model".to_owned()),
+            stream: false,
+            thinking_level: None,
+            affinity: IngressAffinity::None,
+            payload: AdapterPayload::Json(payload),
+        }
+    }
+
+    #[test]
+    fn global_fast_policy_normalizes_responses_and_messages_before_planning() {
+        let disabled = SettingsConfiguration::from_overrides(
+            SettingOverrides::from_entries([(
+                SettingKey::ModelsFastEnabled,
+                SettingValue::Boolean(false),
+            )])
+            .expect("Fast override"),
+        )
+        .expect("settings");
+
+        for (operation, field, fast, standard) in [
+            (
+                ProtocolOperation::Responses,
+                "service_tier",
+                "priority",
+                "default",
+            ),
+            (ProtocolOperation::Messages, "speed", "fast", "standard"),
+        ] {
+            let mut payload = json!({});
+            payload[field] = json!(fast);
+            let mut decoded = request(operation, payload);
+            apply_model_request_policy(disabled.models(), &mut decoded)
+                .expect("normalize request policy");
+            let AdapterPayload::Json(payload) = decoded.payload else {
+                panic!("structured payload");
+            };
+            assert_eq!(payload[field], standard);
+        }
+    }
+
+    #[test]
+    fn enabled_fast_policy_preserves_explicit_fast_tiers() {
+        let settings = SettingsConfiguration::defaults();
+        let mut decoded = request(
+            ProtocolOperation::Responses,
+            json!({"service_tier":"priority"}),
+        );
+
+        apply_model_request_policy(settings.models(), &mut decoded).expect("apply request policy");
+        let AdapterPayload::Json(payload) = decoded.payload else {
+            panic!("structured payload");
+        };
+        assert_eq!(payload["service_tier"], "priority");
+        assert_eq!(decoded.dialect, ProtocolDialect::OpenAiResponses);
+    }
 }

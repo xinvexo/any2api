@@ -8,8 +8,8 @@ use super::{
     request_execution_profile_raw,
 };
 use crate::api::{
-    DecodedResponsePayload, DecodedUpstreamResponse, IngressAffinity, RawJsonPayload,
-    RequestExecutionProfile,
+    AdapterPayload, DecodedResponsePayload, DecodedUpstreamResponse, IngressAffinity,
+    RawJsonPayload, RequestExecutionProfile,
 };
 
 fn raw(value: serde_json::Value) -> RawJsonPayload {
@@ -84,6 +84,43 @@ fn extracts_supported_request_speed_tiers_without_changing_wire_encoding() {
         .requested_speed_tier,
         None
     );
+}
+
+#[test]
+fn normalizes_explicit_fast_tiers_for_raw_and_structured_payloads() {
+    for (operation, field, fast, standard) in [
+        (
+            ProtocolOperation::Responses,
+            "service_tier",
+            "priority",
+            "default",
+        ),
+        (ProtocolOperation::Messages, "speed", "fast", "standard"),
+    ] {
+        let mut value = json!({"model":"upstream", "opaque":{"value":1}});
+        value[field] = json!(fast);
+        let mut payloads = [
+            AdapterPayload::RawJson(raw(value.clone())),
+            AdapterPayload::Json(value),
+        ];
+
+        for payload in &mut payloads {
+            payload
+                .normalize_fast_tier_to_standard(operation)
+                .expect("normalize Fast tier");
+            let encoded = super::encode_request(operation, &HeaderMap::new(), payload, "upstream")
+                .expect("encode normalized request");
+            let body: serde_json::Value =
+                serde_json::from_slice(&encoded.body).expect("normalized JSON");
+
+            assert_eq!(body[field], standard);
+            assert_eq!(body["opaque"], json!({"value":1}));
+            assert_eq!(
+                encoded.requested_speed_tier,
+                Some(RequestSpeedTier::Standard)
+            );
+        }
+    }
 }
 
 #[test]
