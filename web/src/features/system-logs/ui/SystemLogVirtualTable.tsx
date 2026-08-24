@@ -121,7 +121,7 @@ function SystemLogRow({
       </Cell>
       <Cell className="font-mono font-semibold">{log.method}</Cell>
       <Cell className="font-mono" title={log.path}>{log.path}</Cell>
-      <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</Cell>
+      <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "—"}</Cell>
       <Cell className="font-mono text-secondary">{log.httpVersion}</Cell>
       <Cell className="tabular-nums text-secondary">{formatDuration(log.durationMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{formatBytes(log.responseBytes)}</Cell>

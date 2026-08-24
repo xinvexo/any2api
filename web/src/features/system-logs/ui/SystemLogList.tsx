@@ -121,7 +121,7 @@ function SystemLogCard({ log, selected, onSelect }: { log: SystemLog; selected: 
         </time>
         <span className="shrink-0 rounded-[5px] bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-secondary">{log.method}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-primary" title={log.path}>{log.path}</span>
-        <span className={cn("shrink-0 font-mono text-[11px] font-semibold", statusTone(log))}>{log.statusCode ?? "-"}</span>
+        <span className={cn("shrink-0 font-mono text-[11px] font-semibold", statusTone(log))}>{log.statusCode ?? "—"}</span>
       </div>
       <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
         <span className="min-w-0 flex-1 truncate font-mono" title={log.clientIp ?? "未知"}>{log.clientIp ?? "未知"}</span>

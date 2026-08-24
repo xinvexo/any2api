@@ -80,9 +80,9 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(
     within(activeCells[3] as HTMLElement).getByLabelText("Fast 模式"),
   ).toHaveTextContent("Fast");
-  expect(activeCells[4]).toHaveTextContent("-");
+  expect(activeCells[4]).toHaveTextContent("—");
   expect(activeCells[7]).toHaveTextContent("1.00 s");
-  expect(activeCells[8]).toHaveTextContent("-");
+  expect(activeCells[8]).toHaveTextContent("—");
   const completedCells = within(completedRow).getAllByRole("cell");
   expect(completedCells).toHaveLength(13);
   expect(completedCells[0]).not.toHaveTextContent(/^\d{4}\//);

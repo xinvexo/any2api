@@ -82,8 +82,8 @@ export const RequestLogCard = memo(function RequestLogCard({
         <span className="shrink-0 tabular-nums">
           {formatDurationMs(log.latencyMs)}
         </span>
-        <span className="shrink-0 tabular-nums">In {success ? formatTokenCount(log.inputTokens) : "-"}</span>
-        <span className="shrink-0 tabular-nums">Out {success ? formatTokenCount(log.outputTokens) : "-"}</span>
+        <span className="shrink-0 tabular-nums">In {success ? formatTokenCount(log.inputTokens) : "—"}</span>
+        <span className="shrink-0 tabular-nums">Out {success ? formatTokenCount(log.outputTokens) : "—"}</span>
         <span className="min-w-0 flex-1 truncate text-right" title={source.displayName}>
           {source.displayName}
         </span>
@@ -128,14 +128,14 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
         <RequestFastBadge requestedSpeedTier={log.requestedSpeedTier} />
       </RequestLogTableCell>
       <RequestLogTableCell><RequestStreamBadge isStream={log.isStream} /></RequestLogTableCell>
-      <RequestLogTableCell>{log.thinkingLevel ?? "-"}</RequestLogTableCell>
+      <RequestLogTableCell>{log.thinkingLevel ?? "—"}</RequestLogTableCell>
       <RequestLogTableCell><ResultBadge log={log} /></RequestLogTableCell>
       <Metric value={formatDurationMs(log.latencyMs)} />
-      <Metric value={success ? formatDurationMs(log.firstTokenMs) : "-"} />
-      <Metric value={success ? formatTokenCount(log.inputTokens) : "-"} />
-      <Metric value={success ? formatTokenCount(log.cacheReadTokens) : "-"} />
-      <Metric value={success ? formatTokenCount(log.outputTokens) : "-"} />
-      <Metric value={success ? formatTps(outputTps(log)) : "-"} />
+      <Metric value={success ? formatDurationMs(log.firstTokenMs) : "—"} />
+      <Metric value={success ? formatTokenCount(log.inputTokens) : "—"} />
+      <Metric value={success ? formatTokenCount(log.cacheReadTokens) : "—"} />
+      <Metric value={success ? formatTokenCount(log.outputTokens) : "—"} />
+      <Metric value={success ? formatTps(outputTps(log)) : "—"} />
     </>
   );
 });

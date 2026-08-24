@@ -89,19 +89,19 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
       </Cell>
       <Cell>
         {log.isStream === null ? (
-          <span className="text-tertiary">-</span>
+          <span className="text-tertiary">—</span>
         ) : (
           <RequestStreamBadge isStream={log.isStream} />
         )}
       </Cell>
-      <Cell>{log.thinkingLevel ?? "-"}</Cell>
+      <Cell>{log.thinkingLevel ?? "—"}</Cell>
       <Cell><StatusBadge /></Cell>
       <Cell className="tabular-nums text-secondary">{elapsed(log, nowMs)}</Cell>
-      <Cell className="tabular-nums text-secondary">-</Cell>
-      <Cell className="text-secondary">-</Cell>
-      <Cell className="text-secondary">-</Cell>
-      <Cell className="text-secondary">-</Cell>
-      <Cell className="text-secondary">-</Cell>
+      <Cell className="tabular-nums text-secondary">—</Cell>
+      <Cell className="text-secondary">—</Cell>
+      <Cell className="text-secondary">—</Cell>
+      <Cell className="text-secondary">—</Cell>
+      <Cell className="text-secondary">—</Cell>
     </>
   );
 });
