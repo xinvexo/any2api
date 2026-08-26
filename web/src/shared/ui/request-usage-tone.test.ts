@@ -20,10 +20,10 @@ test("colors slots by success rate: green / yellow / red", () => {
 });
 
 test("uses application theme tokens for every slot fill", () => {
-  expect(requestUsageSlotBarClass("empty")).toBe("bg-control-active");
-  expect(requestUsageSlotBarClass("ok")).toBe("bg-success");
-  expect(requestUsageSlotBarClass("degraded")).toBe("bg-warning");
-  expect(requestUsageSlotBarClass("down")).toBe("bg-danger");
+  expect(requestUsageSlotBarClass("empty")).toBe("bg-request-usage-empty");
+  expect(requestUsageSlotBarClass("ok")).toBe("bg-request-usage-ok");
+  expect(requestUsageSlotBarClass("degraded")).toBe("bg-request-usage-degraded");
+  expect(requestUsageSlotBarClass("down")).toBe("bg-request-usage-down");
 });
 
 test("formats success rate for tooltips", () => {

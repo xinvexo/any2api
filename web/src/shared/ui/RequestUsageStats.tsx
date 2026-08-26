@@ -65,10 +65,10 @@ export function RequestUsageStats({
     >
       <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
         <span className="sr-only">统计单位：{unitLabel}</span>
-        <span className="font-medium text-success">
+        <span className="font-medium text-request-usage-success-text">
           成功 {formatCount(usage.successfulRequests)}
         </span>
-        <span className="font-medium text-danger">
+        <span className="font-medium text-request-usage-failure-text">
           失败 {formatCount(usage.failedRequests)}
         </span>
       </div>
@@ -133,11 +133,11 @@ function SlotTooltip({
         <span className={toneTextClass(tone)}>{requestUsageSlotToneLabel(tone)}</span>
       </p>
       <p className="mt-0.5 whitespace-nowrap tabular-nums">
-        <span className="text-success">
+        <span className="text-request-usage-success-text">
           成功 {formatCount(slot.successfulRequests)}
         </span>
         <span className="mx-1 text-tertiary">·</span>
-        <span className="text-danger">
+        <span className="text-request-usage-failure-text">
           失败 {formatCount(slot.failedRequests)}
         </span>
         {rate !== null ? (
@@ -168,11 +168,11 @@ function toneTextClass(tone: ReturnType<typeof requestUsageSlotTone>) {
     case "empty":
       return "text-tertiary";
     case "ok":
-      return "text-success";
+      return "text-request-usage-success-text";
     case "degraded":
-      return "text-warning";
+      return "text-request-usage-degraded-text";
     case "down":
-      return "text-danger";
+      return "text-request-usage-failure-text";
   }
 }
 

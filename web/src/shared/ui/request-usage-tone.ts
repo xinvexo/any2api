@@ -36,17 +36,16 @@ export function requestUsageSlotToneLabel(tone: RequestUsageSlotTone): string {
   }
 }
 
-/** Theme-aware status fills; manual dark mode is driven by `data-theme`. */
 export function requestUsageSlotBarClass(tone: RequestUsageSlotTone): string {
   switch (tone) {
     case "empty":
-      return "bg-control-active";
+      return "bg-request-usage-empty";
     case "ok":
-      return "bg-success";
+      return "bg-request-usage-ok";
     case "degraded":
-      return "bg-warning";
+      return "bg-request-usage-degraded";
     case "down":
-      return "bg-danger";
+      return "bg-request-usage-down";
   }
 }
 
