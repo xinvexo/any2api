@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   formatSuccessRate,
+  requestUsageSlotBarClass,
   requestUsageSlotTone,
   requestUsageSuccessRate,
 } from "./request-usage-tone";
@@ -10,10 +11,19 @@ test("colors slots by success rate: green / yellow / red", () => {
   expect(requestUsageSlotTone(slot(0, 0, 0))).toBe("empty");
   expect(requestUsageSlotTone(slot(100, 100, 0))).toBe("ok");
   expect(requestUsageSlotTone(slot(20, 19, 1))).toBe("ok");
-  expect(requestUsageSlotTone(slot(1_000, 949, 51))).toBe("degraded");
+  expect(requestUsageSlotTone(slot(17, 16, 1))).toBe("ok");
+  expect(requestUsageSlotTone(slot(10, 9, 1))).toBe("ok");
+  expect(requestUsageSlotTone(slot(1_000, 899, 101))).toBe("degraded");
   expect(requestUsageSlotTone(slot(5, 4, 1))).toBe("degraded");
-  expect(requestUsageSlotTone(slot(1_000, 799, 201))).toBe("down");
+  expect(requestUsageSlotTone(slot(2, 1, 1))).toBe("degraded");
   expect(requestUsageSlotTone(slot(2, 0, 2))).toBe("down");
+});
+
+test("uses application theme tokens for every slot fill", () => {
+  expect(requestUsageSlotBarClass("empty")).toBe("bg-control-active");
+  expect(requestUsageSlotBarClass("ok")).toBe("bg-success");
+  expect(requestUsageSlotBarClass("degraded")).toBe("bg-warning");
+  expect(requestUsageSlotBarClass("down")).toBe("bg-danger");
 });
 
 test("formats success rate for tooltips", () => {

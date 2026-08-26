@@ -18,11 +18,12 @@ use uuid::Uuid;
 async fn only_manual_quota_refresh_reads_and_persists_the_live_model_catalog() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
 
-    context
+    let quota = context
         .service
         .refresh_quota(context.account_id)
         .await
         .expect("quota only refresh");
+    assert_eq!(quota.usage.subscription_tier.as_deref(), Some("free"));
     assert_eq!(context.transport.model_catalog_calls(), 0);
 
     context

@@ -7,8 +7,7 @@ import type { RequestUsageWindowSlot } from "../api/request-usage";
  */
 export type RequestUsageSlotTone = "empty" | "ok" | "degraded" | "down";
 
-const OK_SUCCESS_RATE_MINIMUM = 0.95;
-const DEGRADED_SUCCESS_RATE_MINIMUM = 0.8;
+const OK_SUCCESS_RATE_MINIMUM = 0.9;
 
 export function requestUsageSlotTone(slot: RequestUsageWindowSlot): RequestUsageSlotTone {
   if (slot.totalRequests === 0) {
@@ -18,7 +17,7 @@ export function requestUsageSlotTone(slot: RequestUsageWindowSlot): RequestUsage
   if (rate >= OK_SUCCESS_RATE_MINIMUM) {
     return "ok";
   }
-  if (rate >= DEGRADED_SUCCESS_RATE_MINIMUM) {
+  if (slot.successfulRequests > 0) {
     return "degraded";
   }
   return "down";
@@ -37,17 +36,17 @@ export function requestUsageSlotToneLabel(tone: RequestUsageSlotTone): string {
   }
 }
 
-/** Soft status-page fills (OpenAI / incident.io palette). */
+/** Theme-aware status fills; manual dark mode is driven by `data-theme`. */
 export function requestUsageSlotBarClass(tone: RequestUsageSlotTone): string {
   switch (tone) {
     case "empty":
-      return "bg-black/[0.06] dark:bg-white/[0.08]";
+      return "bg-control-active";
     case "ok":
-      return "bg-[#24c19a] dark:bg-[#1fa382]";
+      return "bg-success";
     case "degraded":
-      return "bg-[#fbbf24] dark:bg-[#f59e0b]";
+      return "bg-warning";
     case "down":
-      return "bg-[#f87171] dark:bg-[#ef4444]";
+      return "bg-danger";
   }
 }
 

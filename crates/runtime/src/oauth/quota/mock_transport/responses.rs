@@ -50,6 +50,7 @@ impl QuotaTransport {
         let reset_completed = self.consume_calls.load(Ordering::Acquire) > 0;
         ok(Bytes::from(
             serde_json::json!({
+                "plan_type": "free",
                 "rate_limit": {
                     "allowed": true,
                     "limit_reached": false,
@@ -161,6 +162,7 @@ fn codex_exhausted(has_credits: bool, reset_at: i64) -> MockResponse {
     if has_credits {
         return ok(Bytes::from(
             serde_json::json!({
+                "plan_type": "free",
                 "rate_limit": {
                     "allowed": false,
                     "limit_reached": true,
@@ -182,6 +184,7 @@ fn codex_exhausted(has_credits: bool, reset_at: i64) -> MockResponse {
     }
     ok(Bytes::from(
         serde_json::json!({
+            "plan_type": "free",
             "rate_limit": {
                 "allowed": false,
                 "limit_reached": true,

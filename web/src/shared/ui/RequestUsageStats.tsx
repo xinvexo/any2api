@@ -65,10 +65,10 @@ export function RequestUsageStats({
     >
       <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
         <span className="sr-only">统计单位：{unitLabel}</span>
-        <span className="font-medium text-[#1fa382] dark:text-[#24c19a]">
+        <span className="font-medium text-success">
           成功 {formatCount(usage.successfulRequests)}
         </span>
-        <span className="font-medium text-[#e11d48] dark:text-[#fb7185]">
+        <span className="font-medium text-danger">
           失败 {formatCount(usage.failedRequests)}
         </span>
       </div>
@@ -133,11 +133,11 @@ function SlotTooltip({
         <span className={toneTextClass(tone)}>{requestUsageSlotToneLabel(tone)}</span>
       </p>
       <p className="mt-0.5 whitespace-nowrap tabular-nums">
-        <span className="text-[#1fa382] dark:text-[#24c19a]">
+        <span className="text-success">
           成功 {formatCount(slot.successfulRequests)}
         </span>
         <span className="mx-1 text-tertiary">·</span>
-        <span className="text-[#e11d48] dark:text-[#fb7185]">
+        <span className="text-danger">
           失败 {formatCount(slot.failedRequests)}
         </span>
         {rate !== null ? (
@@ -168,11 +168,11 @@ function toneTextClass(tone: ReturnType<typeof requestUsageSlotTone>) {
     case "empty":
       return "text-tertiary";
     case "ok":
-      return "text-[#1fa382] dark:text-[#24c19a]";
+      return "text-success";
     case "degraded":
-      return "text-[#d97706] dark:text-[#fbbf24]";
+      return "text-warning";
     case "down":
-      return "text-[#e11d48] dark:text-[#fb7185]";
+      return "text-danger";
   }
 }
 

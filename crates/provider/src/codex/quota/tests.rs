@@ -126,6 +126,7 @@ fn quota_plan_requires_the_codex_account_id() {
 fn parses_primary_secondary_windows_and_usage_credit_count() {
     let usage = parse_usage(
         br#"{
+          "plan_type": "free",
           "rate_limit": {
             "allowed": true,
             "limit_reached": false,
@@ -154,6 +155,7 @@ fn parses_primary_secondary_windows_and_usage_credit_count() {
     )
     .expect("usage");
 
+    assert_eq!(usage.subscription_tier.as_deref(), Some("free"));
     let limit = usage.rate_limit.expect("rate limit");
     assert_eq!(limit.allowed, Some(true));
     assert_eq!(limit.limit_reached, Some(false));

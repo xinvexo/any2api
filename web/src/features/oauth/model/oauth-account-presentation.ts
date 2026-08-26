@@ -40,7 +40,7 @@ export function presentOAuthAccount(
 ): OAuthAccountPresentation {
   const badges: OAuthAccountBadge[] = [];
 
-  const planType = quota?.subscriptionTier ?? account.planType;
+  const planType = quota === null ? account.planType : quota.subscriptionTier;
   if (planType) {
     badges.push({ key: "plan", label: planType, tone: "neutral" });
   }

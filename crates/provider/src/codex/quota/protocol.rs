@@ -55,6 +55,10 @@ pub(crate) fn reset_plan(
 pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
     let payload = serde_json::from_slice::<UsagePayload>(body)
         .map_err(|_| invalid_response("Codex quota usage response is invalid"))?;
+    let subscription_tier = payload
+        .plan_type
+        .map(|plan| plan.trim().to_owned())
+        .filter(|plan| !plan.is_empty());
     let rate_limit = payload.rate_limit.map(parse_rate_limit).transpose()?;
     let credits = payload.credits.map(parse_credits).transpose()?;
     let spend_control_reached = payload.spend_control.map(|value| value.reached);
@@ -80,7 +84,7 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
         reset_credits,
         billing: None,
         token_balance: None,
-        subscription_tier: None,
+        subscription_tier,
         account_status: None,
     })
 }
@@ -152,6 +156,7 @@ fn request(
 
 #[derive(Deserialize)]
 struct UsagePayload {
+    plan_type: Option<String>,
     rate_limit: Option<RateLimitPayload>,
     credits: Option<CreditsPayload>,
     spend_control: Option<SpendControlPayload>,

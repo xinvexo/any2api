@@ -36,6 +36,18 @@ test("does not expose runtime status as a card metric", () => {
   expect(stopped.metrics.some((metric) => metric.key === "runtime-status")).toBe(false);
 });
 
+test("treats the refreshed quota plan as authoritative", () => {
+  const refreshed = quota("rate_limit_reached");
+  const currentPlan = presentOAuthAccount(account(), {
+    ...refreshed,
+    subscriptionTier: "free",
+  });
+  const unavailablePlan = presentOAuthAccount(account(), refreshed);
+
+  expect(currentPlan.badges.find((badge) => badge.key === "plan")?.label).toBe("free");
+  expect(unavailablePlan.badges.some((badge) => badge.key === "plan")).toBe(false);
+});
+
 test.each([
   ["ready", "正常", "success"],
   ["disabled", "停用", "warning"],
