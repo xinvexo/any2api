@@ -58,6 +58,11 @@ interface ScopedFailure {
   error: Error;
 }
 
+interface CursorFeedOperation {
+  kind: "sync" | "refresh";
+  controller: AbortController;
+}
+
 export function useRealtimeCursorFeed<
   TItem,
   TPage extends CursorPage<TItem>,
@@ -82,8 +87,7 @@ export function useRealtimeCursorFeed<
   const scopeRef = useRef(scope);
   const timerRef = useRef<number | null>(null);
   const eventCountRef = useRef(0);
-  const syncingRef = useRef(false);
-  const refreshingRef = useRef(false);
+  const activeOperationRef = useRef<CursorFeedOperation | null>(null);
   const rerunRef = useRef(false);
   const resetOnNextSyncRef = useRef(false);
   const generationRef = useRef(0);
@@ -94,6 +98,18 @@ export function useRealtimeCursorFeed<
 
   useLayoutEffect(() => {
     if (scopeRef.current !== scope) {
+      const activeOperation = activeOperationRef.current;
+      activeOperation?.controller.abort();
+      activeOperationRef.current = null;
+      if (activeOperation?.kind === "refresh") {
+        setIsRefreshing(false);
+      }
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      eventCountRef.current = 0;
+      rerunRef.current = false;
       scopeRef.current = scope;
       generationRef.current += 1;
       resetOnNextSyncRef.current = false;
@@ -102,6 +118,20 @@ export function useRealtimeCursorFeed<
       setSyncFailure(null);
     }
   }, [queryClient, queryKey, scope]);
+
+  useLayoutEffect(
+    () => () => {
+      activeOperationRef.current?.controller.abort();
+      activeOperationRef.current = null;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      eventCountRef.current = 0;
+      rerunRef.current = false;
+    },
+    [],
+  );
 
   const query = useInfiniteQuery({
     queryKey,
@@ -131,7 +161,7 @@ export function useRealtimeCursorFeed<
     [mergeLatest, queryClient, queryKey],
   );
 
-  const syncLatest = useCallback(async () => {
+  const syncLatest = useCallback(async (signal: AbortSignal) => {
     const generation = generationRef.current;
     const externalGeneration = currentExternalGeneration?.();
     const current = queryClient.getQueryData<InfiniteData<TPage, string | null>>(
@@ -141,13 +171,13 @@ export function useRealtimeCursorFeed<
       return;
     }
     const latest = await collectCursorBatches<TItem, TPage>(
-      (cursor) => fetchPage(cursor),
+      (cursor) => fetchPage(cursor, signal),
       knownIds(current),
       itemId,
       maxCachedPages,
       maxCollectedItems,
     );
-    if (!operationIsCurrent(generation, externalGeneration)) {
+    if (signal.aborted || !operationIsCurrent(generation, externalGeneration)) {
       return;
     }
     if (followingRef.current) {
@@ -187,28 +217,43 @@ export function useRealtimeCursorFeed<
   }, []);
 
   const runSync = useCallback(async () => {
-    if (syncingRef.current || refreshingRef.current) {
+    if (activeOperationRef.current) {
       rerunRef.current = true;
       return;
     }
-    syncingRef.current = true;
+    const operation: CursorFeedOperation = {
+      kind: "sync",
+      controller: new AbortController(),
+    };
+    activeOperationRef.current = operation;
     const generation = generationRef.current;
     const externalGeneration = currentExternalGeneration?.();
     eventCountRef.current = 0;
     try {
-      await syncLatest();
-      if (operationIsCurrent(generation, externalGeneration)) {
+      await syncLatest(operation.controller.signal);
+      if (
+        activeOperationRef.current === operation
+        && !operation.controller.signal.aborted
+        && operationIsCurrent(generation, externalGeneration)
+      ) {
         setSyncFailure(null);
       }
     } catch (error) {
-      if (operationIsCurrent(generation, externalGeneration)) {
+      if (
+        !operation.controller.signal.aborted
+        && !isAbortError(error)
+        && activeOperationRef.current === operation
+        && operationIsCurrent(generation, externalGeneration)
+      ) {
         setSyncFailure({ scope, error: asError(error, syncErrorMessage) });
       }
     } finally {
-      syncingRef.current = false;
-      if (rerunRef.current || eventCountRef.current > 0) {
-        rerunRef.current = false;
-        queueSyncRun();
+      if (activeOperationRef.current === operation) {
+        activeOperationRef.current = null;
+        if (rerunRef.current || eventCountRef.current > 0) {
+          rerunRef.current = false;
+          queueSyncRun();
+        }
       }
     }
   }, [
@@ -226,7 +271,7 @@ export function useRealtimeCursorFeed<
 
   const scheduleSync = useCallback(() => {
     eventCountRef.current += 1;
-    if (syncingRef.current || refreshingRef.current) {
+    if (activeOperationRef.current) {
       rerunRef.current = true;
       return;
     }
@@ -245,24 +290,19 @@ export function useRealtimeCursorFeed<
     }
   }, [followingLatest, pending, scheduleSync, scope]);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      eventCountRef.current = 0;
-      rerunRef.current = false;
-    };
-  }, [scope]);
-
   const feed = useMemo(() => flatten(query.data?.pages ?? []), [flatten, query.data]);
 
   const refreshLatest = useCallback(async () => {
-    if (refreshingRef.current) {
-      return;
+    const activeOperation = activeOperationRef.current;
+    if (activeOperation?.kind === "refresh") {
+      return false;
     }
-    refreshingRef.current = true;
+    activeOperation?.controller.abort();
+    const operation: CursorFeedOperation = {
+      kind: "refresh",
+      controller: new AbortController(),
+    };
+    activeOperationRef.current = operation;
     resetOnNextSyncRef.current = false;
     setIsRefreshing(true);
     generationRef.current += 1;
@@ -274,9 +314,16 @@ export function useRealtimeCursorFeed<
     }
     try {
       await queryClient.cancelQueries({ queryKey, exact: true });
-      const latest = await fetchPage(null);
-      if (!operationIsCurrent(generation, externalGeneration)) {
-        return;
+      if (operation.controller.signal.aborted) {
+        return false;
+      }
+      const latest = await fetchPage(null, operation.controller.signal);
+      if (
+        operation.controller.signal.aborted
+        || activeOperationRef.current !== operation
+        || !operationIsCurrent(generation, externalGeneration)
+      ) {
+        return false;
       }
       queryClient.setQueryData<InfiniteData<TPage, string | null>>(queryKey, {
         pages: [latest],
@@ -284,17 +331,26 @@ export function useRealtimeCursorFeed<
       });
       setPending(null);
       setSyncFailure(null);
+      return true;
     } catch (error) {
-      if (operationIsCurrent(generation, externalGeneration)) {
+      if (operation.controller.signal.aborted || isAbortError(error)) {
+        return false;
+      }
+      if (
+        activeOperationRef.current === operation
+        && operationIsCurrent(generation, externalGeneration)
+      ) {
         setSyncFailure({ scope, error: asError(error, syncErrorMessage) });
       }
       throw error;
     } finally {
-      refreshingRef.current = false;
-      setIsRefreshing(false);
-      if (rerunRef.current || eventCountRef.current > 0) {
-        rerunRef.current = false;
-        queueSyncRun();
+      if (activeOperationRef.current === operation) {
+        activeOperationRef.current = null;
+        setIsRefreshing(false);
+        if (rerunRef.current || eventCountRef.current > 0) {
+          rerunRef.current = false;
+          queueSyncRun();
+        }
       }
     }
   }, [
@@ -332,4 +388,11 @@ export function useRealtimeCursorFeed<
 
 function asError(value: unknown, message: string) {
   return value instanceof Error ? value : new Error(message);
+}
+
+function isAbortError(value: unknown) {
+  return typeof value === "object"
+    && value !== null
+    && "name" in value
+    && value.name === "AbortError";
 }

@@ -1,6 +1,6 @@
-use std::{error::Error as StdError, net::SocketAddr};
+use std::error::Error as StdError;
 
-use any2api_domain::{ProxyKind, RetrySafety};
+use any2api_domain::RetrySafety;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use http::{
@@ -13,7 +13,7 @@ use hyper_util::{
     rt::{TokioExecutor, TokioTimer},
 };
 use rustls::ClientConfig;
-use tokio::time::{Instant, timeout_at};
+use tokio::time::Instant;
 
 use super::{
     body_timeout::timeout_body,
@@ -27,15 +27,12 @@ use crate::{
     connection::{PinnedConnectError, PinnedConnector},
     error::{TransportError, TransportErrorStage, TransportFailureScope},
     profile::GENERIC_GATEWAY_TRANSPORT_PROFILE as WIRE_PROFILE,
-    resolution::{OriginTarget, shared_dns_cache},
+    resolution::OriginTarget,
     response_coding::{decode_response_content, sanitize_request_accept_encoding},
 };
 
 pub(crate) struct PinnedClient {
     client: Client<PinnedConnector, SignaledBody>,
-    origin: OriginTarget,
-    forward_proxy: bool,
-    proxy_authorization: Option<HeaderValue>,
 }
 
 impl PinnedClient {
@@ -51,7 +48,7 @@ impl PinnedClient {
             tls_config,
             proxy,
             origin,
-            proxy_authorization.clone(),
+            proxy_authorization,
         )?;
         let mut builder = Client::builder(TokioExecutor::new());
         builder
@@ -65,9 +62,6 @@ impl PinnedClient {
             .retry_canceled_requests(false);
         Ok(Self {
             client: builder.build(connector),
-            origin: origin.clone(),
-            forward_proxy: proxy.profile().kind() == ProxyKind::Http && !origin.secure,
-            proxy_authorization,
         })
     }
 
@@ -100,24 +94,10 @@ impl PinnedClient {
                 )
             })?,
         );
-        if self.forward_proxy
-            && let Some(value) = &self.proxy_authorization
-        {
-            headers.insert(PROXY_AUTHORIZATION, value.clone());
-        }
-
         let (body, body_sent) = signaled_body(request.body);
-        let uri = if self.forward_proxy {
-            let target = self
-                .forward_target(connect_deadline, &connect_timeout_error)
-                .await?;
-            rewrite_uri(&request.uri, target)
-        } else {
-            request.uri.clone()
-        };
         let mut upstream = Request::builder()
             .method(request.method)
-            .uri(uri)
+            .uri(request.uri)
             .body(body)
             .map_err(|_| {
                 TransportError::new(
@@ -140,14 +120,6 @@ impl PinnedClient {
         )
         .await?;
         let status = response.status();
-        if self.forward_proxy && status == http::StatusCode::PROXY_AUTHENTICATION_REQUIRED {
-            return Err(TransportError::new(
-                TransportErrorStage::ProxyHandshake,
-                TransportFailureScope::Proxy,
-                RetrySafety::RejectedBeforeExecution,
-                "configured proxy authentication was rejected",
-            ));
-        }
         let headers = response.headers().clone();
         let body: BoxByteStream = Box::pin(response.into_body().into_data_stream().map(|result| {
             result.map_err(|_| {
@@ -165,34 +137,6 @@ impl PinnedClient {
             body: timeout_body(body, read_timeout, TransportFailureScope::EgressPath),
             read_failure_scope: TransportFailureScope::EgressPath,
         })
-    }
-
-    /// Resolves the pinned target for HTTP forward-proxy URI rewriting on
-    /// every request, so a rotated or revived DNS record is picked up as soon
-    /// as the shared cache entry expires.
-    async fn forward_target(
-        &self,
-        connect_deadline: Instant,
-        connect_timeout_error: &TransportError,
-    ) -> Result<SocketAddr, TransportError> {
-        let addresses = timeout_at(
-            connect_deadline,
-            shared_dns_cache().resolve(&self.origin.host),
-        )
-        .await
-        .map_err(|_| connect_timeout_error.clone())?
-        .map_err(|error| {
-            TransportError::new(
-                TransportErrorStage::Dns,
-                TransportFailureScope::EgressPath,
-                RetrySafety::DefinitelyNotSent,
-                error.to_string(),
-            )
-        })?;
-        let address = *addresses
-            .first()
-            .expect("resolved address list is never empty");
-        Ok(SocketAddr::new(address, self.origin.port))
     }
 }
 
@@ -216,25 +160,6 @@ fn basic_proxy_authorization(
     })?;
     value.set_sensitive(true);
     Ok(Some(value))
-}
-
-fn rewrite_uri(original: &http::Uri, target: SocketAddr) -> http::Uri {
-    http::Uri::builder()
-        .scheme(
-            original
-                .scheme()
-                .cloned()
-                .expect("validated URI has a scheme"),
-        )
-        .authority(target.to_string())
-        .path_and_query(
-            original
-                .path_and_query()
-                .cloned()
-                .unwrap_or_else(|| http::uri::PathAndQuery::from_static("/")),
-        )
-        .build()
-        .expect("validated pinned URI components are valid")
 }
 
 fn map_send_error(error: hyper_util::client::legacy::Error) -> TransportError {

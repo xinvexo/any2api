@@ -73,7 +73,7 @@ Before upgrading, take an offline copy of the data directory.
 
 ## Data Protection
 
-The data directory contains configuration, credentials, request history, and local logs. Provider API keys, proxy passwords, Gateway API keys, and OAuth Provider JSON are stored as plaintext in SQLite by product decision. Provider and OAuth secrets are not exposed by ordinary read/download/export endpoints; Gateway API keys remain visible to an authenticated administrator.
+The data directory contains configuration, credentials, request history, and local logs. Provider API keys, proxy passwords, Gateway API keys, and OAuth Provider JSON are stored as plaintext in SQLite by product decision. Ordinary read/download/export endpoints do not expose these secrets. A newly created or rotated Gateway API key is shown only in that mutation response and cannot be read again from the list.
 
 HTTP system logs are metadata-only: they retain the request ID, canonical client IP, method, path, status, duration, and response byte count needed to diagnose scans and failures. They never retain query strings, request or response headers, or request or response bodies. Migration 0043 rebuilds the log table and copies only safe metadata from older versions.
 

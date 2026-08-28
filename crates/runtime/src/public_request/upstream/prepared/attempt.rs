@@ -273,7 +273,6 @@ impl PreparedAttempt<'_> {
                 status_code,
                 classification.retry_safety(),
                 classification.kind().error_class(),
-                error.official_message(),
             );
         }
         self.permit.take();

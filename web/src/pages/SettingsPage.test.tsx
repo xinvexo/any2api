@@ -94,6 +94,42 @@ test("offers save, discard, and cancel before refresh or navigation", async () =
   ]);
 });
 
+test("keeps a failed draft bound to its source revision after conflict refresh", async () => {
+  let current = configuration(1, false);
+  let patchRequests = 0;
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    if (init?.method === "PATCH") {
+      patchRequests += 1;
+      current = configuration(2, false);
+      return new Response(JSON.stringify({
+        error: {
+          code: "configuration_revision_conflict",
+          message: "configuration changed",
+        },
+      }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return jsonResponse(current);
+  });
+  renderSettingsPage();
+
+  fireEvent.click(await screen.findByRole("switch", { name: "启用会话粘性" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(await screen.findByText(/当前修改基于旧版本，不能直接保存/)).toBeInTheDocument();
+  expect(screen.getByRole("switch", { name: "启用会话粘性" })).toBeEnabled();
+  const save = screen.getByRole("button", { name: "保存" });
+  expect(save).toBeDisabled();
+  fireEvent.click(save);
+  expect(patchRequests).toBe(1);
+
+  const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(patches).toHaveLength(1);
+  expect(JSON.parse(String(patches[0]?.[1]?.body))).toMatchObject({ expected_revision: 1 });
+});
+
 function renderSettingsPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

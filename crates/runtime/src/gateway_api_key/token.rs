@@ -24,7 +24,6 @@ impl GatewayApiKeyToken {
         ))))
     }
 
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn as_str(&self) -> &str {
         self.0.expose_secret()

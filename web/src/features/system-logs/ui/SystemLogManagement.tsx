@@ -37,7 +37,9 @@ export function SystemLogManagement() {
   const refreshLogs = useCallback(async () => {
     setFollowingLatest(true);
     try {
-      await refreshLatest();
+      if (!await refreshLatest()) {
+        return;
+      }
       notify.success("系统日志已刷新");
     } catch {
       notify.danger("系统日志刷新失败");

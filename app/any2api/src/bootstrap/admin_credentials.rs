@@ -3,7 +3,7 @@ use std::sync::Arc;
 use any2api_server::api::{
     AdminCredentialStore, AdminCredentialStoreError, StoredAdminPasswordHash,
 };
-use any2api_storage::api::{AdminCredentialRepository, SqliteStore};
+use any2api_storage::api::{AdminCredentialRepository, SqliteStore, StorageError};
 use async_trait::async_trait;
 
 pub(crate) struct SqliteAdminCredentialStore {
@@ -27,14 +27,14 @@ impl AdminCredentialStore for SqliteAdminCredentialStore {
                     StoredAdminPasswordHash::new(credential.password_hash().to_owned())
                 })
             })
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(AdminCredentialStoreError::operation)
     }
 
     async fn initialize(&self, password_hash: &str) -> Result<bool, AdminCredentialStoreError> {
         self.storage
             .initialize_admin_credential(password_hash)
             .await
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(map_write_error)
     }
 
     async fn replace(
@@ -45,6 +45,15 @@ impl AdminCredentialStore for SqliteAdminCredentialStore {
         self.storage
             .replace_admin_credential(expected_password_hash, new_password_hash)
             .await
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(map_write_error)
+    }
+}
+
+fn map_write_error(error: StorageError) -> AdminCredentialStoreError {
+    match error {
+        StorageError::IndeterminateAdminCredentialCommit { source } => {
+            AdminCredentialStoreError::indeterminate_commit(source)
+        }
+        error => AdminCredentialStoreError::operation(error),
     }
 }

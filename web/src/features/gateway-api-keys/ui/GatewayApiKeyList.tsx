@@ -88,7 +88,7 @@ export function GatewayApiKeyList({
 
       <div className="sm:overflow-x-auto">
         <table
-          className="block w-full text-left text-[12px] sm:table sm:min-w-[76rem] sm:table-fixed sm:border-separate sm:border-spacing-x-0 sm:border-spacing-y-1"
+          className="block w-full text-left text-[12px] sm:table sm:min-w-[78rem] sm:table-fixed sm:border-separate sm:border-spacing-x-0 sm:border-spacing-y-1"
           data-responsive-table="cards"
         >
           <caption className="sr-only">网关密钥列表</caption>

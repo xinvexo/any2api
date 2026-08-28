@@ -255,7 +255,7 @@ async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
         .expect("gateway response body")
         .to_bytes();
     let body: Value = serde_json::from_slice(&bytes).expect("gateway response JSON");
-    let token = body["items"][0]["token"]
+    let token = body["token"]
         .as_str()
         .expect("gateway token in collection item")
         .to_owned();

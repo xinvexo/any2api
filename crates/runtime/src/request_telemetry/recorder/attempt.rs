@@ -177,13 +177,12 @@ impl AttemptRecorder {
         status_code: u16,
         retry_safety: RetrySafety,
         error_class: ErrorClass,
-        message: Option<&str>,
     ) {
         self.complete(
             RequestAttemptOutcome::UpstreamError,
             Some(retry_safety),
             Some(error_class),
-            message.and_then(bound_optional_error_message),
+            None,
             Some(status_code),
         );
     }

@@ -330,14 +330,14 @@ impl AdminCredentialStore for TestAdminStore {
             .map(|value| {
                 value.map(|value| StoredAdminPasswordHash::new(value.password_hash().to_owned()))
             })
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(AdminCredentialStoreError::operation)
     }
 
     async fn initialize(&self, password_hash: &str) -> Result<bool, AdminCredentialStoreError> {
         self.storage
             .initialize_admin_credential(password_hash)
             .await
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(AdminCredentialStoreError::operation)
     }
 
     async fn replace(
@@ -348,7 +348,7 @@ impl AdminCredentialStore for TestAdminStore {
         self.storage
             .replace_admin_credential(expected_password_hash, new_password_hash)
             .await
-            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+            .map_err(AdminCredentialStoreError::operation)
     }
 }
 

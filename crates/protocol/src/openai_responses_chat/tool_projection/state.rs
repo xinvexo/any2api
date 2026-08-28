@@ -150,10 +150,9 @@ impl ToolProjection {
         let name = self.ensure_identity(identity.clone())?;
         let key = (identity.chat_kind(self.profile), name);
         if !self.active.insert(key) {
-            return Err(ProtocolError::InvalidPayload(format!(
-                "tool `{}` is declared more than once",
-                identity.diagnostic_name()
-            )));
+            return Err(ProtocolError::InvalidPayload(
+                "tool is declared more than once".into(),
+            ));
         }
         self.chat_tools.push(definition);
         Ok(())
@@ -161,20 +160,14 @@ impl ToolProjection {
 
     pub(super) fn active_name(&self, identity: &ToolIdentity) -> Result<&str, ProtocolError> {
         let name = self.original_to_chat.get(identity).ok_or_else(|| {
-            ProtocolError::InvalidPayload(format!(
-                "tool_choice references undeclared tool `{}`",
-                identity.diagnostic_name()
-            ))
+            ProtocolError::InvalidPayload("tool_choice references an undeclared tool".into())
         })?;
         let key = (identity.chat_kind(self.profile), name.clone());
         self.active
             .contains(&key)
             .then_some(name.as_str())
             .ok_or_else(|| {
-                ProtocolError::InvalidPayload(format!(
-                    "tool_choice references inactive tool `{}`",
-                    identity.diagnostic_name()
-                ))
+                ProtocolError::InvalidPayload("tool_choice references an inactive tool".into())
             })
     }
 

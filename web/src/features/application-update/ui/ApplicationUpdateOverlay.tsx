@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 
 import type { ApplicationUpdateFlow } from "../model/update-flow";
 import { Button } from "@/shared/ui/Button";
+import { useModalFocus } from "@/shared/ui/useModalFocus";
 
 import "./application-update-overlay.css";
 
@@ -29,6 +30,7 @@ export function ApplicationUpdateOverlay({
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const view = getUpdateView(flow);
+  useModalFocus(dialogRef, true);
 
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true });

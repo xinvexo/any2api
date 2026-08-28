@@ -28,6 +28,7 @@ test("renders only visible request rows and selects a row without expanding it",
 
   const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
   const firstRow = within(viewport).getByRole("row", { name: "查看请求 model-1" });
+  expect(firstRow).toHaveAttribute("aria-rowindex", "2");
   fireEvent.click(firstRow);
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.doubleClick(firstRow);
@@ -39,6 +40,8 @@ test("renders only visible request rows and selects a row without expanding it",
   fireEvent.scroll(viewport);
 
   await waitFor(() => expect(within(viewport).getByText("model-200")).toBeInTheDocument());
+  expect(within(viewport).getByRole("row", { name: "查看请求 model-200" }))
+    .toHaveAttribute("aria-rowindex", "201");
   expect(within(viewport).queryByText("model-1")).not.toBeInTheDocument();
 });
 

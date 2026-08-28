@@ -238,7 +238,7 @@ async fn configured_app(
         &[],
     )
     .await;
-    let token = gateway.body["items"][0]["token"]
+    let token = gateway.body["token"]
         .as_str()
         .expect("gateway token in collection item")
         .to_owned();

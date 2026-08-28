@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
@@ -9,8 +9,12 @@ import {
 import { Button } from "@/shared/ui/Button";
 import { Select } from "@/shared/ui/Select";
 import { controlClass } from "@/shared/ui/form-control";
-import { Field, FormError } from "@/shared/ui/form-field";
+import { Field, FormError, FormNotice } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
+import {
+  draftSourceChanged,
+  type VersionedDraft,
+} from "@/shared/lib/versioned-draft";
 
 interface ProxyEditorProps {
   profile?: ProxyProfile;
@@ -31,7 +35,20 @@ export function ProxyEditor({
   onSubmit,
   onClose,
 }: ProxyEditorProps) {
-  const editor = useProxyEditor(profile);
+  const [snapshot] = useState<VersionedDraft<ProxyProfile | undefined>>(() => ({
+    source: {
+      configRevision,
+      entityVersion: profile?.configVersion,
+    },
+    value: profile,
+  }));
+  const sourceProfile = snapshot.value;
+  const sourceConflict = draftSourceChanged(snapshot.source, {
+    configRevision,
+    entityVersion: profile?.configVersion,
+  });
+  const saveDisabled = pending || sourceConflict;
+  const editor = useProxyEditor(sourceProfile);
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusInvalidAfterRender = useRef(false);
@@ -50,7 +67,10 @@ export function ProxyEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const next = editor.buildSubmit(configRevision);
+    if (sourceConflict) {
+      return;
+    }
+    const next = editor.buildSubmit(snapshot.source.configRevision);
     if (!next) {
       focusInvalidAfterRender.current = true;
       return;
@@ -132,8 +152,8 @@ export function ProxyEditor({
               if (!checked) {
                 editor.update("username", "");
                 editor.update("password", "");
-              } else if (profile?.passwordConfigured) {
-                editor.update("username", profile.username ?? "");
+              } else if (sourceProfile?.passwordConfigured) {
+                editor.update("username", sourceProfile.username ?? "");
               }
             }}
           />
@@ -159,7 +179,7 @@ export function ProxyEditor({
                 className={controlClass(Boolean(editor.errors.password))}
                 value={editor.draft.password}
                 autoComplete="new-password"
-                placeholder={profile?.passwordConfigured ? "留空则保留原密码" : undefined}
+                placeholder={sourceProfile?.passwordConfigured ? "留空则保留原密码" : undefined}
                 aria-invalid={Boolean(editor.errors.password)}
                 aria-describedby={editor.errors.password ? "proxy-auth-password-error" : undefined}
                 onChange={(event) => editor.update("password", event.target.value)}
@@ -182,13 +202,18 @@ export function ProxyEditor({
         />
       </div>
 
+      {sourceConflict ? (
+        <FormNotice tone="warning">
+          服务器配置已更新。当前草稿基于旧版本，不能直接保存；请取消后重新编辑。
+        </FormNotice>
+      ) : null}
       <FormError>{error ? getProxyErrorMessage(error) : null}</FormError>
 
       <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
         <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={pending}>
+        <Button type="submit" variant="primary" disabled={saveDisabled}>
           保存
         </Button>
       </div>

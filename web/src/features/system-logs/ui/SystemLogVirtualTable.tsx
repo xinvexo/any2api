@@ -68,6 +68,7 @@ export function SystemLogVirtualTable({
             return (
               <SystemLogRow
                 log={log}
+                ariaRowIndex={index + 2}
                 selected={selectedId === log.requestId}
                 animation={entryAnimations?.get(log.requestId)}
                 onSelect={onSelect}
@@ -87,11 +88,13 @@ export function SystemLogVirtualTable({
 
 function SystemLogRow({
   log,
+  ariaRowIndex,
   selected,
   animation,
   onSelect,
 }: {
   log: SystemLog;
+  ariaRowIndex: number;
   selected: boolean;
   animation?: ListEntryAnimation;
   onSelect: (requestId: string) => void;
@@ -99,6 +102,7 @@ function SystemLogRow({
   return (
     <div
       role="row"
+      aria-rowindex={ariaRowIndex}
       tabIndex={0}
       aria-selected={selected}
       title="双击查看详情"

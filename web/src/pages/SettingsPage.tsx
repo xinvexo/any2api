@@ -131,13 +131,15 @@ function SettingsSectionPage({
         title={refreshRequested ? "刷新前保存修改？" : "离开前保存修改？"}
         description={editor.hasValidationErrors
           ? "当前页面存在无效设置。请取消并修正，或放弃修改后继续。"
-          : "当前页面有尚未保存的修改。"}
+          : editor.hasSourceConflict
+            ? "服务器配置已更新，当前修改不能直接保存。请取消后检查，或放弃修改后继续。"
+            : "当前页面有尚未保存的修改。"}
         confirmLabel={refreshRequested ? "保存并刷新" : "保存并离开"}
         cancelLabel="取消"
         alternateLabel={refreshRequested ? "放弃并刷新" : "放弃修改"}
         alternateTone="danger"
         pending={editor.isSaving}
-        confirmDisabled={editor.hasValidationErrors}
+        confirmDisabled={editor.hasValidationErrors || editor.hasSourceConflict}
         onConfirm={() => void saveAndContinue()}
         onAlternate={() => void discardAndContinue()}
         onClose={cancelPendingAction}
@@ -197,7 +199,11 @@ function SettingsPageActions({
           variant="primary"
           size="sm"
           onClick={onSave}
-          disabled={editor.pending || editor.hasValidationErrors}
+          disabled={
+            editor.pending
+            || editor.hasValidationErrors
+            || editor.hasSourceConflict
+          }
         >
           {editor.isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
           保存

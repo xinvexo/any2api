@@ -1,5 +1,5 @@
-import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { Copy, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
@@ -18,19 +18,42 @@ import {
 } from "./GatewayApiKeyEditor";
 import { GatewayApiKeyList } from "./GatewayApiKeyList";
 
+interface RevealedGatewayApiKeySecret {
+  kind: "create" | "rotate";
+  name: string;
+  token: string;
+}
+
 export function GatewayApiKeyManagement() {
   const query = useGatewayApiKeys();
   const mutations = useGatewayApiKeyMutations();
   const [searchParams, setSearchParams] = useSearchParams();
   const [rotateTarget, setRotateTarget] = useState<GatewayApiKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GatewayApiKey | null>(null);
+  const [revealedSecret, setRevealedSecret] =
+    useState<RevealedGatewayApiKeySecret | null>(null);
   const editorId = searchParams.get("editor");
+  const createdSecret = editorId === "new" && revealedSecret?.kind === "create"
+    ? revealedSecret
+    : null;
+  const rotatedSecret = rotateTarget && revealedSecret?.kind === "rotate"
+    ? revealedSecret
+    : null;
+  const createdSecretActionsRef = useRef<HTMLDivElement>(null);
   const selected =
     editorId && editorId !== "new"
       ? query.data?.items.find((key) => key.id === editorId)
       : undefined;
   const editorPending = mutations.create.isPending || mutations.update.isPending;
   const deletePending = mutations.remove.isPending;
+
+  useEffect(() => {
+    if (createdSecret) {
+      createdSecretActionsRef.current
+        ?.querySelector<HTMLButtonElement>("button")
+        ?.focus({ preventScroll: true });
+    }
+  }, [createdSecret]);
 
   async function refreshKeys() {
     const result = await query.refetch();
@@ -40,6 +63,7 @@ export function GatewayApiKeyManagement() {
   }
 
   function openEditor(id: string) {
+    setRevealedSecret(null);
     setRotateTarget(null);
     setDeleteTarget(null);
     mutations.create.reset();
@@ -55,6 +79,7 @@ export function GatewayApiKeyManagement() {
   }
 
   function closeEditor(expectedId: string | null = editorId) {
+    setRevealedSecret(null);
     mutations.create.reset();
     mutations.update.reset();
     setSearchParams(
@@ -72,18 +97,19 @@ export function GatewayApiKeyManagement() {
 
   async function submitEditor(input: GatewayApiKeyEditorSubmit) {
     if (editorId === "new") {
-      await mutations.create.mutateAsync({
-        expectedRevision: query.data?.configRevision ?? 0,
+      const result = await mutations.create.mutateAsync({
+        expectedRevision: input.expectedRevision,
         name: input.name,
         requestsPerMinute: input.requestsPerMinute,
         enabled: input.enabled,
       });
+      setRevealedSecret({ kind: "create", name: input.name, token: result.token });
+      mutations.create.reset();
       notify.success(`已创建「${input.name}」`);
-      closeEditor(editorId);
       return;
     }
 
-    if (!selected || !query.data) {
+    if (!selected || input.expectedConfigVersion === null) {
       return;
     }
 
@@ -96,8 +122,8 @@ export function GatewayApiKeyManagement() {
       await mutations.update.mutateAsync({
         id: selected.id,
         input: {
-          expectedRevision: query.data.configRevision,
-          expectedConfigVersion: selected.configVersion,
+          expectedRevision: input.expectedRevision,
+          expectedConfigVersion: input.expectedConfigVersion,
           name: input.name,
           requestsPerMinute: input.requestsPerMinute,
           enabled: input.enabled,
@@ -134,11 +160,13 @@ export function GatewayApiKeyManagement() {
   }
 
   function requestDelete(key: GatewayApiKey) {
+    setRevealedSecret(null);
     setRotateTarget(null);
     setDeleteTarget(key);
   }
 
   function requestRotate(key: GatewayApiKey) {
+    setRevealedSecret(null);
     setDeleteTarget(null);
     mutations.rotate.reset();
     setRotateTarget(key);
@@ -149,7 +177,7 @@ export function GatewayApiKeyManagement() {
       return;
     }
     try {
-      await mutations.rotate.mutateAsync({
+      const result = await mutations.rotate.mutateAsync({
         id: rotateTarget.id,
         input: {
           expectedRevision: query.data.configRevision,
@@ -157,10 +185,27 @@ export function GatewayApiKeyManagement() {
           expectedTokenVersion: rotateTarget.tokenVersion,
         },
       });
+      setRevealedSecret({
+        kind: "rotate",
+        name: rotateTarget.name,
+        token: result.token,
+      });
+      mutations.rotate.reset();
       notify.success(`已轮换「${rotateTarget.name}」的密钥`);
-      setRotateTarget(null);
     } catch (error) {
       notify.danger(getGatewayApiKeyErrorMessage(error));
+    }
+  }
+
+  async function copyRevealedSecret() {
+    if (!revealedSecret) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(revealedSecret.token);
+      notify.success(`已复制「${revealedSecret.name}」的密钥`);
+    } catch {
+      notify.danger("复制失败，请检查浏览器剪贴板权限后重试");
     }
   }
 
@@ -214,11 +259,17 @@ export function GatewayApiKeyManagement() {
 
   const editorOpen = editorId !== null;
   const editorInvalid = editorId !== null && editorId !== "new" && !selected;
-  const drawerTitle =
-    editorId === "new" ? "新增" : selected ? `编辑「${selected.name}」` : "密钥不存在";
-  const drawerDescription =
-    editorId === "new"
-      ? "保存时由服务端生成强随机密钥，创建后可在列表复制。"
+  const drawerTitle = createdSecret
+    ? `保存「${createdSecret.name}」的新密钥`
+    : editorId === "new"
+      ? "新增"
+      : selected
+        ? `编辑「${selected.name}」`
+        : "密钥不存在";
+  const drawerDescription = createdSecret
+    ? "关闭后无法再次查看；如未保存，请重新轮换密钥。"
+    : editorId === "new"
+      ? "保存时由服务端生成强随机密钥，创建成功后只显示一次。"
       : "这里可修改名称、RPM 限制和启用状态；轮换密钥请使用列表中的独立操作。";
   const editorError = mutations.create.error ?? mutations.update.error;
 
@@ -247,9 +298,24 @@ export function GatewayApiKeyManagement() {
         open={editorOpen}
         title={drawerTitle}
         description={drawerDescription}
+        closeDisabled={editorPending}
         onClose={() => closeEditor(editorId)}
       >
-        {editorInvalid ? (
+        {createdSecret ? (
+          <div className="space-y-5">
+            <GatewayApiKeySecretValue token={createdSecret.token} />
+            <div ref={createdSecretActionsRef} className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => void copyRevealedSecret()}
+              >
+                <Copy size={14} />
+                复制密钥
+              </Button>
+              <Button onClick={() => closeEditor(editorId)}>已保存，关闭</Button>
+            </div>
+          </div>
+        ) : editorInvalid ? (
           <div className="space-y-4 text-sm text-secondary">
             <p>可以从密钥列表重新进入。</p>
             <Button onClick={() => closeEditor(editorId)}>返回列表</Button>
@@ -258,6 +324,7 @@ export function GatewayApiKeyManagement() {
           <GatewayApiKeyEditor
             key={editorId}
             apiKey={selected}
+            configRevision={configuration.configRevision}
             pending={editorPending}
             error={editorError}
             onSubmit={submitEditor}
@@ -267,15 +334,32 @@ export function GatewayApiKeyManagement() {
       </SideDrawer>
 
       <ConfirmDialog
+        key={rotatedSecret ? "rotate-secret" : "rotate-confirm"}
         open={rotateTarget !== null}
-        title={rotateTarget ? `轮换「${rotateTarget.name}」的密钥？` : ""}
-        description="服务端会生成新的强随机 token，旧 token 在发布完成后立即失效。"
-        confirmLabel="确认轮换"
+        title={
+          rotatedSecret
+            ? `保存「${rotatedSecret.name}」的新密钥`
+            : rotateTarget
+              ? `轮换「${rotateTarget.name}」的密钥？`
+              : ""
+        }
+        description={
+          rotatedSecret ? (
+            <GatewayApiKeySecretValue token={rotatedSecret.token} />
+          ) : (
+            "服务端会生成新的强随机 token，旧 token 在发布完成后立即失效。"
+          )
+        }
+        confirmLabel={rotatedSecret ? "复制密钥" : "确认轮换"}
+        cancelLabel={rotatedSecret ? "已保存，关闭" : "取消"}
         pending={mutations.rotate.isPending}
-        onConfirm={() => void confirmRotate()}
+        onConfirm={() =>
+          void (rotatedSecret ? copyRevealedSecret() : confirmRotate())
+        }
         onClose={() => {
           if (!mutations.rotate.isPending) {
             setRotateTarget(null);
+            setRevealedSecret(null);
             mutations.rotate.reset();
           }
         }}
@@ -295,6 +379,19 @@ export function GatewayApiKeyManagement() {
           }
         }}
       />
+    </div>
+  );
+}
+
+function GatewayApiKeySecretValue({ token }: { token: string }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] leading-5 text-warning" role="status">
+        此密钥只显示一次。请立即复制并保存到安全位置。
+      </p>
+      <code className="block break-all rounded-[9px] bg-surface-muted p-3 font-mono text-[12px] leading-5 text-primary">
+        {token}
+      </code>
     </div>
   );
 }

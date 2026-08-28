@@ -27,7 +27,7 @@ async fn deleting_a_gateway_key_prunes_live_usage_and_blocks_old_snapshot_reinse
     .with_snapshot_reconciler(Arc::clone(&telemetry) as Arc<dyn PublishedSnapshotReconciler>);
     let id = GatewayApiKeyId::new();
 
-    let created = publisher
+    let published = publisher
         .create_gateway_api_key(
             ConfigRevision::INITIAL,
             id,
@@ -35,6 +35,7 @@ async fn deleting_a_gateway_key_prunes_live_usage_and_blocks_old_snapshot_reinse
         )
         .await
         .expect("create Gateway Key");
+    let created = published.snapshot();
     telemetry.record_gateway_key_use(id, created.revision());
     assert!(telemetry.gateway_key_last_used_at(id).is_some());
     let config_version = created

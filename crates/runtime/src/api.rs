@@ -18,7 +18,7 @@ pub use crate::credential::{
     ProviderCredentialTestFailureStage, ProviderCredentialTestOutcome,
     ProviderCredentialTestResult, ProviderCredentialTestService,
 };
-pub use crate::gateway_api_key::GatewayApiKeyRateLimitExceeded;
+pub use crate::gateway_api_key::{GatewayApiKeyPublication, GatewayApiKeyRateLimitExceeded};
 pub use crate::lifecycle::{
     ActiveRequestGuard, MemoryReclamationMetrics, ProcessLifecycle, ShutdownPhase,
 };

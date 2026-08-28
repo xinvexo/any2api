@@ -77,6 +77,12 @@ export function SettingsManagement({
         </Surface>
       ) : null}
 
+      {editor.hasSourceConflict ? (
+        <Surface className="border-warning/40 p-4 text-sm text-secondary" role="alert">
+          服务器配置已更新。当前修改基于旧版本，不能直接保存；请放弃修改后重新编辑。
+        </Surface>
+      ) : null}
+
       {sections.length === 0 ? (
         <p className="py-10 text-center text-sm text-secondary">没有可显示的系统设置项</p>
       ) : (

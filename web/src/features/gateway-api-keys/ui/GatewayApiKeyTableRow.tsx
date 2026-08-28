@@ -1,7 +1,6 @@
-import { Copy, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
-import { notify } from "@/shared/notifications";
 import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 import { Switch } from "@/shared/ui/Switch";
@@ -26,15 +25,6 @@ export function GatewayApiKeyTableRow({
   onRotate,
   onDelete,
 }: GatewayApiKeyTableRowProps) {
-  async function copyToken() {
-    try {
-      await navigator.clipboard.writeText(apiKey.token);
-      notify.success(`已复制「${apiKey.name}」的密钥`);
-    } catch {
-      notify.danger("复制失败，请检查浏览器剪贴板权限后重试");
-    }
-  }
-
   return (
     <tr
       data-floating-bounds
@@ -44,6 +34,9 @@ export function GatewayApiKeyTableRow({
       <td className="min-w-0 pr-14 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <p className="break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">
           {apiKey.name}
+        </p>
+        <p className="mt-1 truncate font-mono text-[10px] text-tertiary" title={apiKey.tokenPrefix}>
+          {apiKey.tokenPrefix}…
         </p>
       </td>
       <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:tabular-nums">
@@ -88,16 +81,6 @@ export function GatewayApiKeyTableRow({
               onCheckedChange={() => onToggleEnabled(apiKey)}
             />
           </span>
-          <RowActionButton
-            label={`复制 ${apiKey.name} 的密钥`}
-            title={`复制 ${apiKey.name} 的密钥`}
-            className={MOBILE_ICON_ACTION}
-            disabled={pending}
-            onClick={() => void copyToken()}
-          >
-            <Copy size={13} />
-            <span className="sr-only sm:not-sr-only">复制</span>
-          </RowActionButton>
           <RowActionButton
             label={`编辑 ${apiKey.name}`}
             title={`编辑 ${apiKey.name}`}

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { parseGatewayApiKeyConfiguration } from "./gateway-api-key-contracts";
+import {
+  parseGatewayApiKeyConfiguration,
+  parseGatewayApiKeySecretResponse,
+} from "./gateway-api-key-contracts";
 
 const token = `sk-${"a".repeat(43)}`;
 const windowSlots = Array.from({ length: 30 }, (_, index) => ({
@@ -13,7 +16,6 @@ const windowSlots = Array.from({ length: 30 }, (_, index) => ({
 const item = {
   id: "key-1",
   name: "Desktop",
-  token,
   token_prefix: token.slice(0, 16),
   token_version: 1,
   config_version: 1,
@@ -31,10 +33,10 @@ const item = {
 };
 
 describe("gateway API Key contracts", () => {
-  test("parses plaintext configuration and usage statistics", () => {
+  test("parses secret-free configuration and usage statistics", () => {
     const configuration = parseGatewayApiKeyConfiguration({ config_revision: 2, items: [item] });
     expect(configuration.items[0].name).toBe("Desktop");
-    expect(configuration.items[0].token).toBe(token);
+    expect(configuration.items[0]).not.toHaveProperty("token");
     expect(configuration.items[0].requestsPerMinute).toBeNull();
     expect(configuration.items[0].usage).toMatchObject({
       totalRequests: 3,
@@ -68,11 +70,43 @@ describe("gateway API Key contracts", () => {
     }
   });
 
-  test("rejects invalid token formats on items", () => {
+  test("accepts a one-time mutation token without adding it to configuration items", () => {
+    const result = parseGatewayApiKeySecretResponse({
+      config_revision: 2,
+      items: [item],
+      token,
+    });
+    expect(result.token).toBe(token);
+    expect(result.configuration.items[0]).not.toHaveProperty("token");
+  });
+
+  test("rejects plaintext tokens in ordinary items and invalid one-time tokens", () => {
+    expect(() =>
+      parseGatewayApiKeyConfiguration(
+        {
+          config_revision: 2,
+          items: [{ ...item, token }],
+        } as unknown as Parameters<typeof parseGatewayApiKeyConfiguration>[0],
+      ),
+    ).toThrow();
     expect(() =>
       parseGatewayApiKeyConfiguration({
         config_revision: 2,
-        items: [{ ...item, token: "short" }],
+        items: [{ ...item, token_prefix: token }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parseGatewayApiKeySecretResponse({
+        config_revision: 2,
+        items: [item],
+        token: "short",
+      }),
+    ).toThrow();
+    expect(() =>
+      parseGatewayApiKeySecretResponse({
+        config_revision: 2,
+        items: [item],
+        token: `sk-${"b".repeat(43)}`,
       }),
     ).toThrow();
     expect(() =>
@@ -89,12 +123,6 @@ describe("gateway API Key contracts", () => {
             },
           },
         ],
-      }),
-    ).toThrow();
-    expect(() =>
-      parseGatewayApiKeyConfiguration({
-        config_revision: 2,
-        items: [{ ...item, token: `a2k_v1_${"a".repeat(43)}` }],
       }),
     ).toThrow();
     expect(() =>

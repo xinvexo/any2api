@@ -42,16 +42,6 @@ impl ToolIdentity {
             _ => ChatToolKind::Function,
         }
     }
-
-    fn diagnostic_name(&self) -> &str {
-        match self {
-            Self::Function { name }
-            | Self::Custom { name }
-            | Self::NamespaceFunction { name, .. }
-            | Self::NamespaceCustom { name, .. } => name,
-            Self::ToolSearch => "tool_search",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

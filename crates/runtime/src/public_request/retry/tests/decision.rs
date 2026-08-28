@@ -182,7 +182,7 @@ fn retry_after_defers_only_the_failed_scope_for_unbound_requests() {
 }
 
 #[test]
-fn complete_ambiguous_upstream_failure_prefers_an_alternate_candidate() {
+fn complete_ambiguous_upstream_failure_is_terminal_when_unbound() {
     let candidate = candidate("ambiguous-complete");
     let failure = upstream_failure(
         candidate.clone(),
@@ -194,10 +194,7 @@ fn complete_ambiguous_upstream_failure_prefers_an_alternate_candidate() {
     let budget = attempted_budget(&candidate);
     assert_eq!(
         retry_decision(&failure, &budget, false),
-        RetryDecision::PreferAlternate {
-            scope: CandidateFailureScope::ExactCandidate,
-            retry_delay: Duration::from_secs(1),
-        }
+        RetryDecision::Terminal
     );
 }
 

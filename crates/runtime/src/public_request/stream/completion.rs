@@ -45,7 +45,6 @@ impl GuardedBody {
                         self.status_code,
                         classification.retry_safety(),
                         classification.kind().error_class(),
-                        error.official_message(),
                     );
                 }
                 StreamOutcome::Error { class, message } => {
@@ -62,12 +61,7 @@ impl GuardedBody {
                     self.request_recorder.finish_with_message(
                         self.status_code,
                         Some(classification.kind().error_class()),
-                        Some(
-                            error
-                                .official_message()
-                                .unwrap_or("upstream response stream reported a failure event")
-                                .to_owned(),
-                        ),
+                        Some("upstream response stream reported a failure event".to_owned()),
                     );
                 }
                 StreamOutcome::Error { class, message } => {
@@ -199,7 +193,6 @@ impl GuardedBody {
                 self.status_code,
                 classification.retry_safety(),
                 classification.kind().error_class(),
-                error.official_message(),
             );
         }
         self.release_guards();

@@ -51,7 +51,9 @@ export function RequestLogManagement() {
   const refreshLogs = useCallback(async () => {
     setFollowingLatest(true);
     try {
-      await refreshLatest();
+      if (!await refreshLatest()) {
+        return;
+      }
       mobileTopRef.current?.scrollIntoView?.({ block: "start" });
       notify.success("请求日志已刷新");
     } catch {

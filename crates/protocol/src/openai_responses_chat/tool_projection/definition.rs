@@ -32,15 +32,14 @@ pub(super) fn configure(
     }
 
     let mut seen = BTreeSet::new();
-    if let Some(identity) = parsed
+    if parsed
         .iter()
         .map(ParsedTool::identity)
-        .find(|identity| !seen.insert((*identity).clone()))
+        .any(|identity| !seen.insert(identity.clone()))
     {
-        return Err(ProtocolError::InvalidPayload(format!(
-            "tool `{}` is declared more than once",
-            identity.diagnostic_name()
-        )));
+        return Err(ProtocolError::InvalidPayload(
+            "tool is declared more than once".into(),
+        ));
     }
 
     let mut identities = parsed
@@ -83,10 +82,9 @@ pub(super) fn activate_loaded(
         }
         let identity = tool.identity().clone();
         if !projection.is_registered_deferred(&identity) {
-            return Err(ProtocolError::InvalidPayload(format!(
-                "tool_search_output returned unregistered tool `{}`",
-                identity.diagnostic_name()
-            )));
+            return Err(ProtocolError::InvalidPayload(
+                "tool_search_output returned an unregistered tool".into(),
+            ));
         }
         activate(projection, tool)?;
     }

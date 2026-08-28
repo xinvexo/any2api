@@ -102,7 +102,7 @@ impl AdminAuthService {
             .store
             .initialize(&password_hash)
             .await
-            .map_err(AdminAuthError::Store)?
+            .map_err(map_store_error)?
         {
             *self.password_hash.write().await = Some(password_hash);
             *self.setup_token.write().await = None;
@@ -113,7 +113,7 @@ impl AdminAuthService {
             .store
             .load()
             .await
-            .map_err(AdminAuthError::Store)?
+            .map_err(map_store_error)?
             .ok_or(AdminAuthError::PasswordHash)?;
         *self.password_hash.write().await = Some(stored.as_str().to_owned());
         *self.setup_token.write().await = None;
@@ -254,6 +254,24 @@ fn remove_oldest_failure_source(failures: &mut HashMap<IpAddr, VecDeque<Instant>
     if let Some(source) = oldest {
         failures.remove(&source);
     }
+}
+
+pub(super) fn map_store_error(error: AdminCredentialStoreError) -> AdminAuthError {
+    if error.is_indeterminate_commit() {
+        terminate_after_indeterminate_commit();
+    }
+    AdminAuthError::Store(error)
+}
+
+#[cold]
+fn terminate_after_indeterminate_commit() -> ! {
+    tracing::error!(
+        "administrator credential commit outcome is indeterminate; terminating process"
+    );
+    #[cfg(not(test))]
+    std::process::abort();
+    #[cfg(test)]
+    panic!("administrator credential commit outcome is indeterminate");
 }
 
 #[derive(Debug, Error)]

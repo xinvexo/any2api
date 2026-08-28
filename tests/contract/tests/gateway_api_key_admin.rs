@@ -32,11 +32,11 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
     .await;
     assert_eq!(created.status, StatusCode::OK);
     assert_eq!(created.cache_control.as_deref(), Some("no-store"));
-    assert!(created.body.get("token").is_none());
     let first_token = gateway_token(&created.body);
     assert!(first_token.starts_with(any2api_domain::GATEWAY_TOKEN_PREFIX));
     any2api_domain::validate_gateway_token(&first_token).expect("generated token");
     assert_eq!(created.body["config_revision"], 2);
+    assert!(created.body["items"][0].get("token").is_none());
     let key_id = created.body["items"][0]["id"]
         .as_str()
         .expect("key id")
@@ -53,11 +53,33 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
     )
     .await;
     assert_eq!(listed.status, StatusCode::OK);
-    assert_eq!(listed.body["items"][0]["token"], first_token);
+    assert!(listed.body.get("token").is_none());
+    assert!(listed.body["items"][0].get("token").is_none());
     assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 0);
     assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 0);
     assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 0);
     assert_usage_window_shape(&listed.body["items"][0]["usage"]);
+
+    let updated = request_json(
+        app.clone(),
+        Method::PATCH,
+        &format!("/api/admin/gateway-api-keys/{key_id}"),
+        Some(json!({
+            "expected_revision": 2,
+            "expected_config_version": 1,
+            "name": "Desktop renamed",
+            "requests_per_minute": null,
+            "enabled": true
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(updated.status, StatusCode::OK);
+    assert_eq!(updated.body["config_revision"], 3);
+    assert_eq!(updated.body["items"][0]["config_version"], 2);
+    assert!(updated.body.get("token").is_none());
+    assert!(updated.body["items"][0].get("token").is_none());
 
     let missing = request_json(app.clone(), Method::GET, "/v1/models", None, loopback, &[]).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
@@ -143,8 +165,8 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
         Method::POST,
         &format!("/api/admin/gateway-api-keys/{key_id}/rotate"),
         Some(json!({
-            "expected_revision": 2,
-            "expected_config_version": 1,
+            "expected_revision": 3,
+            "expected_config_version": 2,
             "expected_token_version": 1
         })),
         loopback,
@@ -152,10 +174,11 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
     )
     .await;
     assert_eq!(rotated.status, StatusCode::OK);
-    assert!(rotated.body.get("token").is_none());
     let second_token = gateway_token(&rotated.body);
     assert_ne!(first_token, second_token);
     assert_eq!(rotated.body["items"][0]["token_version"], 2);
+    assert_eq!(rotated.body["items"][0]["config_version"], 3);
+    assert!(rotated.body["items"][0].get("token").is_none());
     assert_usage_window_shape(&rotated.body["items"][0]["usage"]);
 
     let old = request_json(
@@ -183,7 +206,7 @@ async fn gateway_key_create_rotate_delete_controls_public_access() {
         app.clone(),
         Method::DELETE,
         &format!(
-            "/api/admin/gateway-api-keys/{key_id}?expected_revision=3&expected_config_version=2"
+            "/api/admin/gateway-api-keys/{key_id}?expected_revision=4&expected_config_version=3"
         ),
         None,
         loopback,
@@ -629,9 +652,9 @@ fn assert_usage_window_shape(usage: &Value) {
 }
 
 fn gateway_token(body: &Value) -> String {
-    body["items"][0]["token"]
+    body["token"]
         .as_str()
-        .expect("gateway token in collection item")
+        .expect("one-time gateway token")
         .to_owned()
 }
 

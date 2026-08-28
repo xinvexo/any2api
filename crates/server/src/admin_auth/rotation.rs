@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use super::{
     AdminAuthError, AdminAuthService, AdminSessionIssue,
+    authentication::map_store_error,
     password::{hash_password, validate_new_password, verify_password},
     session::prepare as prepare_session,
 };
@@ -47,13 +48,13 @@ impl AdminAuthService {
             .store
             .replace(&current_hash, &new_hash)
             .await
-            .map_err(AdminAuthError::Store)?
+            .map_err(map_store_error)?
         {
             let stored = self
                 .store
                 .load()
                 .await
-                .map_err(AdminAuthError::Store)?
+                .map_err(map_store_error)?
                 .ok_or(AdminAuthError::PasswordHash)?;
             *self.password_hash.write().await = Some(stored.as_str().to_owned());
             self.failures.lock().await.clear();

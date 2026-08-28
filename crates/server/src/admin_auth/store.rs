@@ -1,8 +1,32 @@
 use std::error::Error;
 
 use async_trait::async_trait;
+use thiserror::Error;
 
-pub type AdminCredentialStoreError = Box<dyn Error + Send + Sync + 'static>;
+type AdminCredentialStoreErrorSource = Box<dyn Error + Send + Sync + 'static>;
+
+#[derive(Debug, Error)]
+pub enum AdminCredentialStoreError {
+    #[error("administrator credential store operation failed")]
+    Operation(#[source] AdminCredentialStoreErrorSource),
+    #[error("administrator credential commit outcome is indeterminate")]
+    IndeterminateCommit(#[source] AdminCredentialStoreErrorSource),
+}
+
+impl AdminCredentialStoreError {
+    pub fn operation(source: impl Error + Send + Sync + 'static) -> Self {
+        Self::Operation(Box::new(source))
+    }
+
+    pub fn indeterminate_commit(source: impl Error + Send + Sync + 'static) -> Self {
+        Self::IndeterminateCommit(Box::new(source))
+    }
+
+    #[must_use]
+    pub const fn is_indeterminate_commit(&self) -> bool {
+        matches!(self, Self::IndeterminateCommit(_))
+    }
+}
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct StoredAdminPasswordHash(String);

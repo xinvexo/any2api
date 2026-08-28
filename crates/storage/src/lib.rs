@@ -17,3 +17,4 @@ mod request_log;
 mod secret;
 mod settings;
 mod sqlite;
+mod sqlite_commit;

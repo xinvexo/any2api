@@ -4,10 +4,16 @@ import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
 import { getGatewayApiKeyErrorMessage } from "../model/gateway-api-key-error";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
-import { Field, FormError } from "@/shared/ui/form-field";
+import { Field, FormError, FormNotice } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
+import {
+  draftSourceChanged,
+  type VersionedDraft,
+} from "@/shared/lib/versioned-draft";
 
 export interface GatewayApiKeyEditorSubmit {
+  expectedRevision: number;
+  expectedConfigVersion: number | null;
   name: string;
   requestsPerMinute: number | null;
   enabled: boolean;
@@ -15,6 +21,7 @@ export interface GatewayApiKeyEditorSubmit {
 
 interface GatewayApiKeyEditorProps {
   apiKey?: GatewayApiKey;
+  configRevision: number;
   pending: boolean;
   error: unknown;
   onSubmit: (input: GatewayApiKeyEditorSubmit) => Promise<void>;
@@ -23,18 +30,32 @@ interface GatewayApiKeyEditorProps {
 
 export function GatewayApiKeyEditor({
   apiKey,
+  configRevision,
   pending,
   error,
   onSubmit,
   onClose,
 }: GatewayApiKeyEditorProps) {
-  const [name, setName] = useState(apiKey?.name ?? "");
+  const [snapshot] = useState<VersionedDraft<GatewayApiKey | undefined>>(() => ({
+    source: {
+      configRevision,
+      entityVersion: apiKey?.configVersion,
+    },
+    value: apiKey,
+  }));
+  const sourceApiKey = snapshot.value;
+  const sourceConflict = draftSourceChanged(snapshot.source, {
+    configRevision,
+    entityVersion: apiKey?.configVersion,
+  });
+  const saveDisabled = pending || sourceConflict;
+  const [name, setName] = useState(sourceApiKey?.name ?? "");
   const [requestsPerMinute, setRequestsPerMinute] = useState(
-    apiKey?.requestsPerMinute === null || apiKey === undefined
+    sourceApiKey?.requestsPerMinute === null || sourceApiKey === undefined
       ? ""
-      : String(apiKey.requestsPerMinute),
+      : String(sourceApiKey.requestsPerMinute),
   );
-  const [enabled, setEnabled] = useState(apiKey?.enabled ?? true);
+  const [enabled, setEnabled] = useState(sourceApiKey?.enabled ?? true);
   const [validation, setValidation] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -44,6 +65,9 @@ export function GatewayApiKeyEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (sourceConflict) {
+      return;
+    }
     if (!name.trim() || name.trim() !== name) {
       setValidation("名称不能为空，且首尾不能包含空格。");
       nameRef.current?.focus();
@@ -60,6 +84,8 @@ export function GatewayApiKeyEditor({
     setValidation(null);
     try {
       await onSubmit({
+        expectedRevision: snapshot.source.configRevision,
+        expectedConfigVersion: snapshot.source.entityVersion ?? null,
         name,
         requestsPerMinute: requestsPerMinute.length === 0 ? null : rpm,
         enabled,
@@ -128,13 +154,18 @@ export function GatewayApiKeyEditor({
         />
       </div>
 
+      {sourceConflict ? (
+        <FormNotice tone="warning">
+          服务器配置已更新。当前草稿基于旧版本，不能直接保存；请取消后重新编辑。
+        </FormNotice>
+      ) : null}
       <FormError>{error ? getGatewayApiKeyErrorMessage(error) : null}</FormError>
 
       <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
         <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={pending}>
+        <Button type="submit" variant="primary" disabled={saveDisabled}>
           保存
         </Button>
       </div>

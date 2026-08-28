@@ -1,7 +1,7 @@
 use std::{
     error::Error as StdError,
     fmt,
-    future::Future,
+    future::{Future, poll_fn},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
@@ -10,6 +10,7 @@ use std::{
 };
 
 use any2api_domain::ProxyKind;
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use http::{HeaderValue, Uri};
 use hyper_rustls::{HttpsConnector, MaybeHttpsStream};
 use hyper_util::client::legacy::connect::proxy::{SocksV5, Tunnel};
@@ -25,9 +26,8 @@ use crate::{
     resolution::{DnsLookupError, OriginTarget, shared_dns_cache},
 };
 
-type HttpForwardConnector = HttpsConnector<ProxyTcpConnector>;
-type HttpTunnelConnector = HttpsConnector<ResolvedTarget<Tunnel<ProxyTcpConnector>>>;
-type SocksConnector = HttpsConnector<ResolvedTarget<SocksV5<ProxyTcpConnector>>>;
+type HttpTunnelConnector = ResolvedTarget<HttpsConnector<Tunnel<ProxyTcpConnector>>>;
+type SocksConnector = ResolvedTarget<HttpsConnector<SocksV5<ProxyTcpConnector>>>;
 
 pub(crate) type PinnedIo = MaybeHttpsStream<ProxyTcpStream>;
 
@@ -39,7 +39,6 @@ pub(crate) struct PinnedConnector {
 
 #[derive(Clone)]
 enum PinnedConnectorInner {
-    HttpForward(HttpForwardConnector),
     HttpTunnel(HttpTunnelConnector),
     Socks(SocksConnector),
 }
@@ -68,20 +67,10 @@ impl PinnedConnector {
             )
         })?;
 
-        match (profile.kind(), origin.secure) {
-            (ProxyKind::Http, false) => {
-                let tcp =
-                    ProxyTcpConnector::new(address.host(), address.port(), connect_timeout, true);
-                Ok(Self {
-                    inner: PinnedConnectorInner::HttpForward(wrap_tls(
-                        tcp,
-                        tls_config,
-                        server_name,
-                    )),
-                    connect_timeout,
-                })
-            }
-            (ProxyKind::Http, true) => {
+        match profile.kind() {
+            ProxyKind::Http => {
+                // Tunnel cleartext origins too: CONNECT can race every pinned
+                // address before Hyper is allowed to poll the request body.
                 let tcp =
                     ProxyTcpConnector::new(address.host(), address.port(), connect_timeout, false);
                 let mut tunnel = Tunnel::new(proxy_uri(address.host(), address.port())?, tcp);
@@ -89,15 +78,14 @@ impl PinnedConnector {
                     tunnel = tunnel.with_auth(value);
                 }
                 Ok(Self {
-                    inner: PinnedConnectorInner::HttpTunnel(wrap_tls(
-                        ResolvedTarget::new(tunnel, origin),
-                        tls_config,
-                        server_name,
+                    inner: PinnedConnectorInner::HttpTunnel(ResolvedTarget::new(
+                        wrap_tls(tunnel, tls_config, server_name),
+                        origin,
                     )),
                     connect_timeout,
                 })
             }
-            (ProxyKind::Socks5, _) => {
+            ProxyKind::Socks5 => {
                 let tcp =
                     ProxyTcpConnector::new(address.host(), address.port(), connect_timeout, false);
                 let mut socks = SocksV5::new(proxy_uri(address.host(), address.port())?, tcp);
@@ -108,15 +96,14 @@ impl PinnedConnector {
                     );
                 }
                 Ok(Self {
-                    inner: PinnedConnectorInner::Socks(wrap_tls(
-                        ResolvedTarget::new(socks, origin),
-                        tls_config,
-                        server_name,
+                    inner: PinnedConnectorInner::Socks(ResolvedTarget::new(
+                        wrap_tls(socks, tls_config, server_name),
+                        origin,
                     )),
                     connect_timeout,
                 })
             }
-            (ProxyKind::Direct, _) => Err(TransportError::configuration(
+            ProxyKind::Direct => Err(TransportError::configuration(
                 TransportErrorStage::ProxyHandshake,
                 TransportFailureScope::Unattributed,
                 "pinned proxy connector cannot use DIRECT",
@@ -130,7 +117,6 @@ impl fmt::Debug for PinnedConnector {
         formatter
             .debug_tuple("PinnedConnector")
             .field(&match self.inner {
-                PinnedConnectorInner::HttpForward(_) => "http_forward",
                 PinnedConnectorInner::HttpTunnel(_) => "http_tunnel",
                 PinnedConnectorInner::Socks(_) => "socks5",
             })
@@ -145,7 +131,6 @@ impl Service<Uri> for PinnedConnector {
 
     fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         let result = match &mut self.inner {
-            PinnedConnectorInner::HttpForward(connector) => connector.poll_ready(context),
             PinnedConnectorInner::HttpTunnel(connector) => connector.poll_ready(context),
             PinnedConnectorInner::Socks(connector) => connector.poll_ready(context),
         };
@@ -156,7 +141,6 @@ impl Service<Uri> for PinnedConnector {
         let kind = self.kind();
         let connect_timeout = self.connect_timeout;
         let future = match &mut self.inner {
-            PinnedConnectorInner::HttpForward(connector) => connector.call(destination),
             PinnedConnectorInner::HttpTunnel(connector) => connector.call(destination),
             PinnedConnectorInner::Socks(connector) => connector.call(destination),
         };
@@ -172,7 +156,6 @@ impl Service<Uri> for PinnedConnector {
 impl PinnedConnector {
     fn kind(&self) -> PinnedConnectorKind {
         match self.inner {
-            PinnedConnectorInner::HttpForward(_) => PinnedConnectorKind::HttpForward,
             PinnedConnectorInner::HttpTunnel(_) => PinnedConnectorKind::HttpTunnel,
             PinnedConnectorInner::Socks(_) => PinnedConnectorKind::Socks,
         }
@@ -181,7 +164,6 @@ impl PinnedConnector {
 
 #[derive(Clone, Copy)]
 enum PinnedConnectorKind {
-    HttpForward,
     HttpTunnel,
     Socks,
 }
@@ -212,8 +194,14 @@ fn classify_connect_error(
             rejected_before_execution: false,
         };
     }
+    if error_chain_has_tls_failure(error) {
+        return PinnedConnectError {
+            stage: TransportErrorStage::Tls,
+            scope: TransportFailureScope::EgressPath,
+            rejected_before_execution: false,
+        };
+    }
     let proxy_failure = match kind {
-        PinnedConnectorKind::HttpForward => true,
         PinnedConnectorKind::HttpTunnel => error_chain_starts_with(error, "tunnel error:"),
         PinnedConnectorKind::Socks => error_chain_starts_with(error, "SOCKS error:"),
     };
@@ -227,7 +215,6 @@ fn classify_connect_error(
     PinnedConnectError {
         stage: TransportErrorStage::ProxyHandshake,
         scope: match kind {
-            PinnedConnectorKind::HttpForward => TransportFailureScope::Proxy,
             PinnedConnectorKind::HttpTunnel | PinnedConnectorKind::Socks => {
                 TransportFailureScope::EgressPath
             }
@@ -238,11 +225,6 @@ fn classify_connect_error(
 
 fn connect_timeout_error(kind: PinnedConnectorKind) -> PinnedConnectError {
     match kind {
-        PinnedConnectorKind::HttpForward => PinnedConnectError {
-            stage: TransportErrorStage::ProxyHandshake,
-            scope: TransportFailureScope::Proxy,
-            rejected_before_execution: false,
-        },
         PinnedConnectorKind::HttpTunnel | PinnedConnectorKind::Socks => PinnedConnectError {
             stage: TransportErrorStage::ProxyHandshake,
             scope: TransportFailureScope::EgressPath,
@@ -287,11 +269,29 @@ fn error_chain_has_dns_failure(mut error: &(dyn StdError + 'static)) -> bool {
     }
 }
 
+fn error_chain_has_tls_failure(mut error: &(dyn StdError + 'static)) -> bool {
+    if error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|error| error.kind() == std::io::ErrorKind::Other)
+    {
+        return true;
+    }
+    loop {
+        if error.downcast_ref::<rustls::Error>().is_some() {
+            return true;
+        }
+        let Some(source) = error.source() else {
+            return false;
+        };
+        error = source;
+    }
+}
+
 type BoxError = Box<dyn StdError + Send + Sync>;
 
 /// Resolves the pinned origin through the shared DNS cache on every connect
-/// and falls back across the resolved addresses in order, so a dead first
-/// address never permanently black-holes the origin.
+/// and races connection handshakes across the resolved addresses, so a dead
+/// first address cannot consume the whole connect deadline before fallback.
 #[derive(Clone)]
 struct ResolvedTarget<C> {
     inner: C,
@@ -327,7 +327,7 @@ where
     }
 
     fn call(&mut self, _destination: Uri) -> Self::Future {
-        let mut inner = self.inner.clone();
+        let inner = self.inner.clone();
         let host = Arc::clone(&self.host);
         let port = self.port;
         let secure = self.secure;
@@ -336,27 +336,45 @@ where
                 .resolve(&host)
                 .await
                 .map_err(BoxError::from)?;
+            let mut attempts = FuturesUnordered::new();
             let mut last_error: Option<BoxError> = None;
+            let mut tls_error: Option<BoxError> = None;
             for address in addresses.iter() {
                 match target_uri(SocketAddr::new(*address, port), secure) {
-                    Ok(target) => match inner.call(target).await {
-                        Ok(connection) => return Ok(connection),
-                        Err(error) => {
-                            let error = error.into();
-                            // A proxy authentication rejection is definitive;
-                            // trying further target addresses would only bury
-                            // the most relevant cause.
-                            if error_chain_contains(
-                                error.as_ref(),
-                                "tunnel error: proxy authorization required",
-                            ) {
-                                return Err(error);
-                            }
-                            last_error = Some(error);
-                        }
-                    },
+                    Ok(target) => {
+                        let mut connector = inner.clone();
+                        attempts.push(async move {
+                            poll_fn(|context| connector.poll_ready(context))
+                                .await
+                                .map_err(Into::<BoxError>::into)?;
+                            connector.call(target).await.map_err(Into::into)
+                        });
+                    }
                     Err(error) => last_error = Some(error),
                 }
+            }
+            while let Some(result) = attempts.next().await {
+                match result {
+                    Ok(connection) => return Ok(connection),
+                    Err(error) => {
+                        // A proxy authentication rejection is definitive;
+                        // continuing would only bury the most relevant cause.
+                        if error_chain_contains(
+                            error.as_ref(),
+                            "tunnel error: proxy authorization required",
+                        ) {
+                            return Err(error);
+                        }
+                        if error_chain_has_tls_failure(error.as_ref()) {
+                            tls_error.get_or_insert(error);
+                        } else {
+                            last_error = Some(error);
+                        }
+                    }
+                }
+            }
+            if let Some(error) = tls_error {
+                return Err(error);
             }
             Err(last_error.expect("resolved address list is never empty"))
         })

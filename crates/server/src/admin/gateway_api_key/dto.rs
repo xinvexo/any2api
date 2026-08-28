@@ -44,12 +44,33 @@ impl GatewayApiKeyCollectionResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(
+    test,
+    derive(ts_rs::TS),
+    ts(export_to = "GatewayApiKeySecretResponse.ts")
+)]
+pub(crate) struct GatewayApiKeySecretResponse {
+    config_revision: u64,
+    items: Vec<GatewayApiKeyResponse>,
+    token: String,
+}
+
+impl GatewayApiKeySecretResponse {
+    pub(crate) fn new(configuration: GatewayApiKeyCollectionResponse, token: &str) -> Self {
+        Self {
+            config_revision: configuration.config_revision,
+            items: configuration.items,
+            token: token.to_owned(),
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "GatewayApiKeyResponse.ts"))]
 struct GatewayApiKeyResponse {
     #[cfg_attr(test, ts(as = "String"))]
     id: GatewayApiKeyId,
     name: String,
-    token: String,
     token_prefix: String,
     token_version: u64,
     config_version: u64,
@@ -71,7 +92,6 @@ impl GatewayApiKeyResponse {
         Self {
             id: key.id(),
             name: key.name().to_owned(),
-            token: key.token().to_owned(),
             token_prefix: key.token_prefix().to_owned(),
             token_version: key.token_version(),
             config_version: key.config_version(),
@@ -225,6 +245,7 @@ pub(in crate::admin) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts
     use ts_rs::TS as _;
 
     GatewayApiKeyCollectionResponse::export_all(config)?;
+    GatewayApiKeySecretResponse::export_all(config)?;
     GatewayApiKeyCreateRequest::export_all(config)?;
     GatewayApiKeyUpdateRequest::export_all(config)?;
     GatewayApiKeyRotateRequest::export_all(config)?;

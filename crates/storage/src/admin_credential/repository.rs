@@ -1,6 +1,10 @@
 use async_trait::async_trait;
 
-use crate::{error::StorageError, sqlite::SqliteStore};
+use crate::{
+    error::StorageError,
+    sqlite::SqliteStore,
+    sqlite_commit::{self, SqliteCommitError},
+};
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct StoredAdminCredential {
@@ -58,15 +62,26 @@ impl AdminCredentialRepository for SqliteStore {
     }
 
     async fn initialize_admin_credential(&self, password_hash: &str) -> Result<bool, StorageError> {
+        let mut transaction = self.begin_write().await?;
         let result =
             sqlx::query("INSERT INTO admin_credentials (singleton, password_hash) VALUES (1, ?)")
                 .bind(password_hash)
-                .execute(self.write_pool())
+                .execute(&mut *transaction)
                 .await;
         match result {
-            Ok(result) => Ok(result.rows_affected() == 1),
-            Err(sqlx::Error::Database(error)) if error.is_unique_violation() => Ok(false),
-            Err(error) => Err(error.into()),
+            Ok(result) => {
+                let changed = result.rows_affected() == 1;
+                commit_admin_credential_transaction(transaction).await?;
+                Ok(changed)
+            }
+            Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
+                transaction.rollback().await?;
+                Ok(false)
+            }
+            Err(error) => {
+                transaction.rollback().await?;
+                Err(error.into())
+            }
         }
     }
 
@@ -75,6 +90,7 @@ impl AdminCredentialRepository for SqliteStore {
         expected_password_hash: &str,
         new_password_hash: &str,
     ) -> Result<bool, StorageError> {
+        let mut transaction = self.begin_write().await?;
         let result = sqlx::query(
             "UPDATE admin_credentials
              SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
@@ -82,8 +98,30 @@ impl AdminCredentialRepository for SqliteStore {
         )
         .bind(new_password_hash)
         .bind(expected_password_hash)
-        .execute(self.write_pool())
+        .execute(&mut *transaction)
         .await?;
-        Ok(result.rows_affected() == 1)
+        if result.rows_affected() == 0 {
+            transaction.rollback().await?;
+            return Ok(false);
+        }
+        commit_admin_credential_transaction(transaction).await?;
+        Ok(true)
+    }
+}
+
+async fn commit_admin_credential_transaction(
+    transaction: sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), StorageError> {
+    sqlite_commit::commit(transaction)
+        .await
+        .map_err(map_admin_credential_commit_error)
+}
+
+pub(super) fn map_admin_credential_commit_error(error: SqliteCommitError) -> StorageError {
+    match error {
+        SqliteCommitError::Determinate(source) => StorageError::Database(source),
+        SqliteCommitError::Indeterminate(source) => {
+            StorageError::IndeterminateAdminCredentialCommit { source }
+        }
     }
 }

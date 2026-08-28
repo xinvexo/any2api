@@ -161,14 +161,9 @@ impl PublicRequestService {
             Err(FinalFailure::Upstream {
                 mut response,
                 error_class,
-                error_message,
             }) => {
                 sanitize_upstream_error_response_headers(&mut response.headers, &response.body);
-                recorder.finish_with_message(
-                    response.status.as_u16(),
-                    Some(error_class),
-                    error_message,
-                );
+                recorder.finish(response.status.as_u16(), Some(error_class));
                 response.into()
             }
         }
@@ -287,3 +282,6 @@ pub enum PublicRequestServiceError {
     #[error("missing protocol adapter for {0:?}")]
     MissingProtocol(ProtocolDialect),
 }
+
+#[cfg(test)]
+mod tests;

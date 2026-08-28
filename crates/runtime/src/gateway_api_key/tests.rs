@@ -44,13 +44,8 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         )
         .await
         .expect("create");
-    let first_token = created
-        .gateway_api_keys()
-        .get(id)
-        .expect("created key")
-        .token()
-        .to_owned();
-    let first_snapshot = created;
+    let first_token = created.token().to_owned();
+    let first_snapshot = Arc::clone(created.snapshot());
     assert_eq!(
         first_snapshot
             .authenticate_gateway_api_key(&first_token)
@@ -78,13 +73,8 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         )
         .await
         .expect("rotate");
-    let second_token = rotated
-        .gateway_api_keys()
-        .get(id)
-        .expect("rotated key")
-        .token()
-        .to_owned();
-    let second_snapshot = rotated;
+    let second_token = rotated.token().to_owned();
+    let second_snapshot = Arc::clone(rotated.snapshot());
     assert_eq!(
         first_snapshot
             .authenticate_gateway_api_key(&first_token)

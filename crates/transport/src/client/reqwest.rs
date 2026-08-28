@@ -248,8 +248,9 @@ impl ReqwestTransportManager {
 }
 
 /// Picks the client flavor for a request: proxied strict-SSRF requests use a
-/// per-origin pinned client, strict direct requests pin through the caching
-/// DNS resolver, and everything else shares a plain client per proxy profile.
+/// per-origin pinned tunnel client, strict direct requests pin through the
+/// caching DNS resolver, and everything else shares a plain client per proxy
+/// profile.
 fn client_selector(
     proxy_kind: ProxyKind,
     policy: EndpointNetworkPolicy,
@@ -299,8 +300,9 @@ impl TransportManager for ReqwestTransportManager {
         let connect_deadline = Instant::now() + self.config.connect_timeout;
         let profile = proxy.profile();
         validate_uri(&request.uri)?;
-        let uses_http_forward_proxy =
-            profile.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
+        let uses_http_forward_proxy = profile.kind() == ProxyKind::Http
+            && request.uri.scheme_str() == Some("http")
+            && !request.network_policy.strict_ssrf();
         let connect_timeout_error = connect_timeout_error(profile, uses_http_forward_proxy);
         let body_failure_scope = failure_scope_for_unverified_path(profile);
         let read_timeout = request.read_timeout;

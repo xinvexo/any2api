@@ -11,7 +11,7 @@ use crate::state::AppState;
 use super::{
     dto::{
         GatewayApiKeyCollectionResponse, GatewayApiKeyCreateRequest, GatewayApiKeyDeleteRequest,
-        GatewayApiKeyRotateRequest, GatewayApiKeyUpdateRequest,
+        GatewayApiKeyRotateRequest, GatewayApiKeySecretResponse, GatewayApiKeyUpdateRequest,
     },
     error::AdminApiError,
     request_json::AdminJson,
@@ -19,19 +19,23 @@ use super::{
 };
 
 pub(crate) async fn list(State(state): State<AppState>) -> Json<GatewayApiKeyCollectionResponse> {
-    response_for_snapshot(&state, &state.snapshots().load()).await
+    Json(response_for_snapshot(&state, &state.snapshots().load()).await)
 }
 
 pub(crate) async fn create(
     State(state): State<AppState>,
     AdminJson(payload): AdminJson<GatewayApiKeyCreateRequest>,
-) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
+) -> Result<Json<GatewayApiKeySecretResponse>, AdminApiError> {
     let (expected, draft) = payload.into_domain()?;
-    let snapshot = state
+    let publication = state
         .publisher()
         .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft)
         .await?;
-    Ok(response_for_snapshot(&state, &snapshot).await)
+    let response = response_for_snapshot(&state, publication.snapshot()).await;
+    Ok(Json(GatewayApiKeySecretResponse::new(
+        response,
+        publication.token(),
+    )))
 }
 
 pub(crate) async fn update(
@@ -45,17 +49,17 @@ pub(crate) async fn update(
         .publisher()
         .update_gateway_api_key(expected, id, expected_config_version, draft)
         .await?;
-    Ok(response_for_snapshot(&state, &snapshot).await)
+    Ok(Json(response_for_snapshot(&state, &snapshot).await))
 }
 
 pub(crate) async fn rotate(
     State(state): State<AppState>,
     Path(id): Path<String>,
     AdminJson(payload): AdminJson<GatewayApiKeyRotateRequest>,
-) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
+) -> Result<Json<GatewayApiKeySecretResponse>, AdminApiError> {
     let id = parse_id(&id)?;
     let (expected, expected_config_version, expected_token_version) = payload.into_domain()?;
-    let snapshot = state
+    let publication = state
         .publisher()
         .rotate_gateway_api_key(
             expected,
@@ -64,7 +68,11 @@ pub(crate) async fn rotate(
             expected_token_version,
         )
         .await?;
-    Ok(response_for_snapshot(&state, &snapshot).await)
+    let response = response_for_snapshot(&state, publication.snapshot()).await;
+    Ok(Json(GatewayApiKeySecretResponse::new(
+        response,
+        publication.token(),
+    )))
 }
 
 pub(crate) async fn delete(
@@ -78,19 +86,15 @@ pub(crate) async fn delete(
         .publisher()
         .delete_gateway_api_key(expected, id, expected_config_version)
         .await?;
-    Ok(response_for_snapshot(&state, &snapshot).await)
+    Ok(Json(response_for_snapshot(&state, &snapshot).await))
 }
 
 async fn response_for_snapshot(
     state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
-) -> Json<GatewayApiKeyCollectionResponse> {
+) -> GatewayApiKeyCollectionResponse {
     let usage = usage(state).await;
-    Json(GatewayApiKeyCollectionResponse::from_snapshot(
-        snapshot,
-        state.request_telemetry(),
-        &usage,
-    ))
+    GatewayApiKeyCollectionResponse::from_snapshot(snapshot, state.request_telemetry(), &usage)
 }
 
 async fn usage(state: &AppState) -> Vec<any2api_runtime::api::GatewayApiKeyUsageSummary> {

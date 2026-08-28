@@ -68,6 +68,11 @@ pub enum StorageError {
         #[source]
         source: sqlx::Error,
     },
+    #[error("administrator credential commit outcome is indeterminate")]
+    IndeterminateAdminCredentialCommit {
+        #[source]
+        source: sqlx::Error,
+    },
     #[error("sqlite migration failed: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("stored configuration revision is invalid: {0}")]

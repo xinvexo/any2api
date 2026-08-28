@@ -15,6 +15,7 @@ interface SideDrawerProps {
   title: string;
   description?: string;
   onClose: () => void;
+  closeDisabled?: boolean;
   children: ReactNode;
   wide?: boolean;
 }
@@ -30,6 +31,7 @@ export function SideDrawer({
   title,
   description,
   onClose,
+  closeDisabled = false,
   children,
   wide = false,
 }: SideDrawerProps) {
@@ -81,7 +83,11 @@ export function SideDrawer({
   }, [open, mounted, visible]);
 
   useBodyScrollLock(mounted);
-  useModalFocus(rootRef, mounted, () => onCloseRef.current());
+  useModalFocus(
+    rootRef,
+    mounted,
+    closeDisabled ? undefined : () => onCloseRef.current(),
+  );
 
   if (!mounted || typeof document === "undefined") {
     return null;
@@ -106,6 +112,7 @@ export function SideDrawer({
         tabIndex={-1}
         className={cn("side-drawer-scrim", isVisible ? "is-open" : "is-closed")}
         aria-label="关闭抽屉"
+        disabled={closeDisabled}
         onClick={() => onCloseRef.current()}
       />
       <div
@@ -131,6 +138,7 @@ export function SideDrawer({
           <IconButton
             label="关闭"
             className="shrink-0"
+            disabled={closeDisabled}
             onClick={() => onCloseRef.current()}
           >
             <X size={16} strokeWidth={1.75} />

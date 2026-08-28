@@ -10,7 +10,6 @@ pub(in crate::public_request) enum FinalFailure {
     Upstream {
         response: EgressResponse,
         error_class: ErrorClass,
-        error_message: Option<String>,
     },
 }
 
@@ -28,7 +27,6 @@ impl FinalFailure {
                 body,
             },
             error_class: upstream.classification().kind().error_class(),
-            error_message: upstream.official_message().map(ToOwned::to_owned),
         }
     }
 }

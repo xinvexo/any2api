@@ -9,9 +9,12 @@ import {
   type GatewayApiKeyDeleteRequest,
   type GatewayApiKeyRotateInput,
   type GatewayApiKeyRotateRequest,
+  type GatewayApiKeySecretMutationResult,
+  type GatewayApiKeySecretResponse,
   type GatewayApiKeyUpdateInput,
   type GatewayApiKeyUpdateRequest,
   parseGatewayApiKeyConfiguration,
+  parseGatewayApiKeySecretResponse,
 } from "./gateway-api-key-contracts";
 
 const collection = "/api/admin/gateway-api-keys";
@@ -24,17 +27,17 @@ export function listGatewayApiKeys(signal?: AbortSignal): Promise<GatewayApiKeyC
 
 export function createGatewayApiKey(
   input: GatewayApiKeyCreateInput,
-): Promise<GatewayApiKeyConfiguration> {
+): Promise<GatewayApiKeySecretMutationResult> {
   const body: GatewayApiKeyCreateRequest = {
     expected_revision: input.expectedRevision,
     name: input.name,
     requests_per_minute: input.requestsPerMinute,
     enabled: input.enabled,
   };
-  return requestJson<GatewayApiKeyCollectionResponse>(collection, {
+  return requestJson<GatewayApiKeySecretResponse>(collection, {
     method: "POST",
     body,
-  }).then(parseGatewayApiKeyConfiguration);
+  }).then(parseGatewayApiKeySecretResponse);
 }
 
 export function updateGatewayApiKey(
@@ -57,19 +60,19 @@ export function updateGatewayApiKey(
 export function rotateGatewayApiKey(
   id: string,
   input: GatewayApiKeyRotateInput,
-): Promise<GatewayApiKeyConfiguration> {
+): Promise<GatewayApiKeySecretMutationResult> {
   const body: GatewayApiKeyRotateRequest = {
     expected_revision: input.expectedRevision,
     expected_config_version: input.expectedConfigVersion,
     expected_token_version: input.expectedTokenVersion,
   };
-  return requestJson<GatewayApiKeyCollectionResponse>(
+  return requestJson<GatewayApiKeySecretResponse>(
     `${collection}/${encodeURIComponent(id)}/rotate`,
     {
       method: "POST",
       body,
     },
-  ).then(parseGatewayApiKeyConfiguration);
+  ).then(parseGatewayApiKeySecretResponse);
 }
 
 export function deleteGatewayApiKey(

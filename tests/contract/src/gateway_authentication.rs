@@ -16,7 +16,7 @@ pub async fn create_gateway_authentication(
 ) -> TestGatewayAuthentication {
     let current = snapshots.load();
     let id = GatewayApiKeyId::new();
-    let snapshot = publisher
+    let published = publisher
         .create_gateway_api_key(
             current.revision(),
             id,
@@ -24,11 +24,8 @@ pub async fn create_gateway_authentication(
         )
         .await
         .expect("Gateway key");
-    let token = snapshot
-        .gateway_api_keys()
-        .get(id)
-        .expect("created Gateway key")
-        .token();
+    let snapshot = Arc::clone(published.snapshot());
+    let token = published.token();
     let proof = snapshot
         .authenticate_gateway_api_key(token)
         .expect("created Gateway key authenticates");

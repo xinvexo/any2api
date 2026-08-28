@@ -10,20 +10,6 @@ export function useMaintenancePageLock(overlayVisible: boolean, warnBeforeUnload
   useBodyScrollLock(overlayVisible);
 
   useEffect(() => {
-    if (!overlayVisible) {
-      return;
-    }
-    const applicationRoot = document.getElementById("root");
-    const rootWasInert = applicationRoot?.hasAttribute("inert") ?? false;
-    applicationRoot?.setAttribute("inert", "");
-    return () => {
-      if (!rootWasInert) {
-        applicationRoot?.removeAttribute("inert");
-      }
-    };
-  }, [overlayVisible]);
-
-  useEffect(() => {
     if (!warnBeforeUnload) {
       return;
     }

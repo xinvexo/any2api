@@ -34,6 +34,7 @@ test("renders only the visible system log rows", async () => {
 
   const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
   expect(firstRow).not.toBeNull();
+  expect(firstRow).toHaveAttribute("aria-rowindex", "2");
   fireEvent.click(firstRow!);
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.doubleClick(firstRow!);
@@ -43,6 +44,8 @@ test("renders only the visible system log rows", async () => {
   fireEvent.scroll(viewport);
 
   await waitFor(() => expect(within(viewport).getByText("/system/200")).toBeInTheDocument());
+  expect(within(viewport).getByText("/system/200").closest("[role='row']"))
+    .toHaveAttribute("aria-rowindex", "201");
   expect(within(viewport).queryByText("/system/1")).not.toBeInTheDocument();
 });
 

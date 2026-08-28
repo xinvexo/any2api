@@ -81,6 +81,7 @@ export function RequestLogVirtualTable({
             return (
               <RequestLogFeedTableRow
                 item={item}
+                ariaRowIndex={index + 2}
                 selected={selectedId === item.requestId}
                 nowMs={nowMs}
                 animation={entryAnimations?.get(item.requestId)}
@@ -101,12 +102,14 @@ export function RequestLogVirtualTable({
 
 function RequestLogFeedTableRow({
   item,
+  ariaRowIndex,
   selected,
   nowMs,
   animation,
   onSelect,
 }: {
   item: RequestLogFeedItem;
+  ariaRowIndex: number;
   selected: boolean;
   nowMs: number;
   animation: ListEntryAnimation | undefined;
@@ -118,6 +121,7 @@ function RequestLogFeedTableRow({
   return (
     <div
       role="row"
+      aria-rowindex={ariaRowIndex}
       tabIndex={active ? -1 : 0}
       aria-selected={active ? undefined : selected}
       aria-label={active ? undefined : `查看请求 ${model}`}

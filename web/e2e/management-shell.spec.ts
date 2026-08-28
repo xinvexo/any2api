@@ -102,8 +102,19 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
   await page.getByLabel("名称").fill("E2E 时间轴");
   await page.getByRole("button", { name: "保存", exact: true }).click();
 
-  const timeline = page.getByRole("group", {
-    name: /E2E 时间轴 近 1 小时，每格 2 分钟/,
+  const secretDrawer = page.getByRole("dialog", {
+    name: "保存「E2E 时间轴」的新密钥",
+  });
+  await expect(secretDrawer.getByText(/此密钥只显示一次/)).toBeVisible();
+  const oneTimeToken = await secretDrawer.locator("code").innerText();
+  expect(oneTimeToken).toMatch(/^sk-[A-Za-z0-9_-]{43}$/);
+  await secretDrawer.getByRole("button", { name: "已保存，关闭" }).click();
+  await expect(secretDrawer).toBeHidden();
+
+  const keyTable = page.getByRole("table", { name: "网关密钥列表" });
+  const keyRow = keyTable.locator("tbody > tr").filter({ hasText: "E2E 时间轴" });
+  const timeline = keyRow.getByRole("group", {
+    name: /近 1 小时客户端请求，每格 2 分钟/,
   });
   await expect(timeline).toBeVisible();
   const slots = timeline.getByRole("button");
@@ -124,6 +135,7 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  await expect(page.getByText(oneTimeToken, { exact: true })).toHaveCount(0);
   const mobileTable = page.getByRole("table", { name: "网关密钥列表" });
   const mobileRow = mobileTable.locator("tbody > tr");
   await expect(mobileRow).toHaveCount(1);
@@ -135,8 +147,10 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
     "aria-checked",
     "true",
   );
-  await expect(mobileRow.getByRole("button", { name: "复制 E2E 时间轴 的密钥" })).toBeVisible();
-  await expect(page.getByRole("group", { name: /E2E 时间轴 近 1 小时，每格 2 分钟/ })).toBeVisible();
+  await expect(mobileRow.getByRole("button", { name: /复制.*密钥/ })).toHaveCount(0);
+  await expect(mobileRow.getByRole("group", {
+    name: /近 1 小时客户端请求，每格 2 分钟/,
+  })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.setViewportSize({ width: 1280, height: 720 });

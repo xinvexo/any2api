@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use any2api_runtime::api::PublishedSnapshot;
 use axum::{
@@ -54,11 +54,16 @@ pub(super) async fn setup(
     if !connection.is_direct_loopback() {
         return Err(AdminApiError::setup_loopback_only());
     }
-    let auth = state.admin_auth();
-    if !auth
-        .initialize_with_setup_token(request.password.clone(), &request.setup_token)
-        .await
-        .map_err(map_auth_error)?
+    let auth = state.admin_auth_handle();
+    let setup_auth = Arc::clone(&auth);
+    let password = request.password.clone();
+    let setup_token = request.setup_token;
+    if !run_critical_credential_mutation(&state, async move {
+        setup_auth
+            .initialize_with_setup_token(password, &setup_token)
+            .await
+    })
+    .await?
     {
         return Err(AdminApiError::already_initialized());
     }
@@ -98,20 +103,11 @@ pub(super) async fn rotate_password(
     AdminJson(request): AdminJson<PasswordRotationRequest>,
 ) -> Result<Response, AdminApiError> {
     let auth = state.admin_auth_handle();
-    let issue = state
-        .runtime()
-        .lifecycle()
-        .spawn_critical(async move {
-            auth.rotate_password(request.current_password, request.new_password)
-                .await
-        })
-        .await
-        .map_err(|error| {
-            tracing::error!(error = ?error, "administrator password rotation task failed");
-            AdminApiError::internal()
-        })?
-        .ok_or_else(AdminApiError::shutting_down)?
-        .map_err(map_auth_error)?;
+    let issue = run_critical_credential_mutation(&state, async move {
+        auth.rotate_password(request.current_password, request.new_password)
+            .await
+    })
+    .await?;
     session_response(&issue, connection, &snapshot)
 }
 
@@ -126,6 +122,23 @@ pub(super) async fn logout(
         .headers_mut()
         .insert(SET_COOKIE, auth_cookie::clear(connection.is_secure()));
     Ok(response)
+}
+
+async fn run_critical_credential_mutation<T>(
+    state: &AppState,
+    mutation: impl Future<Output = Result<T, AdminAuthError>> + Send + 'static,
+) -> Result<T, AdminApiError>
+where
+    T: Send + 'static,
+{
+    match state.runtime().lifecycle().spawn_critical(mutation).await {
+        Ok(Some(result)) => result.map_err(map_auth_error),
+        Ok(None) => Err(AdminApiError::shutting_down()),
+        Err(error) => {
+            tracing::error!(?error, "critical administrator credential mutation failed");
+            Err(AdminApiError::internal())
+        }
+    }
 }
 
 fn session_response(

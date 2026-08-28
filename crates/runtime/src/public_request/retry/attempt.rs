@@ -247,7 +247,6 @@ mod tests {
         let FinalFailure::Upstream {
             response,
             error_class,
-            error_message,
         } = selected
         else {
             panic!("the previous upstream failure must be returned")
@@ -256,7 +255,6 @@ mod tests {
         assert_eq!(response.headers["x-upstream-attempt"], "first");
         assert_eq!(response.body, br#"{"error":"first"}"#.as_slice());
         assert_eq!(error_class, ErrorClass::Upstream);
-        assert_eq!(error_message.as_deref(), Some("first upstream failed"));
         assert!(previous.is_none());
     }
 

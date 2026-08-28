@@ -4,6 +4,7 @@ import type { GatewayApiKeyCreateRequest } from "@/shared/api/generated/GatewayA
 import type { GatewayApiKeyDeleteRequest } from "@/shared/api/generated/GatewayApiKeyDeleteRequest";
 import type { GatewayApiKeyResponse } from "@/shared/api/generated/GatewayApiKeyResponse";
 import type { GatewayApiKeyRotateRequest } from "@/shared/api/generated/GatewayApiKeyRotateRequest";
+import type { GatewayApiKeySecretResponse } from "@/shared/api/generated/GatewayApiKeySecretResponse";
 import type { GatewayApiKeyUpdateRequest } from "@/shared/api/generated/GatewayApiKeyUpdateRequest";
 
 // Wire types are generated from the Rust DTOs; parsers below keep
@@ -14,13 +15,13 @@ export type {
   GatewayApiKeyCreateRequest,
   GatewayApiKeyDeleteRequest,
   GatewayApiKeyRotateRequest,
+  GatewayApiKeySecretResponse,
   GatewayApiKeyUpdateRequest,
 };
 
 export interface GatewayApiKey {
   id: string;
   name: string;
-  token: string;
   tokenPrefix: string;
   tokenVersion: number;
   configVersion: number;
@@ -34,6 +35,11 @@ export interface GatewayApiKey {
 export interface GatewayApiKeyConfiguration {
   configRevision: number;
   items: GatewayApiKey[];
+}
+
+export interface GatewayApiKeySecretMutationResult {
+  configuration: GatewayApiKeyConfiguration;
+  token: string;
 }
 
 export interface GatewayApiKeyCreateInput {
@@ -65,7 +71,14 @@ export interface GatewayApiKeyDeleteInput {
 export function parseGatewayApiKeyConfiguration(
   value: GatewayApiKeyCollectionResponse,
 ): GatewayApiKeyConfiguration {
-  if (!isRecord(value) || !Array.isArray(value.items)) {
+  if (
+    !isRecord(value) ||
+    "token" in value ||
+    "secret" in value ||
+    "api_key" in value ||
+    "token_hash" in value ||
+    !Array.isArray(value.items)
+  ) {
     throw new Error("invalid gateway API Key response");
   }
   return {
@@ -74,7 +87,9 @@ export function parseGatewayApiKeyConfiguration(
   };
 }
 
-function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
+export function parseGatewayApiKeySecretResponse(
+  value: GatewayApiKeySecretResponse,
+): GatewayApiKeySecretMutationResult {
   if (
     !isRecord(value) ||
     "secret" in value ||
@@ -87,11 +102,33 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
   if (!isGatewayToken(token)) {
     throw new Error("invalid gateway API Key response");
   }
+  const configuration = parseGatewayApiKeyConfiguration({
+    config_revision: value.config_revision,
+    items: value.items,
+  });
+  if (!configuration.items.some((item) => item.tokenPrefix === token.slice(0, 16))) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return {
+    configuration,
+    token,
+  };
+}
+
+function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
+  if (
+    !isRecord(value) ||
+    "token" in value ||
+    "secret" in value ||
+    "api_key" in value ||
+    "token_hash" in value
+  ) {
+    throw new Error("invalid gateway API Key response");
+  }
   return {
     id: readString(value.id),
     name: readString(value.name),
-    token,
-    tokenPrefix: readVisibleAscii(value.token_prefix),
+    tokenPrefix: readTokenPrefix(value.token_prefix),
     tokenVersion: readPositiveInteger(value.token_version),
     configVersion: readPositiveInteger(value.config_version),
     requestsPerMinute: readOptionalRpm(value.requests_per_minute),
@@ -125,6 +162,14 @@ function readVisibleAscii(value: unknown): string {
       return code >= 0x21 && code <= 0x7e;
     })
   ) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return parsed;
+}
+
+function readTokenPrefix(value: unknown): string {
+  const parsed = readVisibleAscii(value);
+  if (parsed.length !== 16 || !/^sk-[A-Za-z0-9_-]{13}$/.test(parsed)) {
     throw new Error("invalid gateway API Key response");
   }
   return parsed;

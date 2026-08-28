@@ -17,6 +17,7 @@ use crate::{
         EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest,
         TransportTrafficClass,
     },
+    connection::tests::spawn_connect_proxy,
     isolation::TransportIsolationKey,
 };
 
@@ -54,11 +55,12 @@ async fn direct_client_decodes_error_content_before_classification() {
 
 #[tokio::test]
 async fn pinned_proxy_client_uses_the_same_response_coding_boundary() {
-    let (proxy_address, captured) = spawn_gzip_server(StatusCode::OK).await;
+    let (origin_address, captured) = spawn_gzip_server(StatusCode::OK).await;
+    let (proxy_address, _connect_request) = spawn_connect_proxy(origin_address).await;
     let proxy = network_proxy("strict HTTP", ProxyKind::Http, proxy_address, true);
     assert_gzip_exchange(
         &proxy,
-        "http://127.0.0.1:9/pinned",
+        &format!("http://127.0.0.1:{}/pinned", origin_address.port()),
         EndpointNetworkPolicy::new().with_strict_ssrf(true),
         StatusCode::OK,
         Some("gzip"),

@@ -3,6 +3,7 @@ import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/shared/ui/Button";
+import { useModalFocus } from "@/shared/ui/useModalFocus";
 
 import type { ApplicationRestartFlow } from "../model/application-restart-flow";
 import "./application-update-overlay.css";
@@ -23,6 +24,7 @@ export function ApplicationRestartOverlay({
   const dialogRef = useRef<HTMLDivElement>(null);
   const isRunning = flow.kind === "running";
   const isComplete = flow.kind === "complete";
+  useModalFocus(dialogRef, true);
 
   useEffect(() => {
     dialogRef.current?.focus({ preventScroll: true });

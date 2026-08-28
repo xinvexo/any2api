@@ -147,6 +147,35 @@ async fn bridge_diagnostics_identify_the_unsupported_field_or_type() {
 }
 
 #[tokio::test]
+async fn bridge_tool_identity_diagnostics_do_not_echo_dynamic_names() {
+    let registry = registry();
+    let request = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({
+            "model":"public",
+            "input":"hello",
+            "tools":[
+                {"type":"function","name":"dynamic_tool"},
+                {"type":"function","name":"dynamic_tool"}
+            ]
+        }),
+    )
+    .await;
+    let error = match bridged_exchange(&registry, ProtocolOperation::Responses)
+        .prepare_request(&request, "upstream", None)
+    {
+        Ok(_) => panic!("duplicate tool must fail before upstream I/O"),
+        Err(error) => error,
+    };
+
+    assert_eq!(
+        error,
+        ProtocolError::InvalidPayload("tool is declared more than once".into())
+    );
+}
+
+#[tokio::test]
 async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
     let registry = registry();
     let request = decoded(

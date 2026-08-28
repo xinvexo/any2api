@@ -153,7 +153,9 @@ test("only unlocks the full-screen flow after the update itself fails", async ()
   renderAbout();
 
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
-  fireEvent.click(await screen.findByRole("button", { name: "更新到 v1.1.0" }));
+  const installButton = await screen.findByRole("button", { name: "更新到 v1.1.0" });
+  installButton.focus();
+  fireEvent.click(installButton);
 
   expect(await screen.findByRole("dialog", { name: "更新未完成" })).toBeInTheDocument();
   expect(screen.getByText("当前运行环境不支持自动更新。")).toBeInTheDocument();
@@ -161,6 +163,7 @@ test("only unlocks the full-screen flow after the update itself fails", async ()
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(document.getElementById("root")).not.toHaveAttribute("inert");
+  expect(installButton).toHaveFocus();
 });
 
 test("offers bounded recovery when the target version cannot be confirmed", async () => {

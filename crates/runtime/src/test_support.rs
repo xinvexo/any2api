@@ -34,6 +34,13 @@ fn test_official_client_version(version: &str) -> OfficialClientVersion {
 }
 
 pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
+    Arc::new(ConfigurationCapabilities::new(
+        protocol_registry(),
+        provider_registry(),
+    ))
+}
+
+pub(crate) fn protocol_registry() -> Arc<ProtocolRegistry> {
     let mut protocols = ProtocolRegistry::new();
     protocols
         .register(Arc::new(OpenAiResponsesAdapter::new()))
@@ -53,7 +60,10 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     protocols
         .register_bridge(Arc::new(ImagesToChatCompletionsBridge::new()))
         .expect("Images to Chat Completions bridge");
+    Arc::new(protocols)
+}
 
+pub(crate) fn provider_registry() -> Arc<ProviderRegistry> {
     let mut providers = ProviderRegistry::new();
     providers
         .register(Arc::new(OpenAiDriver::new()))
@@ -70,11 +80,7 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     providers
         .register(Arc::new(KimiDriver::new()))
         .expect("Kimi driver");
-
-    Arc::new(ConfigurationCapabilities::new(
-        Arc::new(protocols),
-        Arc::new(providers),
-    ))
+    Arc::new(providers)
 }
 
 pub(crate) async fn commit_configuration(

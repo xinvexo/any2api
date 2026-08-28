@@ -1,5 +1,6 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
+    panic::AssertUnwindSafe,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -7,6 +8,7 @@ use std::{
 use any2api_domain::SettingsConfiguration;
 use any2api_runtime::api::ProcessLifecycle;
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use tokio::sync::Barrier;
 
 use super::{
@@ -233,6 +235,31 @@ async fn old_password_login_cannot_survive_a_concurrent_rotation() {
 }
 
 #[tokio::test]
+async fn visible_password_commit_without_acknowledgement_is_fatal() {
+    let store = Arc::new(IndeterminateReplaceStore::default());
+    let service = test_service(store.clone()).await;
+    service
+        .initialize_if_missing("correct horse battery staple".to_owned())
+        .await
+        .expect("initialize");
+    let persisted_before = store.value.lock().expect("store").clone();
+
+    let result = AssertUnwindSafe(service.rotate_password(
+        "correct horse battery staple".to_owned(),
+        "new correct horse battery staple".to_owned(),
+    ))
+    .catch_unwind()
+    .await;
+
+    assert!(result.is_err(), "indeterminate commit must be fatal");
+    assert_ne!(
+        store.value.lock().expect("store").clone(),
+        persisted_before,
+        "the test store makes the new credential visible before losing its acknowledgement"
+    );
+}
+
+#[tokio::test]
 async fn cancelled_login_keeps_its_argon2_permit_until_blocking_work_finishes() {
     let service = Arc::new(test_service(Arc::new(MemoryStore::default())).await);
     service
@@ -282,6 +309,11 @@ struct MemoryStore {
     value: Mutex<Option<String>>,
 }
 
+#[derive(Default)]
+struct IndeterminateReplaceStore {
+    value: Mutex<Option<String>>,
+}
+
 #[async_trait]
 impl AdminCredentialStore for MemoryStore {
     async fn load(&self) -> Result<Option<StoredAdminPasswordHash>, AdminCredentialStoreError> {
@@ -313,6 +345,42 @@ impl AdminCredentialStore for MemoryStore {
         }
         *value = Some(new_password_hash.to_owned());
         Ok(true)
+    }
+}
+
+#[async_trait]
+impl AdminCredentialStore for IndeterminateReplaceStore {
+    async fn load(&self) -> Result<Option<StoredAdminPasswordHash>, AdminCredentialStoreError> {
+        Ok(self
+            .value
+            .lock()
+            .expect("store")
+            .clone()
+            .map(StoredAdminPasswordHash::new))
+    }
+
+    async fn initialize(&self, password_hash: &str) -> Result<bool, AdminCredentialStoreError> {
+        let mut value = self.value.lock().expect("store");
+        if value.is_some() {
+            return Ok(false);
+        }
+        *value = Some(password_hash.to_owned());
+        Ok(true)
+    }
+
+    async fn replace(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, AdminCredentialStoreError> {
+        let mut value = self.value.lock().expect("store");
+        if value.as_deref() != Some(expected_password_hash) {
+            return Ok(false);
+        }
+        *value = Some(new_password_hash.to_owned());
+        Err(AdminCredentialStoreError::indeterminate_commit(
+            std::io::Error::other("commit acknowledgement lost"),
+        ))
     }
 }
 

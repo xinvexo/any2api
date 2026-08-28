@@ -271,8 +271,8 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
 }
 
 #[tokio::test]
-async fn buffered_status_and_200_envelope_failures_recover_across_candidates() {
-    let (upstream_address, upstream_requests) = mixed_failures_then_success_server().await;
+async fn buffered_ambiguous_failure_is_not_replayed_across_candidates() {
+    let (upstream_address, upstream_requests) = ambiguous_failure_server().await;
     let (_directory, app, mut revision) = test_app().await;
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
     let token = create_gateway_key(&app, remote, revision).await;
@@ -305,25 +305,20 @@ async fn buffered_status_and_200_envelope_failures_recover_across_candidates() {
         &[("authorization", format!("Bearer {token}"))],
     )
     .await;
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body: Value = serde_json::from_slice(
         &response
             .into_body()
             .collect()
             .await
-            .expect("mixed recovery response")
+            .expect("ambiguous failure response")
             .to_bytes(),
     )
-    .expect("mixed recovery JSON");
-    assert_eq!(body["id"], "resp_after_mixed_failures");
+    .expect("ambiguous failure JSON");
+    assert_eq!(body["error"]["message"], "temporarily unavailable");
 
-    let requests = upstream_requests.await.expect("three upstream attempts");
-    assert_eq!(requests.len(), 3);
-    let authorizations = requests
-        .iter()
-        .map(|request| request.headers["authorization"].as_str())
-        .collect::<std::collections::HashSet<_>>();
-    assert_eq!(authorizations.len(), 3);
+    let requests = upstream_requests.await.expect("one upstream attempt");
+    assert_eq!(requests.len(), 1);
     assert_eq!(public_requests_in_window(&app, remote).await, 1);
 }
 
@@ -1861,7 +1856,7 @@ async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> 
         remote,
     )
     .await;
-    response["items"][0]["token"]
+    response["token"]
         .as_str()
         .expect("gateway token in collection item")
         .to_owned()
@@ -2525,47 +2520,29 @@ async fn invalid_key_then_success_server() -> (SocketAddr, oneshot::Receiver<Vec
     (address, request_receiver)
 }
 
-async fn mixed_failures_then_success_server()
--> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>) {
+async fn ambiguous_failure_server() -> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("upstream listener");
     let address = listener.local_addr().expect("upstream address");
     let (request_sender, request_receiver) = oneshot::channel();
     tokio::spawn(async move {
-        let responses = [
-            (
-                "503 Service Unavailable",
-                r#"{"error":{"type":"server_error","message":"temporarily unavailable"}}"#,
-            ),
-            (
-                "200 OK",
-                r#"{"id":"resp_failed","status":"failed","error":{"code":"future_provider_failure","message":"explicit protocol failure"}}"#,
-            ),
-            (
-                "200 OK",
-                r#"{"id":"resp_after_mixed_failures","model":"gpt-upstream","status":"completed","output":[]}"#,
-            ),
-        ];
-        let mut requests = Vec::with_capacity(responses.len());
-        for (status, body) in responses {
-            let (mut stream, _) = listener.accept().await.expect("upstream accept");
-            let (path, request) = read_upstream_request(&mut stream).await;
-            assert_eq!(path, "/v1/responses");
-            requests.push(request);
-            stream
-                .write_all(
-                    format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .as_bytes(),
+        let body = r#"{"error":{"type":"server_error","message":"temporarily unavailable"}}"#;
+        let (mut stream, _) = listener.accept().await.expect("upstream accept");
+        let (path, request) = read_upstream_request(&mut stream).await;
+        assert_eq!(path, "/v1/responses");
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
                 )
-                .await
-                .expect("upstream response");
-        }
+                .as_bytes(),
+            )
+            .await
+            .expect("upstream response");
         request_sender
-            .send(requests)
+            .send(vec![request])
             .expect("send upstream attempts");
     });
     (address, request_receiver)

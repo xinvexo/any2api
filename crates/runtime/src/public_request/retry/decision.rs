@@ -96,8 +96,10 @@ pub(super) fn retry_decision(
             if kind == UpstreamErrorKind::InvalidRequest {
                 return RetryDecision::Terminal;
             }
+            if !classification.retry_safety().allows_automatic_retry() {
+                return RetryDecision::Terminal;
+            }
             if can_refresh_oauth
-                && classification.retry_safety().allows_automatic_retry()
                 && let Some((account_id, token_version)) = failure.oauth_authentication_target()
             {
                 return RetryDecision::OAuthRefresh {
@@ -106,9 +108,7 @@ pub(super) fn retry_decision(
                 };
             }
             if failure.bound() {
-                if !classification.retry_safety().allows_automatic_retry()
-                    || is_nonrecovering_bound_kind(kind)
-                {
+                if is_nonrecovering_bound_kind(kind) {
                     return RetryDecision::Terminal;
                 }
                 return RetryDecision::RetrySamePath(retry_delay(failure, budget));
