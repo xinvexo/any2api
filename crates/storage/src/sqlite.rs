@@ -24,8 +24,7 @@ use crate::{
 const READ_POOL_CONNECTIONS: u32 = 8;
 const READ_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
-/// Truncate the WAL after this many write transactions so long uptimes with
-/// steady telemetry flushes cannot grow the log without bound.
+/// Periodically checkpoint completed writes so SQLite can reuse the WAL.
 const WAL_CHECKPOINT_WRITE_INTERVAL: u64 = 256;
 
 #[derive(Clone, Debug)]
@@ -107,9 +106,9 @@ impl SqliteStore {
         if !writes.is_multiple_of(WAL_CHECKPOINT_WRITE_INTERVAL) {
             return;
         }
-        // Best effort: a checkpoint blocked by concurrent readers simply runs
-        // again after the next interval.
-        if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        // PASSIVE checkpoints available pages without waiting for readers on
+        // the connection shared by configuration and telemetry writes.
+        if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
             .fetch_all(&self.write_pool)
             .await
         {
@@ -143,11 +142,65 @@ fn sidecar_path(path: &Path, suffix: &str) -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::atomic::Ordering, time::Duration};
+
     use tempfile::tempdir;
 
     #[cfg(unix)]
     use super::sidecar_path;
-    use super::{READ_POOL_IDLE_TIMEOUT, SqliteStore};
+    use super::{READ_POOL_IDLE_TIMEOUT, SqliteStore, WAL_CHECKPOINT_WRITE_INTERVAL};
+
+    #[tokio::test]
+    async fn checkpoint_allows_writes_while_a_reader_holds_its_snapshot() {
+        let directory = tempdir().expect("temporary directory");
+        let store = SqliteStore::connect(&directory.path().join("checkpoint.db"))
+            .await
+            .expect("store");
+        sqlx::query("CREATE TABLE checkpoint_probe (value INTEGER NOT NULL)")
+            .execute(store.write_pool())
+            .await
+            .expect("probe table");
+        sqlx::query("INSERT INTO checkpoint_probe VALUES (1)")
+            .execute(store.write_pool())
+            .await
+            .expect("first write");
+        let mut reader = store.pool().begin().await.expect("reader");
+        let initial: i64 = sqlx::query_scalar("SELECT SUM(value) FROM checkpoint_probe")
+            .fetch_one(&mut *reader)
+            .await
+            .expect("reader snapshot");
+        sqlx::query("INSERT INTO checkpoint_probe VALUES (2)")
+            .execute(store.write_pool())
+            .await
+            .expect("second write");
+        store
+            .write_transactions
+            .store(WAL_CHECKPOINT_WRITE_INTERVAL - 1, Ordering::Relaxed);
+
+        let write = tokio::time::timeout(Duration::from_secs(1), async {
+            let mut transaction = store.begin_write().await?;
+            sqlx::query("INSERT INTO checkpoint_probe VALUES (3)")
+                .execute(&mut *transaction)
+                .await?;
+            transaction.commit().await?;
+            Ok::<_, crate::error::StorageError>(())
+        })
+        .await;
+        let retained: i64 = sqlx::query_scalar("SELECT SUM(value) FROM checkpoint_probe")
+            .fetch_one(&mut *reader)
+            .await
+            .expect("retained snapshot");
+        reader.rollback().await.expect("release reader");
+        write
+            .expect("write completes while reader remains open")
+            .expect("write");
+        assert_eq!(retained, initial);
+        let current: i64 = sqlx::query_scalar("SELECT SUM(value) FROM checkpoint_probe")
+            .fetch_one(store.pool())
+            .await
+            .expect("current data");
+        assert_eq!(current, 6);
+    }
 
     #[tokio::test]
     async fn uses_normal_synchronous_mode_and_private_sidecars() {

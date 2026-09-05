@@ -181,6 +181,11 @@ export function useRealtimeCursorFeed<
       return;
     }
     if (followingRef.current) {
+      // A pending pagination request would otherwise restore its older page snapshot.
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      if (signal.aborted || !operationIsCurrent(generation, externalGeneration)) {
+        return;
+      }
       if (resetOnNextSyncRef.current) {
         resetOnNextSyncRef.current = false;
         queryClient.setQueryData(queryKey, latest);

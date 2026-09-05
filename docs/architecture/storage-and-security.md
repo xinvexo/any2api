@@ -71,7 +71,8 @@ Registry，Fast 成本只在上游最终响应确认 effective speed tier 时使
 ## 管理员认证与客户端地址
 
 系统只有一个管理员安全域。首次 setup token 只允许 loopback；远程初始化使用显式环境变量。管理员密码以
-内存困难哈希保存，轮换使旧会话失效。Gateway API Key 只鉴权公开 `/v1`，不能访问管理 API。
+内存困难哈希保存，轮换使旧会话失效。管理 SSE 随原会话撤销或到期而关闭，超时设置热更新后重新计算等待；
+接收推送不延长会话的空闲期限。Gateway API Key 只鉴权公开 `/v1`，不能访问管理 API。
 
 监听地址与 TLS 终止由部署者控制。HTTP 可以运行，但远程管理应放在 TLS 反向代理后。只有管理员配置的可信
 代理地址可以影响规范客户端 IP 和 secure-request 判断；不可信 peer 的转发 Header 被忽略，可信代理提供的

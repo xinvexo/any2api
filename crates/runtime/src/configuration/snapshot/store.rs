@@ -54,7 +54,7 @@ impl SnapshotStore {
         expected < actual && expected >= latest_operator && actual >= latest_operator
     }
 
-    pub(crate) fn subscribe_revision(&self) -> watch::Receiver<ConfigRevision> {
+    pub fn subscribe_revision(&self) -> watch::Receiver<ConfigRevision> {
         self.revision_sender.subscribe()
     }
 

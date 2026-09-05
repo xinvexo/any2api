@@ -169,27 +169,6 @@ impl ConfigPublisher {
         .await
     }
 
-    pub(crate) async fn refresh_oauth_account(
-        &self,
-        id: OAuthAccountId,
-        expected_token_version: u64,
-        safe_account_email: Option<String>,
-        expires_at: Option<i64>,
-        document: OAuthAccountDocument,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish_current(
-            PublicationSource::AutomaticOAuthRefresh,
-            ConfigCommand::RefreshOAuthAccount {
-                id,
-                expected_token_version,
-                safe_account_email,
-                expires_at,
-                document,
-            },
-        )
-        .await
-    }
-
     pub(crate) async fn refresh_oauth_accounts<K>(
         &self,
         refreshes: Vec<OAuthAccountRefresh>,

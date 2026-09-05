@@ -8,6 +8,54 @@ use crate::api::{
 use super::{bridged_exchange, decoded, registry, upstream_response};
 
 #[tokio::test]
+async fn interleaved_tool_history_remains_resumable_after_each_completed_batch() {
+    let registry = registry();
+    let first = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({"model":"public-model","input":[
+            {"role":"user","content":"check both sources"},
+            {"type":"reasoning","summary":[{"type":"summary_text","text":"First. "}]},
+            {"type":"function_call","call_id":"a","name":"first","arguments":"{}"},
+            {"role":"assistant","content":"I will also check another source"},
+            {"type":"reasoning","summary":[{"type":"summary_text","text":"Second."}]},
+            {"type":"function_call","call_id":"b","name":"second","arguments":"{}"},
+            {"type":"function_call_output","call_id":"a","output":"A"},
+            {"type":"function_call_output","call_id":"b","output":"B"},
+            {"type":"function_call","call_id":"c","name":"third","arguments":"{}"},
+            {"type":"function_call_output","call_id":"c","output":"C"}
+        ]}),
+    )
+    .await;
+    let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+    let prepared = exchange
+        .prepare_request(&first, "upstream-model", None)
+        .expect("interleaved tool history");
+    let history = messages(&prepared);
+    assert_eq!(history[1]["tool_calls"].as_array().map(Vec::len), Some(2));
+    assert_eq!(history[1]["reasoning_content"], "First. Second.");
+    assert_eq!(history[2]["tool_call_id"], "a");
+    assert_eq!(history[3]["tool_call_id"], "b");
+    assert_eq!(history[4]["content"], "I will also check another source");
+    assert_eq!(history[5]["tool_calls"][0]["id"], "c");
+    assert_eq!(history[6]["tool_call_id"], "c");
+
+    let (response_id, continuation) = complete_turn(&mut exchange, "all checked");
+    let next = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({"model":"public-model","previous_response_id":response_id,
+            "input":[{"role":"user","content":"continue"}]}),
+    )
+    .await;
+    let resumed = bridged_exchange(&registry, ProtocolOperation::Responses)
+        .prepare_request(&next, "upstream-model", Some(continuation))
+        .expect("tool history continuation");
+    assert_eq!(&messages(&resumed)[..history.len()], history.as_slice());
+    assert_eq!(messages(&resumed).last().unwrap()["content"], "continue");
+}
+
+#[tokio::test]
 async fn continuation_applies_only_the_current_turn_instructions() {
     let registry = registry();
     let first = decoded(

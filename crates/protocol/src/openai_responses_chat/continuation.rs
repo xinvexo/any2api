@@ -82,7 +82,23 @@ impl ResumableProtocolContinuation for ResponsesChatContinuation {
     }
 }
 
-pub(super) fn serialized_json_bytes(value: &[Value]) -> Result<usize, ProtocolError> {
+pub(super) fn reserve_continuation_bytes(
+    bytes: &mut usize,
+    additional: usize,
+) -> Result<(), ProtocolError> {
+    *bytes = bytes.saturating_add(additional);
+    if *bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
+        return Err(ProtocolError::ContinuationTooLarge {
+            bytes: *bytes,
+            max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
+        });
+    }
+    Ok(())
+}
+
+pub(super) fn serialized_json_bytes<T: serde::Serialize + ?Sized>(
+    value: &T,
+) -> Result<usize, ProtocolError> {
     struct CountingWriter(usize);
 
     impl std::io::Write for CountingWriter {

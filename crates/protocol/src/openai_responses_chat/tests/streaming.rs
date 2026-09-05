@@ -332,32 +332,91 @@ async fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
 }
 
 #[tokio::test]
+async fn streaming_continuation_size_depends_on_retained_output_across_chunk_sizes() {
+    let registry = registry();
+    let mut continuation_sizes = Vec::new();
+    for chunk_chars in [70_000, 1] {
+        let request = decoded(
+            &registry,
+            ProtocolOperation::Responses,
+            json!({"model":"public-model","input":"hello","stream":true}),
+        )
+        .await;
+        let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+        exchange
+            .prepare_request(&request, "upstream-model", None)
+            .expect("stream request");
+        let frame = chat_frame(json!({
+            "id":"chatcmpl-example","object":"chat.completion.chunk","created":1722475520,
+            "model":"upstream-model","system_fingerprint":"fp_example",
+            "choices":[{"index":0,"delta":{"role":"assistant","content":"x".repeat(chunk_chars)},
+                "logprobs":null,"finish_reason":null}],"usage":null
+        }));
+        for _ in 0..70_000 / chunk_chars {
+            exchange
+                .decode_upstream_event(SseFrame(frame.0.clone()))
+                .expect("retained text remains within the continuation limit");
+        }
+        exchange
+            .decode_upstream_event(chat_frame(json!({
+                "choices":[{"index":0,"delta":{},"finish_reason":"stop"}]
+            })))
+            .expect("finish reason");
+        let events = exchange
+            .decode_upstream_event(SseFrame(Bytes::from_static(b"data: [DONE]\n\n")))
+            .expect("completed stream");
+        let terminal = events.last().expect("terminal response");
+        let response = response_events(&String::from_utf8_lossy(terminal.bytes()));
+        assert_eq!(
+            response[0]["response"]["output"][0]["content"][0]["text"],
+            "x".repeat(70_000)
+        );
+        let BridgeContinuationState::Ready(state) = exchange.bridge_continuation_state() else {
+            panic!("completed stream must retain its continuation");
+        };
+        continuation_sizes.push(state.serialized_bytes());
+    }
+    assert_eq!(continuation_sizes[0], continuation_sizes[1]);
+}
+
+#[tokio::test]
 async fn streaming_bridge_aborts_when_incremental_state_exceeds_the_hard_limit() {
     let registry = registry();
-    let request = decoded(
-        &registry,
-        ProtocolOperation::Responses,
-        json!({"model":"public-model","input":"hello","stream":true}),
-    )
-    .await;
-    let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
-    exchange
-        .prepare_request(&request, "upstream-model", None)
-        .expect("stream request");
+    for field in ["content", "reasoning_content", "arguments"] {
+        let request = decoded(
+            &registry,
+            ProtocolOperation::Responses,
+            json!({"model":"public-model","input":"hello","stream":true,"tools":[{
+                "type":"function","name":"weather","parameters":{"type":"object"}
+            }]}),
+        )
+        .await;
+        let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+        exchange
+            .prepare_request(&request, "upstream-model", None)
+            .expect("stream request");
 
-    let oversized = chat_frame(json!({
-        "id":"chatcmpl_oversized",
-        "model":"upstream-model",
-        "choices":[{"index":0,"delta":{"content":"x".repeat(MAX_BRIDGE_CONTINUATION_STATE_BYTES)}}]
-    }));
-    assert!(matches!(
-        exchange.decode_upstream_event(oversized),
-        Err(ProtocolError::ContinuationTooLarge { .. })
-    ));
-    assert!(matches!(
-        exchange.bridge_continuation_state(),
-        BridgeContinuationState::Pending
-    ));
+        let text = "x".repeat(MAX_BRIDGE_CONTINUATION_STATE_BYTES);
+        let delta = if field == "arguments" {
+            json!({"tool_calls":[{"index":0,"type":"function","id":"call_weather",
+                "function":{"name":"weather","arguments":text}}]})
+        } else {
+            json!({field:text})
+        };
+        let oversized = chat_frame(json!({
+            "id":"chatcmpl_oversized",
+            "model":"upstream-model",
+            "choices":[{"index":0,"delta":delta}]
+        }));
+        assert!(matches!(
+            exchange.decode_upstream_event(oversized),
+            Err(ProtocolError::ContinuationTooLarge { .. })
+        ));
+        assert!(matches!(
+            exchange.bridge_continuation_state(),
+            BridgeContinuationState::Pending
+        ));
+    }
 }
 
 fn assert_contiguous_sequence_numbers(stream: &str) {

@@ -61,6 +61,7 @@ struct InputAssembler<'a> {
     projection: &'a mut ToolProjection,
     profile: OpenAiChatCompletionsProfile,
     pending_calls: Vec<Value>,
+    call_message_index: Option<usize>,
     pending_reasoning: String,
     output_call_ids: HashMap<String, SourceCallKind>,
     ledger: ConversationLedger,
@@ -75,11 +76,19 @@ impl<'a> InputAssembler<'a> {
         projection: &'a mut ToolProjection,
         profile: OpenAiChatCompletionsProfile,
     ) -> Self {
+        let call_message_index = if ledger.is_settled() {
+            None
+        } else {
+            messages
+                .iter()
+                .rposition(|message| message["role"] == "assistant")
+        };
         Self {
             messages,
             projection,
             profile,
             pending_calls: Vec::new(),
+            call_message_index,
             pending_reasoning: String::new(),
             output_call_ids,
             ledger,
@@ -206,6 +215,7 @@ impl<'a> InputAssembler<'a> {
             "role":"tool","tool_call_id":call_id,"content":content
         }));
         if self.ledger.is_settled() {
+            self.call_message_index = None;
             self.flush_deferred();
         }
         Ok(())
@@ -223,18 +233,25 @@ impl<'a> InputAssembler<'a> {
         if self.pending_calls.is_empty() {
             return Ok(());
         }
-        let mut message = json!({
-            "role":"assistant","content":Value::Null,
-            "tool_calls":std::mem::take(&mut self.pending_calls)
+        let index = *self.call_message_index.get_or_insert_with(|| {
+            let index = self.messages.len();
+            self.messages.push(json!({
+                "role":"assistant","content":Value::Null,"tool_calls":[]
+            }));
+            index
         });
+        let message = &mut self.messages[index];
+        message["tool_calls"]
+            .as_array_mut()
+            .expect("pending tool call message has a tool_calls array")
+            .append(&mut self.pending_calls);
         if !self.pending_reasoning.is_empty() {
             output::insert_reasoning(
-                &mut message,
+                message,
                 std::mem::take(&mut self.pending_reasoning),
                 self.profile,
             )?;
         }
-        self.messages.push(message);
         Ok(())
     }
 

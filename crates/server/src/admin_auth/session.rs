@@ -1,8 +1,12 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use any2api_domain::AdminSettings;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use subtle::ConstantTimeEq;
+use tokio::sync::watch;
 
 use super::AdminAuthError;
 
@@ -16,6 +20,7 @@ pub(super) struct SessionRecord {
     csrf: [u8; TOKEN_BYTES],
     created_at: Instant,
     last_seen_at: Instant,
+    ended: watch::Sender<()>,
 }
 
 impl SessionRecord {
@@ -24,6 +29,7 @@ impl SessionRecord {
             csrf,
             created_at: now,
             last_seen_at: now,
+            ended: watch::channel(()).0,
         }
     }
 
@@ -44,9 +50,12 @@ impl SessionRecord {
     }
 
     fn is_expired(&self, now: Instant, settings: &AdminSettings) -> bool {
-        now.duration_since(self.created_at).as_secs() >= settings.session_absolute_timeout_secs()
-            || now.duration_since(self.last_seen_at).as_secs()
-                >= settings.session_idle_timeout_secs()
+        now >= self.expires_at(settings)
+    }
+
+    fn expires_at(&self, settings: &AdminSettings) -> Instant {
+        (self.created_at + Duration::from_secs(settings.session_absolute_timeout_secs()))
+            .min(self.last_seen_at + Duration::from_secs(settings.session_idle_timeout_secs()))
     }
 
     const fn created_at(&self) -> Instant {
@@ -88,6 +97,18 @@ impl AdminSessionStore {
 
     pub(super) fn remove(&mut self, key: SessionKey) {
         self.sessions.remove(&key);
+    }
+
+    pub(super) fn observe(
+        &self,
+        key: SessionKey,
+        now: Instant,
+        settings: &AdminSettings,
+    ) -> Option<(watch::Receiver<()>, Instant)> {
+        self.sessions
+            .get(&key)
+            .filter(|record| !record.is_expired(now, settings))
+            .map(|record| (record.ended.subscribe(), record.expires_at(settings)))
     }
 
     pub(super) fn clear(&mut self) {

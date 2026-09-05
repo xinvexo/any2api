@@ -21,7 +21,10 @@ pub(super) fn insert_reasoning(
             return Err(invalid("Chat target cannot represent reasoning history"));
         }
     };
-    message[field] = Value::String(reasoning);
+    match message.get_mut(field) {
+        Some(Value::String(existing)) => existing.push_str(&reasoning),
+        _ => message[field] = Value::String(reasoning),
+    }
     Ok(())
 }
 

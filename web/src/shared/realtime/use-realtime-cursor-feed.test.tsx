@@ -52,6 +52,58 @@ test("coalesces change events and applies pending rows when following resumes", 
   ]));
 });
 
+test("keeps the latest rows when an older page finishes after following resumes", async () => {
+  let latest = { ...page(["known"]), nextCursor: "older" };
+  let resolveHistoryPage!: (value: Page) => void;
+  const historyPage = new Promise<Page>((resolve) => {
+    resolveHistoryPage = resolve;
+  });
+  const fetchPage = vi.fn((cursor: string | null) =>
+    cursor === "older" ? historyPage : Promise.resolve(latest),
+  );
+  const client = queryClient();
+  const rendered = renderHook(
+    ({ followingLatest }) => useRealtimeCursorFeed<Item, Page, Feed>({
+      queryKey: QUERY_KEY,
+      scope: "all",
+      followingLatest,
+      fetchPage,
+      knownIds,
+      itemId: (item) => item.id,
+      mergeLatest: (_current, incoming) => incoming,
+      countNew,
+      flatten: flattenFeed,
+      maxCachedPages: 3,
+      maxCollectedItems: 10,
+      syncErrorMessage: "sync failed",
+    }),
+    { wrapper: wrapper(client), initialProps: { followingLatest: false } },
+  );
+
+  await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(2));
+  let historyRequest!: ReturnType<typeof rendered.result.current.fetchNextPage>;
+  act(() => {
+    historyRequest = rendered.result.current.fetchNextPage();
+  });
+  await waitFor(() => expect(rendered.result.current.isFetchingNextPage).toBe(true));
+  latest = { ...page(["new", "known"]), nextCursor: "older" };
+  act(() => rendered.result.current.scheduleSync());
+  await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(4));
+  expect(rendered.result.current.items).toEqual([{ id: "known" }]);
+
+  rendered.rerender({ followingLatest: true });
+  const expectedItems = [{ id: "new" }, { id: "known" }];
+  await waitFor(() => expect(rendered.result.current.items).toEqual(expectedItems));
+  await act(async () => {
+    resolveHistoryPage(page(["older"]));
+    await historyRequest;
+  });
+
+  const cached = client.getQueryData<InfiniteData<Page, string | null>>(QUERY_KEY);
+  expect(flattenFeed(cached?.pages ?? []).items).toEqual(expectedItems);
+  expect(rendered.result.current.items).toEqual(expectedItems);
+});
+
 test("aborts an old scope catch-up before starting the new scope", async () => {
   let oldScopeCalls = 0;
   let oldSyncSignal: AbortSignal | undefined;

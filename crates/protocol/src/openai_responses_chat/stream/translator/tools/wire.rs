@@ -4,6 +4,7 @@ use super::ToolState;
 use crate::{
     ProtocolError,
     openai_responses_chat::{
+        continuation::{reserve_continuation_bytes, serialized_json_bytes},
         response::{
             custom_call_item_id, function_call_item_id, restored_call_item,
             tool_search_call_item_id,
@@ -30,6 +31,7 @@ impl ToolState {
 pub(super) fn observe_kind(
     state: &mut ToolState,
     object: &Map<String, Value>,
+    continuation_bytes: &mut usize,
 ) -> Result<(), ProtocolError> {
     let explicit = match object.get("type") {
         None | Some(Value::Null) => None,
@@ -60,7 +62,19 @@ pub(super) fn observe_kind(
     }
     if let Some(observed) = observed {
         match state.kind {
-            None => state.kind = Some(observed),
+            None => {
+                let empty_call = match observed {
+                    ChatToolKind::Function => json!({"id":"","type":"function",
+                        "function":{"name":"","arguments":""}}),
+                    ChatToolKind::Custom => json!({"id":"","type":"custom",
+                        "custom":{"name":"","input":""}}),
+                };
+                reserve_continuation_bytes(
+                    continuation_bytes,
+                    serialized_json_bytes(&empty_call)? + 1,
+                )?;
+                state.kind = Some(observed);
+            }
             Some(existing) if existing == observed => {}
             Some(_) => return Err(invalid("streamed tool call type changed")),
         }
@@ -88,13 +102,17 @@ pub(super) fn set_once(
     target: &mut Option<String>,
     value: Option<&Value>,
     field: &'static str,
+    continuation_bytes: &mut usize,
 ) -> Result<(), ProtocolError> {
     let Some(value) = value else {
         return Ok(());
     };
     let value = value.as_str().ok_or_else(|| invalid(field))?;
     match target {
-        None => *target = Some(value.to_owned()),
+        None => {
+            reserve_continuation_bytes(continuation_bytes, serialized_json_bytes(value)? - 2)?;
+            *target = Some(value.to_owned());
+        }
         Some(existing) if existing == value => {}
         Some(_) => return Err(ProtocolError::InvalidPayload(format!("{field} changed"))),
     }
@@ -104,6 +122,7 @@ pub(super) fn set_once(
 pub(super) fn append_payload(
     state: &mut ToolState,
     payload: &Map<String, Value>,
+    continuation_bytes: &mut usize,
 ) -> Result<(), ProtocolError> {
     let field = match state.kind {
         Some(ChatToolKind::Function) => "arguments",
@@ -114,6 +133,7 @@ pub(super) fn append_payload(
         let value = value
             .as_str()
             .ok_or_else(|| invalid("streamed tool call payload fragment must be a string"))?;
+        reserve_continuation_bytes(continuation_bytes, serialized_json_bytes(value)? - 2)?;
         state.payload.push_str(value);
     }
     Ok(())

@@ -157,6 +157,27 @@ impl AdminAuthService {
         self.sessions.lock().await.remove(session.key);
     }
 
+    pub(crate) async fn session_ended(
+        &self,
+        session: AuthenticatedAdminSession,
+        settings: &AdminSettings,
+    ) {
+        loop {
+            let observed =
+                self.sessions
+                    .lock()
+                    .await
+                    .observe(session.key, Instant::now(), settings);
+            let Some((mut ended, expires_at)) = observed else {
+                return;
+            };
+            tokio::select! {
+                _ = ended.changed() => return,
+                () = tokio::time::sleep_until(expires_at.into()) => {}
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn available_password_checks(&self) -> usize {
         self.password_checks.available_permits()

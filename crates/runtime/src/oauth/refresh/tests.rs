@@ -6,7 +6,8 @@ use std::sync::{
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, OAuthProxySelection, ProviderKind};
 use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{
-    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
+    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, OAuthAccountRefresh,
+    SqliteStore,
 };
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
@@ -183,7 +184,7 @@ async fn permanent_rejection_is_not_retried_for_the_same_token_version() {
 
     context
         .publisher
-        .refresh_oauth_account(
+        .refresh_oauth_accounts(vec![OAuthAccountRefresh::new(
             id,
             1,
             Some("person@example.com".into()),
@@ -195,7 +196,7 @@ async fn permanent_rejection_is_not_retried_for_the_same_token_version() {
                     .into(),
             )
             .expect("replacement OAuth document"),
-        )
+        )], ())
         .await
         .expect("replace token version");
     transport.release();

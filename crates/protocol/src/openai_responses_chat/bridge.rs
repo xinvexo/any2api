@@ -71,7 +71,6 @@ struct ResponsesToChatSession {
     stream: ChatToResponsesStream,
     response_projection: ResponseProjection,
     continuation: Option<ProtocolContinuationState>,
-    accumulated_stream_bytes: usize,
     profile: OpenAiChatCompletionsProfile,
     projection: ToolProjection,
 }
@@ -87,23 +86,6 @@ impl ResponsesToChatSession {
             self.projection.clone(),
         )?;
         self.continuation = Some(ProtocolContinuationState::new(Arc::new(continuation))?);
-        Ok(())
-    }
-
-    fn observe_stream_event(&mut self, event: &AdapterEvent) -> Result<(), ProtocolError> {
-        self.accumulated_stream_bytes = self
-            .accumulated_stream_bytes
-            .checked_add(event.bytes().len())
-            .ok_or(ProtocolError::ContinuationTooLarge {
-                bytes: usize::MAX,
-                max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
-            })?;
-        if self.accumulated_stream_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
-            return Err(ProtocolError::ContinuationTooLarge {
-                bytes: self.accumulated_stream_bytes,
-                max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
-            });
-        }
         Ok(())
     }
 }
@@ -130,7 +112,6 @@ impl ProtocolBridgeSession for ResponsesToChatSession {
     }
 
     fn transform_event(&mut self, event: AdapterEvent) -> Result<Vec<AdapterEvent>, ProtocolError> {
-        self.observe_stream_event(&event)?;
         let update = self.stream.push(event)?;
         if let Some(message) = update.assistant_message {
             self.complete(message)?;
@@ -172,15 +153,15 @@ pub(super) fn start_session(
         previous.map_or_else(Vec::new, |state| state.conversation().to_vec()),
         previous.map(ResponsesChatContinuation::projection),
     )?;
-    let accumulated_stream_bytes = serialized_json_bytes(converted.conversation())?
+    let continuation_bytes = serialized_json_bytes(converted.conversation())?
         .checked_add(converted.projection().serialized_bytes())
         .ok_or(ProtocolError::ContinuationTooLarge {
             bytes: usize::MAX,
             max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
         })?;
-    if accumulated_stream_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
+    if continuation_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
         return Err(ProtocolError::ContinuationTooLarge {
-            bytes: accumulated_stream_bytes,
+            bytes: continuation_bytes,
             max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
         });
     }
@@ -206,10 +187,10 @@ pub(super) fn start_session(
                 response_projection.clone(),
                 profile,
                 projection.clone(),
+                continuation_bytes,
             ),
             response_projection,
             continuation: None,
-            accumulated_stream_bytes,
             profile,
             projection,
         }),

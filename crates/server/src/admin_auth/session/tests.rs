@@ -24,6 +24,40 @@ fn session_record_enforces_idle_and_absolute_deadlines() {
     );
 }
 
+#[tokio::test]
+async fn observing_a_session_preserves_its_idle_deadline_and_tracks_http_activity() {
+    let settings = session_settings(60, 120);
+    let now = Instant::now();
+    let key = SessionKey(random_bytes().expect("key"));
+    let mut sessions = AdminSessionStore::default();
+    sessions.issue(key, random_bytes().expect("csrf"), now, settings.admin());
+    let (mut ended, expires_at) = sessions
+        .observe(key, now + Duration::from_secs(30), settings.admin())
+        .expect("active session");
+    assert_eq!(expires_at, now + Duration::from_secs(60));
+
+    sessions
+        .authenticate(key, now + Duration::from_secs(50), settings.admin())
+        .expect("HTTP activity");
+    let (_, expires_at) = sessions
+        .observe(key, now + Duration::from_secs(80), settings.admin())
+        .expect("extended session");
+    assert_eq!(expires_at, now + Duration::from_secs(110));
+    assert!(
+        sessions
+            .observe(key, expires_at, settings.admin())
+            .is_none()
+    );
+    let extended = session_settings(120, 240);
+    assert!(
+        sessions
+            .observe(key, expires_at, extended.admin())
+            .is_some()
+    );
+    sessions.remove(key);
+    assert!(ended.changed().await.is_err());
+}
+
 #[test]
 fn store_prunes_all_expired_records_on_issue() {
     let settings = session_settings(60, 120);

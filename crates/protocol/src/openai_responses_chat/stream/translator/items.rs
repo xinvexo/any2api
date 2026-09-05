@@ -5,6 +5,11 @@ use super::ChatToResponsesStream;
 use crate::openai_responses_chat::response::{
     message_item, message_item_id, reasoning_item, reasoning_item_id,
 };
+use crate::{
+    ProtocolError,
+    api::OpenAiChatReasoningResponse,
+    openai_responses_chat::continuation::{reserve_continuation_bytes, serialized_json_bytes},
+};
 
 #[derive(Default)]
 pub(super) struct TextState {
@@ -15,10 +20,17 @@ pub(super) struct TextState {
 }
 
 impl ChatToResponsesStream {
-    pub(super) fn push_text(&mut self, delta: &str) -> Vec<SynthesizedEvent> {
+    pub(super) fn push_text(
+        &mut self,
+        delta: &str,
+    ) -> Result<Vec<SynthesizedEvent>, ProtocolError> {
         if delta.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
+        reserve_continuation_bytes(
+            &mut self.continuation_bytes,
+            serialized_json_bytes(delta)? - 2,
+        )?;
         let mut events = Vec::new();
         if self.message.output_index.is_none() {
             let index = self.allocate_output();
@@ -46,15 +58,27 @@ impl ChatToResponsesStream {
                 "delta":delta}),
             content_telemetry(),
         ));
-        events
+        Ok(events)
     }
 
-    pub(super) fn push_reasoning(&mut self, delta: &str) -> Vec<SynthesizedEvent> {
+    pub(super) fn push_reasoning(
+        &mut self,
+        delta: &str,
+    ) -> Result<Vec<SynthesizedEvent>, ProtocolError> {
         if delta.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
+        reserve_continuation_bytes(
+            &mut self.continuation_bytes,
+            serialized_json_bytes(delta)? - 2,
+        )?;
         let mut events = Vec::new();
         if self.reasoning.output_index.is_none() {
+            let field_bytes = match self.profile.reasoning_response {
+                OpenAiChatReasoningResponse::Reasoning => b",\"reasoning\":\"\"".len(),
+                _ => b",\"reasoning_content\":\"\"".len(),
+            };
+            reserve_continuation_bytes(&mut self.continuation_bytes, field_bytes)?;
             let index = self.allocate_output();
             self.reasoning.output_index = Some(index);
             self.reasoning.item_id = reasoning_item_id(self.response_id());
@@ -81,7 +105,7 @@ impl ChatToResponsesStream {
                 "summary_index":0,"delta":delta}),
             content_telemetry(),
         ));
-        events
+        Ok(events)
     }
 
     pub(super) fn finish_message(&mut self) -> Vec<SynthesizedEvent> {

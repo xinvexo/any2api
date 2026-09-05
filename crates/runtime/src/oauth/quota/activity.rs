@@ -157,7 +157,10 @@ impl OAuthQuotaActivity {
         self.shared.notify.notify_one();
     }
 
-    fn next_due(&self) -> Option<Instant> {
+    fn next_due(&self, available: usize) -> Option<Instant> {
+        if available == 0 {
+            return None;
+        }
         self.shared
             .state
             .lock()
@@ -201,7 +204,7 @@ async fn run(
             }));
         }
 
-        let next_due = activity.next_due();
+        let next_due = activity.next_due(MAX_CONCURRENT_REFRESHES.saturating_sub(running.len()));
         if running.is_empty() {
             match next_due {
                 Some(due) => {

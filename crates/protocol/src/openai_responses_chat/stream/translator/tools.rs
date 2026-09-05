@@ -12,6 +12,7 @@ use crate::{
     ProtocolError,
     api::OpenAiChatReasoningResponse,
     openai_responses_chat::{
+        continuation::reserve_continuation_bytes,
         response::restored_call_item,
         tool_projection::{ChatToolKind, RestoredToolCall, ToolIdentity},
     },
@@ -47,12 +48,16 @@ impl ChatToResponsesStream {
             .get("index")
             .and_then(Value::as_u64)
             .ok_or_else(|| invalid("streamed tool call index must be a non-negative integer"))?;
+        if self.tools.is_empty() {
+            reserve_continuation_bytes(&mut self.continuation_bytes, b",\"tool_calls\":[]".len())?;
+        }
         let state = self.tools.entry(key).or_default();
-        observe_kind(state, object)?;
+        observe_kind(state, object, &mut self.continuation_bytes)?;
         set_once(
             &mut state.call_id,
             object.get("id"),
             "streamed tool call id",
+            &mut self.continuation_bytes,
         )?;
         let payload = payload_object(state.kind, object)?;
         if let Some(payload) = payload {
@@ -60,8 +65,9 @@ impl ChatToResponsesStream {
                 &mut state.name,
                 payload.get("name"),
                 "streamed tool call name",
+                &mut self.continuation_bytes,
             )?;
-            append_payload(state, payload)?;
+            append_payload(state, payload, &mut self.continuation_bytes)?;
         }
         if state.identity.is_none()
             && let (Some(kind), Some(name)) = (state.kind, state.name.as_deref())

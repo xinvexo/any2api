@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use any2api_domain::{OAuthAccountId, ProviderKind, RoutingCredentialId};
 use any2api_provider::api::{OAuthRefreshRejection, OAuthTokenMaterial, ProviderError};
-use any2api_storage::api::OAuthAccountDocument;
+use any2api_storage::api::{OAuthAccountDocument, OAuthAccountRefresh};
 use any2api_transport::api::TransportTrafficClass;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
-    configuration::{ConfigPublishError, PublishedSnapshot},
+    configuration::PublishedSnapshot,
     oauth::{document, error::OAuthError, login::token_request},
 };
 
@@ -164,44 +164,33 @@ impl OAuthRefresher {
             }
             RefreshPreparation::Unavailable => return Ok(RefreshResult::Unavailable),
         };
-        let (id, observed_token_version, safe_account_email, expires_at, document, _gate) =
+        let (id, observed_token_version, safe_account_email, expires_at, document, gate) =
             prepared.into_parts();
-        let published = match self
+        let (published, changed) = self
             .publisher
-            .refresh_oauth_account(
-                id,
-                observed_token_version,
-                safe_account_email,
-                expires_at,
-                document,
+            .refresh_oauth_accounts(
+                vec![OAuthAccountRefresh::new(
+                    id,
+                    observed_token_version,
+                    safe_account_email,
+                    expires_at,
+                    document,
+                )],
+                gate,
             )
             .await
-        {
-            Ok(published) => published,
-            Err(
-                error @ (ConfigPublishError::OAuthAccountNotFound
-                | ConfigPublishError::OAuthAccountTokenVersionConflict),
-            ) => {
-                let current = self.publisher.current_snapshot();
-                if current
-                    .oauth_accounts()
-                    .get(id)
-                    .is_some_and(|account| account.token_version() > observed_token_version)
-                {
-                    self.record_refresh_success(id, observed_token_version);
-                    return Ok(RefreshResult::AlreadyUpdated(current));
-                }
-                return Err(OAuthRefreshError::Publish(error));
-            }
-            Err(error) => return Err(OAuthRefreshError::Publish(error)),
-        };
+            .map_err(OAuthRefreshError::Publish)?;
         published
             .oauth_accounts()
             .get(id)
             .filter(|account| account.token_version() > observed_token_version)
             .ok_or(OAuthRefreshError::AccountUnavailable)?;
         self.record_refresh_success(id, observed_token_version);
-        Ok(RefreshResult::Refreshed(published))
+        Ok(if changed {
+            RefreshResult::Refreshed(published)
+        } else {
+            RefreshResult::AlreadyUpdated(published)
+        })
     }
 
     async fn prepare_refresh(

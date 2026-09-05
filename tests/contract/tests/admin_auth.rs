@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use any2api_contract_tests::TestApplication;
 use any2api_domain::SettingKey;
@@ -263,6 +263,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     .await;
     assert_eq!(still_authenticated.status, StatusCode::OK);
 
+    let mut old_events = subscribe_events(&app, &remote_cookie, remote).await;
     let rotated = request(
         &app,
         Method::POST,
@@ -276,6 +277,12 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     )
     .await;
     assert_eq!(rotated.status, StatusCode::OK);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), old_events.frame())
+            .await
+            .expect("password rotation ends the old event stream")
+            .is_none()
+    );
     let rotated_cookie = rotated
         .cookie()
         .split(';')
@@ -357,6 +364,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     .await;
     assert_eq!(restarted_login.status, StatusCode::OK);
 
+    let mut current_events = subscribe_events(&app, &rotated_cookie, remote).await;
     let logout = request(
         &app,
         Method::POST,
@@ -367,6 +375,12 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     )
     .await;
     assert_eq!(logout.status, StatusCode::NO_CONTENT);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), current_events.frame())
+            .await
+            .expect("logout ends the current event stream")
+            .is_none()
+    );
     assert!(logout.cookie().contains("Max-Age=0"));
     let response = request(
         &app,
@@ -558,6 +572,28 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
         spoofed_remote.json()["error"]["code"],
         "admin_remote_disabled"
     );
+}
+
+async fn subscribe_events(app: &Router, cookie: &str, remote: SocketAddr) -> Body {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/events")
+                .extension(ConnectInfo(remote))
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .expect("events request"),
+        )
+        .await
+        .expect("events response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body();
+    body.frame()
+        .await
+        .expect("initial event")
+        .expect("event frame");
+    body
 }
 
 async fn build_test_app(fixture: TestApplication) -> (TempDir, Router, Option<String>) {

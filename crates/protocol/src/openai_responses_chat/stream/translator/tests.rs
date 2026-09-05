@@ -23,6 +23,7 @@ fn synthesized_events_are_encoded_once_after_sequence_injection() {
         ),
         profile,
         ToolProjection::new(profile, None),
+        0,
     );
     let upstream = AdapterEvent::new(
         Bytes::from_static(b"upstream frame"),

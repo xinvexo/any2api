@@ -151,7 +151,8 @@ async fn run_sampler(
             }
             Err(error) => {
                 tracing::warn!(%error, "admin realtime overview sampling failed");
-                if let Some(previous) = sender.borrow().clone() {
+                let previous = sender.borrow().clone();
+                if let Some(previous) = previous {
                     sender.send_replace(Some(Arc::new(previous.stale())));
                 }
             }

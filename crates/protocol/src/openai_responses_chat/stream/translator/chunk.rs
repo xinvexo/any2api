@@ -85,11 +85,11 @@ pub(super) fn apply_choices(
         }
     }
     if let Some(reasoning) = reasoning_delta(stream, delta)? {
-        events.extend(stream.push_reasoning(reasoning));
+        events.extend(stream.push_reasoning(reasoning)?);
     }
     match delta.get("content") {
         None | Some(Value::Null) => {}
-        Some(Value::String(content)) => events.extend(stream.push_text(content)),
+        Some(Value::String(content)) => events.extend(stream.push_text(content)?),
         Some(_) => {
             return Err(invalid(
                 "streamed assistant content must be a string or null",

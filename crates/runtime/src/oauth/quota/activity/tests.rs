@@ -20,7 +20,7 @@ async fn dropping_the_attempt_guard_schedules_activity_once() {
 #[tokio::test(start_paused = true)]
 async fn idle_accounts_have_no_due_work_and_bursts_coalesce() {
     let activity = OAuthQuotaActivity::new();
-    assert_eq!(activity.next_due(), None);
+    assert_eq!(activity.next_due(MAX_CONCURRENT_REFRESHES), None);
     let id = OAuthAccountId::new();
     activity.record(id, Instant::now());
     activity.record(id, Instant::now() + Duration::from_secs(2));
@@ -76,7 +76,7 @@ async fn activity_during_refresh_schedules_one_follow_up_but_failure_without_act
     activity.record(id, start + Duration::from_secs(11));
     activity.complete(id, start + Duration::from_secs(12));
     assert_eq!(
-        activity.next_due(),
+        activity.next_due(MAX_CONCURRENT_REFRESHES),
         Some(start + ACTIVITY_DEBOUNCE + MIN_REFRESH_INTERVAL)
     );
 
@@ -85,7 +85,7 @@ async fn activity_during_refresh_schedules_one_follow_up_but_failure_without_act
         vec![id]
     );
     activity.complete(id, start + ACTIVITY_DEBOUNCE + MIN_REFRESH_INTERVAL);
-    assert_eq!(activity.next_due(), None);
+    assert_eq!(activity.next_due(MAX_CONCURRENT_REFRESHES), None);
 }
 
 #[tokio::test(start_paused = true)]
@@ -110,8 +110,10 @@ async fn due_selection_enforces_the_global_concurrency_bound() {
             )
             .is_empty()
     );
+    assert_eq!(activity.next_due(0), None);
 
     activity.complete(first[0], start + ACTIVITY_DEBOUNCE);
+    assert_eq!(activity.next_due(1), Some(start + ACTIVITY_DEBOUNCE));
     let next = activity.take_due(start + ACTIVITY_DEBOUNCE, 1);
     assert_eq!(next.len(), 1);
     assert!(ids.contains(&next[0]));

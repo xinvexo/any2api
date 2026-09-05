@@ -47,6 +47,7 @@ pub(crate) struct ChatToResponsesStream {
     pub(super) message: TextState,
     pub(super) tools: BTreeMap<u64, ToolState>,
     pub(super) completed_items: Vec<(usize, Value)>,
+    pub(super) continuation_bytes: usize,
 }
 
 impl ChatToResponsesStream {
@@ -54,6 +55,7 @@ impl ChatToResponsesStream {
         response: ResponseProjection,
         profile: OpenAiChatCompletionsProfile,
         projection: ToolProjection,
+        continuation_bytes: usize,
     ) -> Self {
         let model = response.upstream_model().to_owned();
         let created_at = response.created_at();
@@ -77,6 +79,10 @@ impl ChatToResponsesStream {
             message: TextState::default(),
             tools: BTreeMap::new(),
             completed_items: Vec::new(),
+            // The final continuation is checked precisely when it is completed;
+            // streaming accounts only for the fields retained in its assistant turn.
+            continuation_bytes: continuation_bytes
+                .saturating_add(b",{\"role\":\"assistant\",\"content\":null}".len()),
         }
     }
 

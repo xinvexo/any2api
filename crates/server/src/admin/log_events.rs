@@ -2,7 +2,7 @@ use std::{convert::Infallible, pin::Pin, sync::Arc, time::Duration};
 
 use axum::{
     Router,
-    extract::State,
+    extract::{Extension, State},
     http::HeaderValue,
     response::{
         IntoResponse, Response,
@@ -17,8 +17,8 @@ use futures_util::{
 use tokio::sync::watch;
 
 use crate::{
-    http_access_log::ExcludeFromHttpAccessLog, request_lifecycle::allow_memory_reclamation,
-    state::AppState,
+    admin_auth::AuthenticatedAdminSession, http_access_log::ExcludeFromHttpAccessLog,
+    request_lifecycle::allow_memory_reclamation, state::AppState,
 };
 
 use super::realtime::OverviewSnapshot;
@@ -35,7 +35,10 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new().route("/events", get(subscribe))
 }
 
-async fn subscribe(State(state): State<AppState>) -> Response {
+async fn subscribe(
+    State(state): State<AppState>,
+    Extension(session): Extension<AuthenticatedAdminSession>,
+) -> Response {
     let telemetry = state.request_telemetry();
     let overview = state.admin_realtime().subscribe();
     let oauth_changes = state.oauth().map(|oauth| {
@@ -45,6 +48,9 @@ async fn subscribe(State(state): State<AppState>) -> Response {
         )
     });
     let lifecycle = state.runtime().lifecycle();
+    let auth = state.admin_auth_handle();
+    let snapshots = state.snapshots_handle();
+    let mut revisions = snapshots.subscribe_revision();
     let stream = realtime_notifications(
         telemetry.subscribe_request_log_changes(),
         telemetry.subscribe_active_request_changes(),
@@ -52,7 +58,21 @@ async fn subscribe(State(state): State<AppState>) -> Response {
         overview,
         oauth_changes,
     )
-    .take_until(async move { lifecycle.draining().await })
+    .take_until(async move {
+        loop {
+            let settings = snapshots.load().settings().admin().clone();
+            tokio::select! {
+                biased;
+                changed = revisions.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+                () = lifecycle.draining() => break,
+                () = auth.session_ended(session, &settings) => break,
+            }
+        }
+    })
     .map(|notification| Ok::<_, Infallible>(into_sse_event(notification)));
     let mut response = Sse::new(stream)
         .keep_alive(
