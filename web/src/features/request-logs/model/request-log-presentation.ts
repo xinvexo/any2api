@@ -221,7 +221,7 @@ export function formatTokenCount(value: number | null) {
 }
 
 const NANOS_PER_CREDIT = 1_000_000_000n;
-const USD_DISPLAY_SCALE = 1_000_000n;
+const COST_DISPLAY_SCALE = 10_000n;
 
 export function presentRequestQuotaCost(cost: RequestQuotaCost | null) {
   if (cost === null) {
@@ -248,32 +248,29 @@ export function presentRequestQuotaCost(cost: RequestQuotaCost | null) {
 }
 
 function formatCreditNanos(value: bigint) {
-  const whole = value / NANOS_PER_CREDIT;
-  const fraction = (value % NANOS_PER_CREDIT)
-    .toString()
-    .padStart(9, "0")
-    .replace(/0+$/u, "");
-  return fraction ? `${whole}.${fraction}` : whole.toString();
+  return formatCost(value, NANOS_PER_CREDIT, "");
 }
 
 function formatCreditNanosAsUsd(value: bigint, creditsPerUsd: number) {
-  if (value === 0n) {
-    return "$0";
-  }
   const denominator = NANOS_PER_CREDIT * BigInt(creditsPerUsd);
-  if (value * USD_DISPLAY_SCALE < denominator) {
-    return "<$0.000001";
-  }
-  const scaled = value * USD_DISPLAY_SCALE;
+  return formatCost(value, denominator, "$");
+}
+
+function formatCost(value: bigint, denominator: bigint, prefix: string) {
+  if (value === 0n) return `${prefix}0`;
+  const scaled = value * COST_DISPLAY_SCALE;
+  if (scaled < denominator) return `<${prefix}0.0001`;
   const quotient = scaled / denominator;
   const remainder = scaled % denominator;
   const rounded = remainder * 2n >= denominator ? quotient + 1n : quotient;
-  const dollars = rounded / USD_DISPLAY_SCALE;
-  const fraction = (rounded % USD_DISPLAY_SCALE)
+  const whole = rounded / COST_DISPLAY_SCALE;
+  const fraction = (rounded % COST_DISPLAY_SCALE)
     .toString()
-    .padStart(6, "0")
+    .padStart(4, "0")
     .replace(/0+$/u, "");
-  return fraction ? `$${dollars}.${fraction}` : `$${dollars}`;
+  return fraction
+    ? `${prefix}${whole}.${fraction}`
+    : `${prefix}${whole}`;
 }
 
 /** Compact list latency: first-token / total. */

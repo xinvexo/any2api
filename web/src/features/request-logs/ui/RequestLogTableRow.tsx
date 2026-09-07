@@ -25,7 +25,7 @@ import { cn } from "@/shared/lib/cn";
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-2 " +
-  "[grid-template-columns:7rem_11rem_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(3.5rem,0.55fr)]";
+  "[grid-template-columns:7rem_7.5rem_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(3.5rem,0.55fr)]";
 
 interface RequestLogRowProps {
   log: RequestLog;
@@ -114,8 +114,7 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
         </time>
       </RequestLogTableCell>
       <RequestLogTableCell
-        truncate={false}
-        className="break-all font-mono leading-4 tabular-nums text-secondary"
+        className="font-mono tabular-nums text-secondary"
         title={log.clientIp}
       >
         {log.clientIp}

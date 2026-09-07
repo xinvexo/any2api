@@ -68,8 +68,7 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
     <>
       <Cell className="tabular-nums text-secondary">{formatLogListTime(log.startedAtMs)}</Cell>
       <Cell
-        truncate={false}
-        className="break-all font-mono leading-4 tabular-nums text-secondary"
+        className="font-mono tabular-nums text-secondary"
         title={log.clientIp}
       >
         {log.clientIp}

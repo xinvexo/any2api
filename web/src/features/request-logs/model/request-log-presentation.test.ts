@@ -28,8 +28,8 @@ test("presents quota cost in dollars with exact billing context", () => {
   });
 
   expect(cost).toEqual({
-    value: "$9.937091",
-    detail: "本地估算 · 248.427278 Credits · 25 Credits = $1 · 费率卡 codex-rate-2026-08 · 快速档",
+    value: "$9.9371",
+    detail: "本地估算 · 248.4273 Credits · 25 Credits = $1 · 费率卡 codex-rate-2026-08 · 快速档",
   });
 });
 
@@ -40,7 +40,7 @@ test("preserves tiny, historical, zero, and unavailable quota costs", () => {
     rateCard: "current",
     serviceTier: "standard",
     creditsPerUsd: 25,
-  })?.value).toBe("<$0.000001");
+  })?.value).toBe("<$0.0001");
   expect(presentRequestQuotaCost({
     unit: "codex_credits",
     amountNanos: "9375000000",
@@ -50,11 +50,18 @@ test("preserves tiny, historical, zero, and unavailable quota costs", () => {
   })?.value).toBe("9.375 Credits");
   expect(presentRequestQuotaCost({
     unit: "codex_credits",
+    amountNanos: "1234567890",
+    rateCard: "historical",
+    serviceTier: "standard",
+    creditsPerUsd: null,
+  })?.value).toBe("1.2346 Credits");
+  expect(presentRequestQuotaCost({
+    unit: "codex_credits",
     amountNanos: "9007199254740993",
     rateCard: "historical",
     serviceTier: "standard",
     creditsPerUsd: null,
-  })?.value).toBe("9007199.254740993 Credits");
+  })?.value).toBe("9007199.2547 Credits");
   expect(presentRequestQuotaCost({
     unit: "codex_credits",
     amountNanos: "0",
