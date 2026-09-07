@@ -151,6 +151,7 @@ function completed(requestId: string, startedAtMs: number): RequestLog {
     outputTokens: 1,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
+    quotaCost: null,
     isStream: true,
     requestedSpeedTier: null,
     effectiveSpeedTier: null,

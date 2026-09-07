@@ -35,6 +35,14 @@ export type {
 
 export type RequestLogProtocol = ProtocolDialect;
 export type RequestSpeedTier = "standard" | "fast";
+export interface RequestQuotaCost {
+  unit: "codex_credits";
+  amountNanos: string;
+  rateCard: string;
+  serviceTier: RequestSpeedTier;
+  creditsPerUsd: number | null;
+}
+
 export interface RequestLog {
   requestId: string;
   startedAtMs: number;
@@ -63,6 +71,7 @@ export interface RequestLog {
   outputTokens: number | null;
   cacheReadTokens: number | null;
   cacheCreationTokens: number | null;
+  quotaCost: RequestQuotaCost | null;
   isStream: boolean;
   requestedSpeedTier: RequestSpeedTier | null;
   effectiveSpeedTier: RequestSpeedTier | null;
@@ -217,9 +226,27 @@ function parseRequestLog(value: unknown): RequestLog {
     outputTokens: readNullableInteger(record.output_tokens),
     cacheReadTokens: readNullableInteger(record.cache_read_tokens),
     cacheCreationTokens: readNullableInteger(record.cache_creation_tokens),
+    quotaCost: parseRequestQuotaCost(record.quota_cost),
     isStream: readBoolean(record.is_stream),
     requestedSpeedTier: readNullableSpeedTier(record.requested_speed_tier),
     effectiveSpeedTier: readNullableSpeedTier(record.effective_speed_tier),
+  };
+}
+
+function parseRequestQuotaCost(value: unknown): RequestQuotaCost | null {
+  if (value === null) {
+    return null;
+  }
+  const record = readRecord(value);
+  if (record.unit !== "codex_credits") {
+    throw invalidResponse();
+  }
+  return {
+    unit: "codex_credits",
+    amountNanos: readNonNegativeDecimalString(record.amount_nanos),
+    rateCard: readString(record.rate_card),
+    serviceTier: readSpeedTier(record.service_tier),
+    creditsPerUsd: readNullablePositiveInteger(record.credits_per_usd),
   };
 }
 
@@ -309,6 +336,21 @@ function readNullableSpeedTier(value: unknown): RequestSpeedTier | null {
   throw invalidResponse();
 }
 
+function readSpeedTier(value: unknown): RequestSpeedTier {
+  const tier = readNullableSpeedTier(value);
+  if (tier === null) {
+    throw invalidResponse();
+  }
+  return tier;
+}
+
+function readNonNegativeDecimalString(value: unknown): string {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+    throw invalidResponse();
+  }
+  return value;
+}
+
 function readNonNegativeInteger(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidResponse();
@@ -322,6 +364,10 @@ function readPositiveInteger(value: unknown): number {
     throw invalidResponse();
   }
   return number;
+}
+
+function readNullablePositiveInteger(value: unknown): number | null {
+  return value === null ? null : readPositiveInteger(value);
 }
 
 function readNullableInteger(value: unknown): number | null {

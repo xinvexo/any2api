@@ -78,6 +78,13 @@ describe("request log contracts", () => {
     expect(detail.request.outputTokens).toBe(45);
     expect(detail.request.cacheReadTokens).toBe(30);
     expect(detail.request.cacheCreationTokens).toBe(11);
+    expect(detail.request.quotaCost).toEqual({
+      unit: "codex_credits",
+      amountNanos: "248427278000",
+      rateCard: "codex-rate-2026-08",
+      serviceTier: "fast",
+      creditsPerUsd: 25,
+    });
   });
 
   it("parses a bounded processing request projection", () => {
@@ -159,6 +166,30 @@ describe("request log contracts", () => {
     );
 
     expect(list.items[0]?.inputTokens).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("keeps an unavailable quota cost distinct from zero", () => {
+    const withoutCost = parseRequestLogList(
+      requestLogBatch([{ ...request(), quota_cost: null }]),
+    );
+    const zeroCost = parseRequestLogList(
+      requestLogBatch([{
+        ...request(),
+        quota_cost: { ...request().quota_cost, amount_nanos: "0" },
+      }]),
+    );
+
+    expect(withoutCost.items[0]?.quotaCost).toBeNull();
+    expect(zeroCost.items[0]?.quotaCost?.amountNanos).toBe("0");
+  });
+
+  it("rejects non-canonical quota cost amounts", () => {
+    for (const amount of [-1, "-1", "01", "1.0", "1e3", " 1"]) {
+      expect(() => parseRequestLogList(requestLogBatch([{
+        ...request(),
+        quota_cost: { ...request().quota_cost, amount_nanos: amount },
+      }]))).toThrow("invalid request log response");
+    }
   });
 
   it("accepts Chat Completions request logs", () => {
@@ -394,6 +425,13 @@ function request() {
     output_tokens: 45,
     cache_read_tokens: 30,
     cache_creation_tokens: 11,
+    quota_cost: {
+      unit: "codex_credits",
+      amount_nanos: "248427278000",
+      rate_card: "codex-rate-2026-08",
+      service_tier: "fast",
+      credits_per_usd: 25,
+    },
     is_stream: true,
     requested_speed_tier: "fast",
     effective_speed_tier: "fast",

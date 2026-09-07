@@ -4,6 +4,7 @@ import {
   attemptResultLabel,
   formatLogListTime,
   operationLabel,
+  presentRequestQuotaCost,
   resultBadgeLabel,
   resultTone,
   shouldShowAttemptTimeline,
@@ -15,6 +16,53 @@ test("formats request-list time like the compact system log table", () => {
   const localTime = new Date(2026, 7, 20, 15, 54, 34).getTime();
 
   expect(formatLogListTime(localTime)).toBe("08/20 15:54:34");
+});
+
+test("presents quota cost in dollars with exact billing context", () => {
+  const cost = presentRequestQuotaCost({
+    unit: "codex_credits",
+    amountNanos: "248427278000",
+    rateCard: "codex-rate-2026-08",
+    serviceTier: "fast",
+    creditsPerUsd: 25,
+  });
+
+  expect(cost).toEqual({
+    value: "$9.937091",
+    detail: "本地估算 · 248.427278 Credits · 25 Credits = $1 · 费率卡 codex-rate-2026-08 · 快速档",
+  });
+});
+
+test("preserves tiny, historical, zero, and unavailable quota costs", () => {
+  expect(presentRequestQuotaCost({
+    unit: "codex_credits",
+    amountNanos: "1",
+    rateCard: "current",
+    serviceTier: "standard",
+    creditsPerUsd: 25,
+  })?.value).toBe("<$0.000001");
+  expect(presentRequestQuotaCost({
+    unit: "codex_credits",
+    amountNanos: "9375000000",
+    rateCard: "historical",
+    serviceTier: "standard",
+    creditsPerUsd: null,
+  })?.value).toBe("9.375 Credits");
+  expect(presentRequestQuotaCost({
+    unit: "codex_credits",
+    amountNanos: "9007199254740993",
+    rateCard: "historical",
+    serviceTier: "standard",
+    creditsPerUsd: null,
+  })?.value).toBe("9007199.254740993 Credits");
+  expect(presentRequestQuotaCost({
+    unit: "codex_credits",
+    amountNanos: "0",
+    rateCard: "current",
+    serviceTier: "standard",
+    creditsPerUsd: 25,
+  })?.value).toBe("$0");
+  expect(presentRequestQuotaCost(null)).toBeNull();
 });
 
 test("labels OpenAI Images request logs", () => {

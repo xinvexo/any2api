@@ -1,5 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ErrorClass, LogBatch, RequestAttemptOutcome, RequestLog,
+    CodexQuotaRateCard, CompletedRequestLog, ErrorClass, LogBatch, RequestAttemptOutcome,
+    RequestLog, RequestQuotaCost,
 };
 use any2api_runtime::api::{ActiveRequestLogBatch, PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
@@ -141,6 +142,7 @@ struct RequestLogResponse {
     output_tokens: Option<u64>,
     cache_read_tokens: Option<u64>,
     cache_creation_tokens: Option<u64>,
+    quota_cost: Option<RequestQuotaCostResponse>,
     requested_speed_tier: Option<&'static str>,
     effective_speed_tier: Option<&'static str>,
     is_stream: bool,
@@ -178,6 +180,7 @@ impl RequestLogResponse {
             credential_label,
             oauth_account_label,
             proxy_profile_label,
+            snapshot.settings().oauth().codex_rate_card(),
         )
     }
 
@@ -187,8 +190,12 @@ impl RequestLogResponse {
         credential_label: Option<String>,
         oauth_account_label: Option<String>,
         proxy_profile_label: Option<String>,
+        current_rate_card: &CodexQuotaRateCard,
     ) -> Self {
         let outcome = RequestLogOutcome::from_request(&value);
+        let quota_cost = value
+            .quota_cost
+            .map(|cost| RequestQuotaCostResponse::new(cost, current_rate_card));
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
@@ -217,9 +224,33 @@ impl RequestLogResponse {
             output_tokens: value.output_tokens,
             cache_read_tokens: value.cache_read_tokens,
             cache_creation_tokens: value.cache_creation_tokens,
+            quota_cost,
             requested_speed_tier: value.requested_speed_tier.map(|tier| tier.as_str()),
             effective_speed_tier: value.effective_speed_tier.map(|tier| tier.as_str()),
             is_stream: value.is_stream,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct RequestQuotaCostResponse {
+    unit: &'static str,
+    amount_nanos: String,
+    rate_card: String,
+    service_tier: &'static str,
+    credits_per_usd: Option<u64>,
+}
+
+impl RequestQuotaCostResponse {
+    fn new(value: RequestQuotaCost, current_rate_card: &CodexQuotaRateCard) -> Self {
+        let credits_per_usd = (value.rate_card.as_str() == current_rate_card.id())
+            .then(|| current_rate_card.credits_per_usd());
+        Self {
+            unit: value.unit.as_str(),
+            amount_nanos: value.amount_nanos.to_string(),
+            rate_card: value.rate_card,
+            service_tier: value.service_tier.as_str(),
+            credits_per_usd,
         }
     }
 }
@@ -266,14 +297,15 @@ impl RequestLogOutcome {
 #[cfg(test)]
 mod tests {
     use any2api_domain::{
-        ConfigRevision, ErrorClass, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
-        RequestSpeedTier,
+        CodexQuotaRateCard, ConfigRevision, ErrorClass, ProtocolDialect, ProtocolOperation,
+        QuotaCostUnit, QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost, RequestSpeedTier,
     };
 
-    use super::RequestLogResponse;
+    use super::{RequestLogResponse, RequestQuotaCostResponse};
 
     #[test]
     fn response_preserves_exact_token_telemetry_and_labels() {
+        let current_rate_card = CodexQuotaRateCard::default();
         let response = RequestLogResponse::from_parts(
             RequestLog {
                 request_id: RequestId::new(),
@@ -299,7 +331,15 @@ mod tests {
                 output_tokens: Some(45),
                 cache_read_tokens: Some(30),
                 cache_creation_tokens: Some(11),
-                quota_cost: None,
+                quota_cost: Some(
+                    RequestQuotaCost::new(
+                        QuotaCostUnit::CodexCredits,
+                        9_007_199_254_740_993,
+                        current_rate_card.id(),
+                        QuotaServiceTier::Fast,
+                    )
+                    .expect("quota cost"),
+                ),
                 requested_speed_tier: Some(RequestSpeedTier::Fast),
                 effective_speed_tier: Some(RequestSpeedTier::Standard),
                 is_stream: true,
@@ -308,6 +348,7 @@ mod tests {
             Some("Primary Codex".into()),
             Some("work-oauth".into()),
             Some("DIRECT".into()),
+            &current_rate_card,
         );
 
         let json = serde_json::to_value(response).expect("request log response JSON");
@@ -316,6 +357,14 @@ mod tests {
         assert_eq!(json["output_tokens"], 45);
         assert_eq!(json["cache_read_tokens"], 30);
         assert_eq!(json["cache_creation_tokens"], 11);
+        assert_eq!(json["quota_cost"]["unit"], "codex_credits");
+        assert_eq!(json["quota_cost"]["amount_nanos"], "9007199254740993");
+        assert_eq!(
+            json["quota_cost"]["rate_card"],
+            "openai_codex_credits_2026_08_11"
+        );
+        assert_eq!(json["quota_cost"]["service_tier"], "fast");
+        assert_eq!(json["quota_cost"]["credits_per_usd"], 25);
         assert!(json.get("cache_write_tokens").is_none());
         assert_eq!(json["thinking_level"], "high");
         assert_eq!(json["client_ip"], "203.0.113.8");
@@ -328,5 +377,24 @@ mod tests {
         assert_eq!(json["effective_speed_tier"], "standard");
         assert_eq!(json["outcome"], "failed");
         assert!(json.get("error_class").is_none());
+    }
+
+    #[test]
+    fn historical_quota_cost_omits_the_current_exchange_rate() {
+        let response = RequestQuotaCostResponse::new(
+            RequestQuotaCost::new(
+                QuotaCostUnit::CodexCredits,
+                42,
+                "historical-card",
+                QuotaServiceTier::Standard,
+            )
+            .expect("quota cost"),
+            &CodexQuotaRateCard::default(),
+        );
+
+        let json = serde_json::to_value(response).expect("quota cost response JSON");
+        assert_eq!(json["amount_nanos"], "42");
+        assert_eq!(json["rate_card"], "historical-card");
+        assert!(json["credits_per_usd"].is_null());
     }
 }

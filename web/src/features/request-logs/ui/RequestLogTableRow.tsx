@@ -8,6 +8,7 @@ import {
   formatTps,
   isSuccessOutcome,
   outputTps,
+  presentRequestQuotaCost,
   resultBadgeLabel,
   resultTone,
   upstreamKindTone,
@@ -24,7 +25,7 @@ import { cn } from "@/shared/lib/cn";
 export const REQUEST_LOG_ROW_HEIGHT = 44;
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-2 " +
-  "[grid-template-columns:7rem_11rem_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(3.5rem,0.55fr)]";
+  "[grid-template-columns:7rem_11rem_minmax(8rem,1.5fr)_minmax(9rem,1fr)_minmax(3rem,0.4fr)_minmax(3.5rem,0.55fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.85fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(3.5rem,0.55fr)]";
 
 interface RequestLogRowProps {
   log: RequestLog;
@@ -40,6 +41,7 @@ export const RequestLogCard = memo(function RequestLogCard({
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
+  const quotaCost = presentRequestQuotaCost(log.quotaCost);
   return (
     <div
       role="button"
@@ -84,6 +86,9 @@ export const RequestLogCard = memo(function RequestLogCard({
         </span>
         <span className="shrink-0 tabular-nums">In {success ? formatTokenCount(log.inputTokens) : "—"}</span>
         <span className="shrink-0 tabular-nums">Out {success ? formatTokenCount(log.outputTokens) : "—"}</span>
+        <span className="min-w-0 truncate tabular-nums" title={quotaCost?.detail}>
+          费用 {quotaCost?.value ?? "—"}
+        </span>
         <span className="min-w-0 flex-1 truncate text-right" title={source.displayName}>
           {source.displayName}
         </span>
@@ -100,6 +105,7 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
   const success = isSuccessOutcome(log.outcome);
+  const quotaCost = presentRequestQuotaCost(log.quotaCost);
   return (
     <>
       <RequestLogTableCell className="tabular-nums text-secondary">
@@ -135,6 +141,7 @@ export const RequestLogTableCells = memo(function RequestLogTableCells({
       <Metric value={success ? formatTokenCount(log.inputTokens) : "—"} />
       <Metric value={success ? formatTokenCount(log.cacheReadTokens) : "—"} />
       <Metric value={success ? formatTokenCount(log.outputTokens) : "—"} />
+      <Metric value={quotaCost?.value ?? "—"} title={quotaCost?.detail} />
       <Metric value={success ? formatTps(outputTps(log)) : "—"} />
     </>
   );
@@ -154,8 +161,8 @@ function ResultBadge({ log }: { log: RequestLog }) {
   );
 }
 
-function Metric({ value }: { value: string }) {
-  return <RequestLogTableCell className="tabular-nums text-secondary">{value}</RequestLogTableCell>;
+function Metric({ value, title }: { value: string; title?: string }) {
+  return <RequestLogTableCell className="tabular-nums text-secondary" title={title}>{value}</RequestLogTableCell>;
 }
 
 export function RequestLogTableCell({

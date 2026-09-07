@@ -73,8 +73,9 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(headers[9]).toHaveTextContent("输入");
   expect(headers[10]).toHaveTextContent("缓存命中");
   expect(headers[11]).toHaveTextContent("输出");
+  expect(headers[12]).toHaveTextContent("估算费用");
   const activeCells = within(activeRow as HTMLElement).getAllByRole("cell");
-  expect(activeCells).toHaveLength(13);
+  expect(activeCells).toHaveLength(14);
   expect(activeCells[0]).not.toHaveTextContent(/^\d{4}\//);
   expect(activeCells[1]).toHaveAttribute("title", active.clientIp);
   expect(activeCells[1]).toHaveClass("break-all");
@@ -86,8 +87,9 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(activeCells[4]).toHaveTextContent("—");
   expect(activeCells[7]).toHaveTextContent("1.00 s");
   expect(activeCells[8]).toHaveTextContent("—");
+  expect(activeCells[12]).toHaveTextContent("—");
   const completedCells = within(completedRow).getAllByRole("cell");
-  expect(completedCells).toHaveLength(13);
+  expect(completedCells).toHaveLength(14);
   expect(completedCells[0]).not.toHaveTextContent(/^\d{4}\//);
   expect(completedCells[1]).toHaveAttribute("title", completed.clientIp);
   expect(completedCells[1]).toHaveClass("break-all");
@@ -98,6 +100,8 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(completedCells[8]).toHaveTextContent("2 ms");
   expect(completedCells[10]).toHaveTextContent("0");
   expect(completedCells[11]).toHaveTextContent("1");
+  expect(completedCells[12]).toHaveTextContent("$0.4");
+  expect(completedCells[12]).toHaveAttribute("title", expect.stringContaining("本地估算"));
 });
 
 function requestLog(index: number): RequestLog {
@@ -129,6 +133,13 @@ function requestLog(index: number): RequestLog {
     outputTokens: 1,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
+    quotaCost: {
+      unit: "codex_credits",
+      amountNanos: "10000000000",
+      rateCard: "codex-rate-2026-08",
+      serviceTier: "fast",
+      creditsPerUsd: 25,
+    },
     isStream: true,
     requestedSpeedTier: "fast",
     effectiveSpeedTier: "fast",

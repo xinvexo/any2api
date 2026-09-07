@@ -102,6 +102,7 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
       <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
+      <Cell className="text-secondary">—</Cell>
     </>
   );
 });

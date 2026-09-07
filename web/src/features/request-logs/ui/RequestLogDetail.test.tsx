@@ -30,6 +30,8 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("120")).toBeInTheDocument();
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
+  expect(screen.getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
+  expect(screen.getByText(/费率卡 codex-rate-2026-08/)).toBeInTheDocument();
   expect(screen.getByText("frapi · Primary credential")).toBeInTheDocument();
   expect(screen.getByText("Upstream 1 · Credential 1")).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(1);
@@ -235,6 +237,13 @@ function request(overrides: Record<string, unknown> = {}) {
     output_tokens: 45,
     cache_read_tokens: 30,
     cache_creation_tokens: null,
+    quota_cost: {
+      unit: "codex_credits",
+      amount_nanos: "10000000000",
+      rate_card: "codex-rate-2026-08",
+      service_tier: "fast",
+      credits_per_usd: 25,
+    },
     is_stream: true,
     requested_speed_tier: null,
     effective_speed_tier: null,

@@ -14,6 +14,7 @@ import {
   isSuccessOutcome,
   operationLabel,
   outputTps,
+  presentRequestQuotaCost,
   proxyDisplayName,
   resultBadgeLabel,
   resultTone,
@@ -73,6 +74,7 @@ function RequestLogDrawerContent({
     request.attemptCount,
   );
   const sourceMetric = upstreamCredentialDisplay(request);
+  const quotaCost = presentRequestQuotaCost(request.quotaCost);
   return (
     <div className="min-w-0 space-y-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -96,6 +98,11 @@ function RequestLogDrawerContent({
         <Metric label="思考级别" value={request.thinkingLevel ?? "未设置"} />
         <Metric label="HTTP 状态" value={String(request.statusCode)} />
         <Metric label="总耗时" value={formatDurationMs(request.latencyMs)} />
+        <Metric
+          label="本地估算费用"
+          value={quotaCost?.value ?? "—"}
+          detail={quotaCost?.detail}
+        />
         {success ? (
           <>
             <Metric label="首 Token 延迟" value={formatDurationMs(request.firstTokenMs)} />
@@ -187,11 +194,24 @@ function AttemptMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Metric({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+function Metric({
+  label,
+  value,
+  detail,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  mono?: boolean;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-tertiary">{label}</dt>
-      <dd className={`mt-0.5 break-all text-primary ${mono ? "font-mono" : ""}`}>{value}</dd>
+      <dd className={`mt-0.5 break-all text-primary ${mono ? "font-mono" : ""}`} title={detail}>
+        {value}
+        {detail ? <span className="mt-0.5 block text-[10px] text-tertiary">{detail}</span> : null}
+      </dd>
     </div>
   );
 }

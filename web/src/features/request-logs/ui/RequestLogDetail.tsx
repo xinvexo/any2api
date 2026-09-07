@@ -11,6 +11,7 @@ import {
   isSuccessOutcome,
   operationLabel,
   outputTps,
+  presentRequestQuotaCost,
   proxyDisplayName,
   resultBadgeLabel,
   resultTone,
@@ -75,6 +76,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
   }
 
   const { request, attempts } = query.data;
+  const quotaCost = presentRequestQuotaCost(request.quotaCost);
   return (
     <div className="space-y-5" aria-busy={query.isFetching}>
       <Link
@@ -110,6 +112,11 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="接口" value={operationLabel(request.operation)} />
           <Detail label="客户端 IP" value={request.clientIp} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
+          <Detail
+            label="本地估算费用"
+            value={quotaCost?.value ?? "—"}
+            detail={quotaCost?.detail}
+          />
           <Detail label="HTTP 状态" value={String(request.statusCode)} />
           <Detail label="尝试次数" value={String(request.attemptCount)} />
           <Detail {...upstreamCredentialDisplay(request)} />
@@ -213,11 +220,14 @@ function AttemptRow({
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <div>
       <dt className="text-xs text-tertiary">{label}</dt>
-      <dd className="mt-1 break-all font-medium">{value}</dd>
+      <dd className="mt-1 break-all font-medium" title={detail}>
+        {value}
+        {detail ? <span className="mt-1 block text-xs font-normal text-tertiary">{detail}</span> : null}
+      </dd>
     </div>
   );
 }

@@ -47,7 +47,7 @@ export function RequestLogVirtualTable({
 
   return (
     <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
-      <div role="table" aria-label="请求日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[80rem] flex-col">
+      <div role="table" aria-label="请求日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[86rem] flex-col">
         <div role="rowgroup" aria-label="请求日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
           <div role="row" aria-rowindex={1} className={cn(requestLogGridClass, "text-[11px] font-medium text-tertiary")}>
             <Header>时间</Header>
@@ -62,6 +62,7 @@ export function RequestLogVirtualTable({
             <Header>输入</Header>
             <Header>缓存命中</Header>
             <Header>输出</Header>
+            <Header>估算费用</Header>
             <Header>TPS</Header>
           </div>
         </div>

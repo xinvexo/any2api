@@ -46,6 +46,7 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
   expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
   expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
+  expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", expect.stringContaining("本地估算"));
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
@@ -65,6 +66,7 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
   expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();
   expect(within(drawer).getByText("Claude · primary")).toBeInTheDocument();
+  expect(within(drawer).getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
   expect(within(drawer).queryByText("日志遥测")).not.toBeInTheDocument();
 });
 
@@ -200,6 +202,7 @@ test("keeps failed request details focused on the actual failure", async () => {
   expect(within(drawer).queryByText("输入 Token")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("输出 Token")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("TPS")).not.toBeInTheDocument();
+  expect(within(drawer).getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
   expect(within(drawer).queryByText(/Route/)).not.toBeInTheDocument();
   expect(within(drawer).queryByText(/generic-rustls/)).not.toBeInTheDocument();
 });
@@ -262,6 +265,13 @@ function requestLogs(): RequestLogList {
         outputTokens: 25,
         cacheReadTokens: 100,
         cacheCreationTokens: null,
+        quotaCost: {
+          unit: "codex_credits",
+          amountNanos: "10000000000",
+          rateCard: "codex-rate-2026-08",
+          serviceTier: "fast",
+          creditsPerUsd: 25,
+        },
         isStream: true,
         requestedSpeedTier: "fast",
         effectiveSpeedTier: "fast",

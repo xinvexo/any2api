@@ -3,6 +3,7 @@ import type {
   RequestLog,
   RequestLogOperation,
   RequestLogOutcome,
+  RequestQuotaCost,
 } from "../api/request-log-contracts";
 import { formatCompactDateTime } from "@/shared/lib/date-time";
 
@@ -217,6 +218,62 @@ export function formatDurationMs(value: number | null) {
 
 export function formatTokenCount(value: number | null) {
   return value === null ? "—" : value.toLocaleString();
+}
+
+const NANOS_PER_CREDIT = 1_000_000_000n;
+const USD_DISPLAY_SCALE = 1_000_000n;
+
+export function presentRequestQuotaCost(cost: RequestQuotaCost | null) {
+  if (cost === null) {
+    return null;
+  }
+  const amountNanos = BigInt(cost.amountNanos);
+  const credits = formatCreditNanos(amountNanos);
+  const tier = cost.serviceTier === "fast" ? "快速档" : "标准档";
+  const exchange = cost.creditsPerUsd === null
+    ? null
+    : `${cost.creditsPerUsd} Credits = $1`;
+  return {
+    value: cost.creditsPerUsd === null
+      ? `${credits} Credits`
+      : formatCreditNanosAsUsd(amountNanos, cost.creditsPerUsd),
+    detail: [
+      "本地估算",
+      `${credits} Credits`,
+      exchange,
+      `费率卡 ${cost.rateCard}`,
+      tier,
+    ].filter((item) => item !== null).join(" · "),
+  };
+}
+
+function formatCreditNanos(value: bigint) {
+  const whole = value / NANOS_PER_CREDIT;
+  const fraction = (value % NANOS_PER_CREDIT)
+    .toString()
+    .padStart(9, "0")
+    .replace(/0+$/u, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+function formatCreditNanosAsUsd(value: bigint, creditsPerUsd: number) {
+  if (value === 0n) {
+    return "$0";
+  }
+  const denominator = NANOS_PER_CREDIT * BigInt(creditsPerUsd);
+  if (value * USD_DISPLAY_SCALE < denominator) {
+    return "<$0.000001";
+  }
+  const scaled = value * USD_DISPLAY_SCALE;
+  const quotient = scaled / denominator;
+  const remainder = scaled % denominator;
+  const rounded = remainder * 2n >= denominator ? quotient + 1n : quotient;
+  const dollars = rounded / USD_DISPLAY_SCALE;
+  const fraction = (rounded % USD_DISPLAY_SCALE)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/u, "");
+  return fraction ? `$${dollars}.${fraction}` : `$${dollars}`;
 }
 
 /** Compact list latency: first-token / total. */
