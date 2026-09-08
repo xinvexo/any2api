@@ -17,7 +17,7 @@ use any2api_transport::api::{
     TransportRequest, TransportTrafficClass,
 };
 use bytes::{Bytes, BytesMut};
-use futures_util::{StreamExt, future::join_all};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use thiserror::Error;
 use tokio::{sync::Mutex as AsyncMutex, time::timeout};
 
@@ -59,9 +59,7 @@ impl OfficialClientVersionService {
 
     pub async fn initialize(&self) -> Result<(), OfficialClientVersionError> {
         let _guard = self.synchronize_gate.lock().await;
-        self.load_from_storage().await?;
-        self.refresh_stale_sources().await;
-        Ok(())
+        self.load_from_storage().await
     }
 
     pub fn start(self: &Arc<Self>, lifecycle: &ProcessLifecycle) -> bool {
@@ -75,8 +73,8 @@ impl OfficialClientVersionService {
         let service = Arc::clone(self);
         drop(lifecycle.spawn_until_draining(async move {
             loop {
-                tokio::time::sleep(REFRESH_CHECK_INTERVAL).await;
                 service.synchronize().await;
+                tokio::time::sleep(REFRESH_CHECK_INTERVAL).await;
             }
         }));
         true
@@ -129,12 +127,12 @@ impl OfficialClientVersionService {
             })
             .collect::<Vec<_>>();
 
-        let results = join_all(due.into_iter().map(|(provider, driver)| async move {
-            (provider, self.fetch(provider, driver).await)
-        }))
-        .await;
+        let mut results = due
+            .into_iter()
+            .map(|(provider, driver)| async move { (provider, self.fetch(provider, driver).await) })
+            .collect::<FuturesUnordered<_>>();
 
-        for (provider, result) in results {
+        while let Some((provider, result)) = results.next().await {
             match result {
                 Ok(version) => {
                     if let Err(error) = self

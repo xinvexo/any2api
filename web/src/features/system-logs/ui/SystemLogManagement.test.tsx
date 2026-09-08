@@ -29,6 +29,7 @@ vi.mock("../model/use-clear-system-logs", () => ({
 
 vi.mock("@/shared/realtime", () => ({
   useAdminRealtimeStatus: () => ({ connected: true, stale: false }),
+  useAdminRealtimeReconnect: () => vi.fn(),
 }));
 
 beforeEach(() => {
@@ -63,7 +64,6 @@ beforeEach(() => {
 test("hides admin operations through a fresh server-side feed", async () => {
   render(<SystemLogManagement />);
 
-  expect(screen.queryByRole("switch", { name: "自动刷新" })).not.toBeInTheDocument();
   const filter = screen.getByRole("switch", { name: "显示管理操作" });
   expect(filter).toBeChecked();
 
@@ -94,7 +94,7 @@ test("uses clear-record wording for the destructive log action", async () => {
   expect(screen.getByRole("button", { name: "清空" })).toBeInTheDocument();
 });
 
-test("returns to the latest feed without rendering a new-log banner", async () => {
+test("returns to the latest feed", async () => {
   const applyPending = vi.fn();
   useSystemLogsMock.mockReturnValue({
     data: { pages: [], pageParams: [] },
@@ -114,7 +114,6 @@ test("returns to the latest feed without rendering a new-log banner", async () =
   viewport.scrollTop = 100;
   fireEvent.scroll(viewport);
 
-  expect(screen.queryByText(/条新日志/)).not.toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", { name: "回到顶部" }));
   expect(applyPending).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(viewport.scrollTop).toBe(0));

@@ -128,7 +128,14 @@ async fn response(
     snapshot: &any2api_runtime::api::PublishedSnapshot,
     endpoint_id: ProviderEndpointId,
 ) -> Json<ProviderCredentialCollectionResponse> {
-    let usage = super::upstream_usage::load(state).await;
+    let usage = super::upstream_usage::load(
+        state,
+        snapshot
+            .provider_credentials()
+            .for_endpoint(endpoint_id)
+            .map(|credential| credential.id().into()),
+    )
+    .await;
     Json(ProviderCredentialCollectionResponse::from_snapshot(
         snapshot,
         endpoint_id,
@@ -178,17 +185,4 @@ fn parse_endpoint_id(value: &str) -> Result<ProviderEndpointId, AdminApiError> {
 fn parse_credential_id(value: &str) -> Result<CredentialId, AdminApiError> {
     CredentialId::from_str(value)
         .map_err(|_| AdminApiError::invalid_request("provider credential id is invalid"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mutation_ack_is_snapshot_only_and_synchronous() {
-        let _: fn(
-            &any2api_runtime::api::PublishedSnapshot,
-            ProviderEndpointId,
-        ) -> Json<ProviderCredentialMutationResponse> = mutation_response;
-    }
 }

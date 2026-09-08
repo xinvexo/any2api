@@ -3,6 +3,7 @@ use any2api_runtime::api::PublishedSnapshot;
 use serde::Serialize;
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub(super) struct ActiveRequestLogResponse {
     state: &'static str,
     request_id: String,

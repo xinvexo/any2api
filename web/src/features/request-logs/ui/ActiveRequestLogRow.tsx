@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 
 import type { ActiveRequestLog } from "../api/request-log-contracts";
 import {
@@ -19,12 +19,10 @@ import { cn } from "@/shared/lib/cn";
 
 interface ActiveRequestLogRowProps {
   log: ActiveRequestLog;
-  nowMs: number;
 }
 
 export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
   log,
-  nowMs,
 }: ActiveRequestLogRowProps) {
   const model = log.publicModel?.trim() || "未解析模型";
   return (
@@ -49,7 +47,7 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
         <StatusBadge />
       </div>
       <div className="relative z-10 mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
-        <span className="shrink-0 tabular-nums">{elapsed(log, nowMs)}</span>
+        <span className="shrink-0 tabular-nums"><RequestElapsed startedAtMs={log.startedAtMs} /></span>
         <span className="min-w-0 flex-1 truncate text-right">
           {upstreamSource(log).displayName}
         </span>
@@ -60,7 +58,6 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
 
 export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCells({
   log,
-  nowMs,
 }: ActiveRequestLogRowProps) {
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || "未解析模型";
@@ -95,7 +92,7 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
       </Cell>
       <Cell>{log.thinkingLevel ?? "—"}</Cell>
       <Cell><StatusBadge /></Cell>
-      <Cell className="tabular-nums text-secondary">{elapsed(log, nowMs)}</Cell>
+      <Cell className="tabular-nums text-secondary"><RequestElapsed startedAtMs={log.startedAtMs} /></Cell>
       <Cell className="tabular-nums text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
@@ -114,6 +111,11 @@ function StatusBadge() {
   );
 }
 
-function elapsed(log: ActiveRequestLog, nowMs: number) {
-  return formatDurationMs(Math.max(0, nowMs - log.startedAtMs));
+function RequestElapsed({ startedAtMs }: { startedAtMs: number }) {
+  const [nowMs, setNowMs] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return formatDurationMs(Math.max(0, nowMs - startedAtMs));
 }

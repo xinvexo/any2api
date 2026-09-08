@@ -16,6 +16,7 @@ import {
   type ListEntryAnimation,
 } from "@/shared/ui/useListEntryAnimations";
 import { WindowVirtualList } from "@/shared/ui/WindowVirtualList";
+import { useMobileViewport } from "@/shared/ui/use-mobile-viewport";
 
 interface SystemLogListProps {
   items: readonly SystemLog[];
@@ -40,57 +41,39 @@ export function SystemLogList({
   onLoadMore,
   entryAnimations,
 }: SystemLogListProps) {
-  const handleMobileLatest = useCallback(
-    (visible: boolean) => {
-      if (isMobileViewport()) {
-        onFollowingLatestChange(visible);
-      }
-    },
-    [onFollowingLatestChange],
-  );
+  const mobile = useMobileViewport();
   const handleHistoryVisible = useCallback(
     (visible: boolean) => { if (visible) onLoadMore(); },
     [onLoadMore],
   );
-  return (
-    <>
-      <div
-        className="management-scroll-viewport space-y-2 md:hidden"
-      >
-        <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
-        <WindowVirtualList
-          items={items}
-          getItemKey={(log) => log.requestId}
-          renderItem={(log) => (
-            <SystemLogCard log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
-          )}
-          ariaLabel="系统日志列表"
-          estimateItemHeight={72}
-          getItemClassName={(log) => listEntryAnimationClass(entryAnimations?.get(log.requestId))}
-        />
-        <IntersectionSentinel enabled={hasMore && !loadingMore} rootMargin="400px 0px" onVisibilityChange={handleHistoryVisible} />
-        {loadingMore ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
-      </div>
-      <SystemLogVirtualTable
+  return mobile ? (
+    <div className="management-scroll-viewport space-y-2">
+      <IntersectionSentinel onVisibilityChange={onFollowingLatestChange} />
+      <WindowVirtualList
         items={items}
-        selectedId={selectedId}
-        followingLatest={followingLatest}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        onSelect={onSelect}
-        onFollowingLatestChange={onFollowingLatestChange}
-        onLoadMore={onLoadMore}
-        entryAnimations={entryAnimations}
+        getItemKey={(log) => log.requestId}
+        renderItem={(log) => (
+          <SystemLogCard log={log} selected={selectedId === log.requestId} onSelect={onSelect} />
+        )}
+        ariaLabel="系统日志列表"
+        estimateItemHeight={72}
+        getItemClassName={(log) => listEntryAnimationClass(entryAnimations?.get(log.requestId))}
       />
-    </>
-  );
-}
-
-function isMobileViewport() {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(max-width: 767px)").matches
+      <IntersectionSentinel enabled={hasMore && !loadingMore} rootMargin="400px 0px" onVisibilityChange={handleHistoryVisible} />
+      {loadingMore ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
+    </div>
+  ) : (
+    <SystemLogVirtualTable
+      items={items}
+      selectedId={selectedId}
+      followingLatest={followingLatest}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onSelect={onSelect}
+      onFollowingLatestChange={onFollowingLatestChange}
+      onLoadMore={onLoadMore}
+      entryAnimations={entryAnimations}
+    />
   );
 }
 

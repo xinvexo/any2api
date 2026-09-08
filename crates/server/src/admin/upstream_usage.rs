@@ -17,8 +17,16 @@ pub(super) fn for_id(
     )
 }
 
-pub(super) async fn load(state: &AppState) -> Vec<UpstreamCredentialUsageSummary> {
-    match state.request_telemetry().upstream_credential_usage().await {
+pub(super) async fn load(
+    state: &AppState,
+    ids: impl Iterator<Item = RoutingCredentialId>,
+) -> Vec<UpstreamCredentialUsageSummary> {
+    let ids = ids.collect::<Vec<_>>();
+    match state
+        .request_telemetry()
+        .upstream_credential_usage(&ids)
+        .await
+    {
         Ok(usage) => usage,
         Err(error) => {
             tracing::warn!(%error, "upstream credential usage statistics unavailable");

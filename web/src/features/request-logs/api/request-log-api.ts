@@ -1,5 +1,7 @@
 import { requestJson } from "@/shared/api/http-client";
 import { ADMIN_API_PREFIX } from "@/shared/api/paths";
+import type { RequestLogListResponse } from "@/shared/api/generated/RequestLogListResponse";
+import type { RequestLogDetailResponse } from "@/shared/api/generated/RequestLogDetailResponse";
 
 import {
   parseRequestLogDetail,
@@ -24,7 +26,7 @@ export function getRequestLogs(
   appendFilter(query, "outcome", filters.outcome);
   appendFilter(query, "public_model", filters.publicModel);
   appendFilter(query, "gateway_api_key_id", filters.gatewayApiKeyId);
-  return requestJson<unknown>(
+  return requestJson<RequestLogListResponse>(
     `${ADMIN_API_PREFIX}/request-logs?${query}`,
     { signal },
   ).then(parseRequestLogList);
@@ -37,7 +39,7 @@ function appendFilter(query: URLSearchParams, key: string, value?: string) {
 }
 
 export function getRequestLog(requestId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
-  return requestJson<unknown>(
+  return requestJson<RequestLogDetailResponse>(
     `${ADMIN_API_PREFIX}/request-logs/` + encodeURIComponent(requestId),
     { signal },
   ).then(parseRequestLogDetail);

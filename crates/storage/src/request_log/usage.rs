@@ -15,13 +15,13 @@ pub(crate) const UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL: &str = "SELECT 'provider
      COUNT(*) AS total_requests, \
      SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
      AS successful_requests \
-     FROM request_attempts WHERE credential_id IS NOT NULL GROUP BY credential_id \
+     FROM request_attempts WHERE credential_id IN (SELECT value FROM json_each(?)) GROUP BY credential_id \
      UNION ALL \
      SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
      COUNT(*) AS total_requests, \
      SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
      AS successful_requests \
-     FROM request_attempts WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
+     FROM request_attempts WHERE oauth_account_id IN (SELECT value FROM json_each(?)) GROUP BY oauth_account_id";
 
 pub(crate) const UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
             (started_at_ms / ?) * ? AS bucket_start_ms, \
@@ -29,7 +29,7 @@ pub(crate) const UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL: &str = "SELECT 'provider_
             SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
             AS successful_requests \
      FROM request_attempts \
-     WHERE credential_id IS NOT NULL AND started_at_ms >= ? \
+     WHERE credential_id IN (SELECT value FROM json_each(?)) AND started_at_ms >= ? \
      GROUP BY credential_id, bucket_start_ms \
      UNION ALL \
      SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
@@ -38,7 +38,7 @@ pub(crate) const UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL: &str = "SELECT 'provider_
             SUM(CASE WHEN outcome = 'success' AND status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
             AS successful_requests \
      FROM request_attempts \
-     WHERE oauth_account_id IS NOT NULL AND started_at_ms >= ? \
+     WHERE oauth_account_id IN (SELECT value FROM json_each(?)) AND started_at_ms >= ? \
      GROUP BY oauth_account_id, bucket_start_ms";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,6 +60,7 @@ impl UpstreamCredentialUsageSummary {
 pub trait UpstreamCredentialUsageRepository: Send + Sync {
     async fn list_upstream_credential_usage(
         &self,
+        ids: &[RoutingCredentialId],
     ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError>;
 }
 
@@ -67,12 +68,30 @@ pub trait UpstreamCredentialUsageRepository: Send + Sync {
 impl UpstreamCredentialUsageRepository for SqliteStore {
     async fn list_upstream_credential_usage(
         &self,
+        ids: &[RoutingCredentialId],
     ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let provider_ids = serde_json::to_string(
+            &ids.iter()
+                .filter_map(|id| id.provider_credential_id())
+                .collect::<Vec<_>>(),
+        )
+        .expect("credential IDs are JSON strings");
+        let oauth_ids = serde_json::to_string(
+            &ids.iter()
+                .filter_map(|id| id.oauth_account_id())
+                .collect::<Vec<_>>(),
+        )
+        .expect("account IDs are JSON strings");
         let now_ms = unix_now_ms()?;
         let range_start_ms = request_usage_window_range_start(now_ms);
         let mut transaction = self.pool().begin().await?;
         let summary_rows =
             sqlx::query_as::<_, UpstreamUsageRow>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
+                .bind(&provider_ids)
+                .bind(&oauth_ids)
                 .fetch_all(&mut *transaction)
                 .await?;
         let window_ms =
@@ -83,9 +102,11 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
             sqlx::query_as::<_, UpstreamWindowSlotRow>(UPSTREAM_CREDENTIAL_USAGE_WINDOW_SQL)
                 .bind(window_ms)
                 .bind(window_ms)
+                .bind(&provider_ids)
                 .bind(range_start_ms)
                 .bind(window_ms)
                 .bind(window_ms)
+                .bind(&oauth_ids)
                 .bind(range_start_ms)
                 .fetch_all(&mut *transaction)
                 .await?;

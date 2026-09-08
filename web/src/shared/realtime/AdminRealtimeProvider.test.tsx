@@ -1,11 +1,11 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { FakeEventSource } from "@/test/fake-event-source";
 
 import { AdminRealtimeProvider } from "./AdminRealtimeProvider";
-import { useAdminEvent, useAdminRealtimeStatus } from "./use-admin-event";
+import { useAdminEvent, useAdminRealtimeReconnect, useAdminRealtimeStatus } from "./use-admin-event";
 
 afterEach(() => {
   FakeEventSource.reset();
@@ -94,7 +94,7 @@ test("marks a connected snapshot stale when fresh samples stop arriving", () => 
   expect(screen.getByText("connected stale")).toBeInTheDocument();
 });
 
-test("bounds reconnect attempts and checks authentication once per failure burst", async () => {
+test("bounds automatic retries and allows an explicit reconnect after exhaustion", async () => {
   vi.useFakeTimers();
   vi.stubGlobal("EventSource", FakeEventSource);
   const refresh = vi.fn(async () => undefined);
@@ -102,6 +102,7 @@ test("bounds reconnect attempts and checks authentication once per failure burst
   render(
     <AdminRealtimeProvider authenticated onAuthRefresh={refresh}>
       <StatusConsumer />
+      <ReconnectControl />
     </AdminRealtimeProvider>,
   );
 
@@ -122,7 +123,17 @@ test("bounds reconnect attempts and checks authentication once per failure burst
   expect(refresh).toHaveBeenCalledTimes(1);
   expect(FakeEventSource.instances).toHaveLength(8);
   expect(FakeEventSource.instances.filter((source) => !source.closed)).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "重新连接" }));
+  expect(FakeEventSource.instances).toHaveLength(9);
+  expect(FakeEventSource.instances.filter((source) => !source.closed)).toHaveLength(1);
+  act(() => FakeEventSource.instances.at(-1)?.emit("open"));
+  expect(screen.getByText("connected stale")).toBeInTheDocument();
 });
+
+function ReconnectControl() {
+  const reconnect = useAdminRealtimeReconnect();
+  return <button onClick={reconnect}>重新连接</button>;
+}
 
 function EventConsumer({
   eventName,

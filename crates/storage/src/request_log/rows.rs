@@ -42,6 +42,7 @@ pub(super) struct RequestLogRow {
     quota_cost_nanos: Option<i64>,
     quota_cost_rate_card: Option<String>,
     quota_service_tier: Option<String>,
+    quota_credits_per_usd: Option<i64>,
     requested_speed_tier: Option<String>,
     effective_speed_tier: Option<String>,
     telemetry_process_id: Option<String>,
@@ -151,6 +152,7 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
             row.quota_cost_nanos,
             row.quota_cost_rate_card,
             row.quota_service_tier,
+            row.quota_credits_per_usd,
         )?,
         requested_speed_tier: parse_optional_value(
             row.requested_speed_tier.as_deref(),
@@ -169,18 +171,25 @@ fn parse_quota_cost(
     amount_nanos: Option<i64>,
     rate_card: Option<String>,
     service_tier: Option<String>,
+    credits_per_usd: Option<i64>,
 ) -> Result<Option<RequestQuotaCost>, StorageError> {
     match (unit, amount_nanos, rate_card, service_tier) {
-        (None, None, None, None) => Ok(None),
+        (None, None, None, None) if credits_per_usd.is_none() => Ok(None),
         (Some(unit), Some(amount_nanos), Some(rate_card), Some(service_tier)) => {
             let unit = QuotaCostUnit::parse(&unit).ok_or(StorageError::CorruptTelemetry)?;
             let service_tier =
                 QuotaServiceTier::parse(&service_tier).ok_or(StorageError::CorruptTelemetry)?;
             let amount_nanos =
                 u64::try_from(amount_nanos).map_err(|_| StorageError::CorruptTelemetry)?;
-            RequestQuotaCost::new(unit, amount_nanos, rate_card, service_tier)
-                .map(Some)
-                .ok_or(StorageError::CorruptTelemetry)
+            RequestQuotaCost::new(
+                unit,
+                amount_nanos,
+                rate_card,
+                service_tier,
+                from_optional_i64(credits_per_usd)?,
+            )
+            .map(Some)
+            .ok_or(StorageError::CorruptTelemetry)
         }
         _ => Err(StorageError::CorruptTelemetry),
     }

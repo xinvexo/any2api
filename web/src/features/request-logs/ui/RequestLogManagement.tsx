@@ -1,5 +1,5 @@
 import { RefreshCw, ScrollText } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { RequestLogFilters } from "../api/request-log-filter-contracts";
 import { hasActiveRequestLogFilters } from "../api/request-log-filter-contracts";
@@ -15,7 +15,7 @@ import { RequestLogFilterBar } from "./RequestLogFilterBar";
 import { RequestLogCard } from "./RequestLogTableRow";
 import { RequestLogVirtualTable } from "./RequestLogVirtualTable";
 import { notify } from "@/shared/notifications";
-import { useAdminRealtimeStatus } from "@/shared/realtime";
+import { useAdminRealtimeReconnect, useAdminRealtimeStatus } from "@/shared/realtime";
 import { Button } from "@/shared/ui/Button";
 import { IntersectionSentinel } from "@/shared/ui/IntersectionSentinel";
 import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
@@ -25,6 +25,7 @@ import {
   useListEntryAnimations,
 } from "@/shared/ui/useListEntryAnimations";
 import { WindowVirtualList } from "@/shared/ui/WindowVirtualList";
+import { useMobileViewport } from "@/shared/ui/use-mobile-viewport";
 
 export function RequestLogManagement() {
   const [filters, setFilters] = useState<RequestLogFilters>({});
@@ -33,7 +34,8 @@ export function RequestLogManagement() {
   const mobileTopRef = useRef<HTMLDivElement>(null);
   const query = useRequestLogs(filters, followingLatest);
   const realtime = useAdminRealtimeStatus();
-  const nowMs = useActiveClock(query.activeTotal > 0);
+  const reconnect = useAdminRealtimeReconnect();
+  const mobile = useMobileViewport();
   const entryAnimations = useListEntryAnimations(
     query.items,
     requestEntryId,
@@ -54,24 +56,19 @@ export function RequestLogManagement() {
       if (!await refreshLatest()) {
         return;
       }
+      if (!realtime.connected) reconnect();
       mobileTopRef.current?.scrollIntoView?.({ block: "start" });
       notify.success("请求日志已刷新");
     } catch {
       notify.danger("请求日志刷新失败");
     }
-  }, [refreshLatest]);
+  }, [reconnect, realtime.connected, refreshLatest]);
 
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
       void fetchNextPage();
     }
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
-
-  const handleMobileLatest = useCallback((visible: boolean) => {
-    if (isMobileViewport()) {
-      setFollowingLatest(visible);
-    }
-  }, []);
 
   const changeFilters = (next: RequestLogFilters) => {
     setSelectedId(null);
@@ -130,47 +127,45 @@ export function RequestLogManagement() {
       <div className="pt-3 md:min-h-0 md:flex-1">
         {query.items.length === 0 ? (
           <EmptyState filtered={hasActiveRequestLogFilters(filters)} />
-        ) : (
-          <>
-            <div
-              ref={mobileTopRef}
-              className="management-scroll-viewport space-y-2 md:hidden"
-            >
-              <IntersectionSentinel onVisibilityChange={handleMobileLatest} />
-              <WindowVirtualList
-                items={query.items}
-                getItemKey={requestEntryId}
-                renderItem={(item) =>
-                  isActiveRequestLog(item) ? (
-                    <ActiveRequestLogCard log={item} nowMs={nowMs} />
-                  ) : (
-                    <RequestLogCard log={item} selected={selectedId === item.requestId} onSelect={setSelectedId} />
-                  )
-                }
-                ariaLabel="请求日志列表"
-                estimateItemHeight={72}
-                getItemClassName={(item) => listEntryAnimationClass(entryAnimations.get(item.requestId))}
-              />
-              <IntersectionSentinel
-                enabled={query.hasNextPage && !query.isFetchingNextPage}
-                rootMargin="400px 0px"
-                onVisibilityChange={(visible) => { if (visible) loadMore(); }}
-              />
-              {query.isFetchingNextPage ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
-            </div>
-            <RequestLogVirtualTable
+        ) : mobile ? (
+          <div
+            ref={mobileTopRef}
+            className="management-scroll-viewport space-y-2"
+          >
+            <IntersectionSentinel onVisibilityChange={setFollowingLatest} />
+            <WindowVirtualList
               items={query.items}
-              selectedId={selectedId}
-              nowMs={nowMs}
-              followingLatest={followingLatest}
-              hasMore={query.hasNextPage}
-              loadingMore={query.isFetchingNextPage}
-              onSelect={setSelectedId}
-              onFollowingLatestChange={setFollowingLatest}
-              onLoadMore={loadMore}
-              entryAnimations={entryAnimations}
+              getItemKey={requestEntryId}
+              renderItem={(item) =>
+                isActiveRequestLog(item) ? (
+                  <ActiveRequestLogCard log={item} />
+                ) : (
+                  <RequestLogCard log={item} selected={selectedId === item.requestId} onSelect={setSelectedId} />
+                )
+              }
+              ariaLabel="请求日志列表"
+              estimateItemHeight={72}
+              getItemClassName={(item) => listEntryAnimationClass(entryAnimations.get(item.requestId))}
             />
-          </>
+            <IntersectionSentinel
+              enabled={query.hasNextPage && !query.isFetchingNextPage}
+              rootMargin="400px 0px"
+              onVisibilityChange={(visible) => { if (visible) loadMore(); }}
+            />
+            {query.isFetchingNextPage ? <p className="py-3 text-center text-[12px] text-tertiary">正在加载更早记录</p> : null}
+          </div>
+        ) : (
+          <RequestLogVirtualTable
+            items={query.items}
+            selectedId={selectedId}
+            followingLatest={followingLatest}
+            hasMore={query.hasNextPage}
+            loadingMore={query.isFetchingNextPage}
+            onSelect={setSelectedId}
+            onFollowingLatestChange={setFollowingLatest}
+            onLoadMore={loadMore}
+            entryAnimations={entryAnimations}
+          />
         )}
       </div>
 
@@ -179,16 +174,6 @@ export function RequestLogManagement() {
       <RequestLogDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   );
-}
-
-function useActiveClock(enabled: boolean) {
-  const [nowMs, setNowMs] = useState(Date.now);
-  useEffect(() => {
-    if (!enabled) return;
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [enabled]);
-  return nowMs;
 }
 
 function EmptyState({ filtered }: { filtered: boolean }) {
@@ -201,12 +186,4 @@ function requestEntryId(item: RequestLogFeedItem) {
 
 function requestEntryState(item: RequestLogFeedItem) {
   return isActiveRequestLog(item) ? "processing" : item.outcome;
-}
-
-function isMobileViewport() {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(max-width: 767px)").matches
-  );
 }

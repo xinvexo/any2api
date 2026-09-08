@@ -1,14 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import type { RequestLogList } from "../api/request-log-contracts";
 import { requestLogQueryKeys } from "../model/request-log-query-keys";
 import { RequestLogManagement } from "./RequestLogManagement";
 import { AdminRealtimeProvider } from "@/shared/realtime";
 
+afterEach(() => vi.unstubAllGlobals());
+
 test("shows compact metrics and opens request details in a drawer", async () => {
+  const media = Object.assign(new EventTarget(), { matches: false });
+  vi.stubGlobal("matchMedia", () => media);
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
@@ -41,36 +45,43 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   expect(screen.getByRole("columnheader", { name: "缓存命中" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
   expect(screen.getByRole("cell", { name: "203.0.113.8" })).toBeInTheDocument();
-  expect(within(screen.getByRole("list", { name: "请求日志列表" })).getByText("claude-test")).toBeInTheDocument();
-  const mobileList = screen.getByRole("list", { name: "请求日志列表" });
-  const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
-  expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
-  expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
-  expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", "10 Credits · Fast");
+  expect(screen.queryByRole("list", { name: "请求日志列表" })).not.toBeInTheDocument();
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
-  expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
   const viewport = screen.getByRole("rowgroup", { name: "请求日志表格数据" });
   viewport.scrollTop = 100;
   fireEvent.scroll(viewport);
-  expect(screen.queryByText(/条新日志/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "回到顶部" }));
   await waitFor(() => expect(viewport.scrollTop).toBe(0));
 
   const row = screen.getByRole("row", { name: "查看请求 claude-test" });
   fireEvent.click(row);
   expect(screen.queryByRole("dialog", { name: "请求详情" })).not.toBeInTheDocument();
-  fireEvent.doubleClick(row);
+
+  act(() => {
+    media.matches = true;
+    media.dispatchEvent(new Event("change"));
+  });
+  expect(screen.queryByRole("table", { name: "请求日志表格" })).not.toBeInTheDocument();
+  const mobileList = screen.getByRole("list", { name: "请求日志列表" });
+  const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
+  expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
+  expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
+  expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", "10 Credits · Fast");
+  fireEvent.doubleClick(completedCard);
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getByText("Gateway API Key")).toBeInTheDocument();
-  expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
   expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();
   expect(within(drawer).getByText("Claude · primary")).toBeInTheDocument();
   expect(within(drawer).getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
-  expect(within(drawer).queryByText("日志遥测")).not.toBeInTheDocument();
+  act(() => {
+    media.matches = false;
+    media.dispatchEvent(new Event("change"));
+  });
+  expect(screen.getByRole("dialog", { name: "请求详情" })).toBe(drawer);
 });
 
-test("does not show an endpoint placeholder for OAuth requests", async () => {
+test("identifies the OAuth account in request details", async () => {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
@@ -109,7 +120,6 @@ test("does not show an endpoint placeholder for OAuth requests", async () => {
 
   fireEvent.doubleClick(screen.getByRole("row", { name: "查看请求 claude-test" }));
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
-  expect(within(drawer).queryByText("Provider Endpoint")).not.toBeInTheDocument();
   expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();
   expect(within(drawer).getByText("OAuth · marking.huge_20@icloud.com")).toBeInTheDocument();
   expect(within(drawer).getAllByText("claude-test")).toHaveLength(1);
@@ -203,8 +213,6 @@ test("keeps failed request details focused on the actual failure", async () => {
   expect(within(drawer).queryByText("输出 Token")).not.toBeInTheDocument();
   expect(within(drawer).queryByText("TPS")).not.toBeInTheDocument();
   expect(within(drawer).getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
-  expect(within(drawer).queryByText(/Route/)).not.toBeInTheDocument();
-  expect(within(drawer).queryByText(/generic-rustls/)).not.toBeInTheDocument();
 });
 
 function requestLogs(): RequestLogList {

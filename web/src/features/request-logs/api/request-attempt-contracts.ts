@@ -1,4 +1,9 @@
-export type RequestLogOutcome = "success" | "failed" | "cancelled";
+import type { RequestLogOutcome } from "@/shared/api/generated/RequestLogOutcome";
+import type { RequestAttemptResponse } from "@/shared/api/generated/RequestAttemptResponse";
+import type { RequestAttemptTransportResponse } from "@/shared/api/generated/RequestAttemptTransportResponse";
+import type { RequestAttemptStreamTimingResponse } from "@/shared/api/generated/RequestAttemptStreamTimingResponse";
+
+export type { RequestLogOutcome } from "@/shared/api/generated/RequestLogOutcome";
 export type RequestRoutingMode = "balanced" | "bound";
 export type RequestAttemptFailureScope =
   | "unattributed"
@@ -67,7 +72,7 @@ export interface RequestAttempt {
 }
 
 export function parseRequestAttempt(value: unknown): RequestAttempt {
-  const record = readRecord(value);
+  const record = readRecord<RequestAttemptResponse>(value);
   const statusCode = readNullableStatusCode(record.status_code);
   const outcome = parseRequestLogOutcome(record.outcome);
   if (outcome === "success" && (statusCode === null || statusCode < 200 || statusCode >= 300)) {
@@ -105,7 +110,7 @@ export function parseRequestLogOutcome(value: unknown): RequestLogOutcome {
 }
 
 function parseTransport(value: unknown): RequestAttemptTransport {
-  const record = readRecord(value);
+  const record = readRecord<RequestAttemptTransportResponse>(value);
   const wireProfileId = readString(record.wire_profile_id);
   if (wireProfileId.length > 64) {
     throw invalidResponse();
@@ -126,7 +131,7 @@ function parseTransport(value: unknown): RequestAttemptTransport {
 }
 
 function parseStreamTiming(value: unknown): RequestAttemptStreamTiming {
-  const record = readRecord(value);
+  const record = readRecord<RequestAttemptStreamTimingResponse>(value);
   const timing = {
     firstUpstreamFrameMs: readNullableInteger(record.first_upstream_frame_ms),
     streamCommitMs: readNullableInteger(record.stream_commit_ms),
@@ -193,44 +198,44 @@ function readNullableRetryDecision(value: unknown): RequestAttemptRetryDecision 
   throw invalidResponse();
 }
 
-function readRecord(value: unknown): Record<string, unknown> {
+function readRecord<T extends object>(value: unknown): T {
   if (typeof value !== "object" || value === null) throw invalidResponse();
-  return value as Record<string, unknown>;
+  return value as T;
 }
 
-function readString(value: unknown): string {
+function readString(value: string): string {
   if (typeof value !== "string" || value.length === 0) throw invalidResponse();
   return value;
 }
 
-function readNullableString(value: unknown): string | null {
+function readNullableString(value: string | null): string | null {
   return value === null ? null : readString(value);
 }
 
-function readNullableDisplayString(value: unknown): string | null {
+function readNullableDisplayString(value: string | null): string | null {
   if (value === null) return null;
   if (typeof value !== "string") throw invalidResponse();
   return value.trim() || null;
 }
 
-function readNonNegativeInteger(value: unknown): number {
+function readNonNegativeInteger(value: number): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidResponse();
   }
   return value;
 }
 
-function readPositiveInteger(value: unknown): number {
+function readPositiveInteger(value: number): number {
   const number = readNonNegativeInteger(value);
   if (number === 0) throw invalidResponse();
   return number;
 }
 
-function readNullableInteger(value: unknown): number | null {
+function readNullableInteger(value: number | null): number | null {
   return value === null ? null : readNonNegativeInteger(value);
 }
 
-function readNullableStatusCode(value: unknown): number | null {
+function readNullableStatusCode(value: number | null): number | null {
   if (value === null) return null;
   const status = readNonNegativeInteger(value);
   if (status < 100 || status > 599) throw invalidResponse();

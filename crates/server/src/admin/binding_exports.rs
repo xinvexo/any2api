@@ -15,4 +15,5 @@ fn export_admin_bindings() {
     super::request_usage::export_bindings(&config).expect("export request usage bindings");
     super::gateway_api_key::export_bindings(&config).expect("export gateway API Key bindings");
     super::overview::export_bindings(&config).expect("export overview bindings");
+    super::request_log::export_bindings(&config).expect("export request log bindings");
 }

@@ -78,9 +78,10 @@ impl RequestTelemetry {
 
     pub async fn upstream_credential_usage(
         &self,
+        ids: &[any2api_domain::RoutingCredentialId],
     ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
         match &self.upstream_usage_repository {
-            Some(repository) => repository.list_upstream_credential_usage().await,
+            Some(repository) => repository.list_upstream_credential_usage(ids).await,
             None => Ok(Vec::new()),
         }
     }

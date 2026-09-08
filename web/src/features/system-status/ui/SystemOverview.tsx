@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useBalancingRuntime } from "../model/use-balancing-runtime";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
-import { useAdminRealtimeStatus } from "@/shared/realtime";
+import { useAdminRealtimeReconnect, useAdminRealtimeStatus } from "@/shared/realtime";
 import { IconButton } from "@/shared/ui/IconButton";
 
 import { useOverviewResources } from "../model/use-overview-resources";
@@ -17,6 +17,7 @@ export function SystemOverview() {
   const runtime = useBalancingRuntime();
   const resources = useOverviewResources();
   const realtime = useAdminRealtimeStatus();
+  const reconnect = useAdminRealtimeReconnect();
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const status = resolveSystemStatus(
     runtime.isPending,
@@ -34,6 +35,7 @@ export function SystemOverview() {
         resources.refetch(),
       ]);
       if (results.every((result) => result.isSuccess)) {
+        if (!realtime.connected) reconnect();
         notify.success("系统总览已刷新");
       }
     } finally {

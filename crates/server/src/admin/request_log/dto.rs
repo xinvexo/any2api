@@ -1,6 +1,5 @@
 use any2api_domain::{
-    CodexQuotaRateCard, CompletedRequestLog, ErrorClass, LogBatch, RequestAttemptOutcome,
-    RequestLog, RequestQuotaCost,
+    CompletedRequestLog, ErrorClass, LogBatch, RequestAttemptOutcome, RequestLog, RequestQuotaCost,
 };
 use any2api_runtime::api::{ActiveRequestLogBatch, PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
@@ -11,6 +10,7 @@ use super::filter_options::RequestLogFilterOptionsResponse;
 use super::{active_dto::ActiveRequestLogResponse, attempt_dto::RequestAttemptResponse};
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub(crate) struct RequestLogListResponse {
     active_items: Vec<ActiveRequestLogResponse>,
     active_total: u64,
@@ -70,6 +70,7 @@ impl RequestLogListResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub(crate) struct RequestLogDetailResponse {
     request: RequestLogResponse,
     attempts: Vec<RequestAttemptResponse>,
@@ -95,6 +96,7 @@ impl RequestLogDetailResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct RequestTelemetryResponse {
     queued_records: usize,
     in_flight_records: usize,
@@ -114,6 +116,7 @@ impl From<RequestTelemetryMetrics> for RequestTelemetryResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct RequestLogResponse {
     request_id: String,
     started_at_ms: u64,
@@ -180,7 +183,6 @@ impl RequestLogResponse {
             credential_label,
             oauth_account_label,
             proxy_profile_label,
-            snapshot.settings().oauth().codex_rate_card(),
         )
     }
 
@@ -190,12 +192,9 @@ impl RequestLogResponse {
         credential_label: Option<String>,
         oauth_account_label: Option<String>,
         proxy_profile_label: Option<String>,
-        current_rate_card: &CodexQuotaRateCard,
     ) -> Self {
         let outcome = RequestLogOutcome::from_request(&value);
-        let quota_cost = value
-            .quota_cost
-            .map(|cost| RequestQuotaCostResponse::new(cost, current_rate_card));
+        let quota_cost = value.quota_cost.map(RequestQuotaCostResponse::from);
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
@@ -233,6 +232,7 @@ impl RequestLogResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct RequestQuotaCostResponse {
     unit: &'static str,
     amount_nanos: String,
@@ -241,21 +241,20 @@ struct RequestQuotaCostResponse {
     credits_per_usd: Option<u64>,
 }
 
-impl RequestQuotaCostResponse {
-    fn new(value: RequestQuotaCost, current_rate_card: &CodexQuotaRateCard) -> Self {
-        let credits_per_usd = (value.rate_card.as_str() == current_rate_card.id())
-            .then(|| current_rate_card.credits_per_usd());
+impl From<RequestQuotaCost> for RequestQuotaCostResponse {
+    fn from(value: RequestQuotaCost) -> Self {
         Self {
             unit: value.unit.as_str(),
             amount_nanos: value.amount_nanos.to_string(),
             rate_card: value.rate_card,
             service_tier: value.service_tier.as_str(),
-            credits_per_usd,
+            credits_per_usd: value.credits_per_usd,
         }
     }
 }
 
 #[derive(Clone, Copy, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub(super) enum RequestLogOutcome {
     Success,
@@ -292,6 +291,13 @@ impl RequestLogOutcome {
             | RequestAttemptOutcome::StreamError => Self::Failed,
         }
     }
+}
+
+#[cfg(test)]
+pub(in crate::admin) fn export_bindings(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    use ts_rs::TS;
+    RequestLogListResponse::export_all(config)?;
+    RequestLogDetailResponse::export_all(config)
 }
 
 #[cfg(test)]
@@ -337,6 +343,7 @@ mod tests {
                         9_007_199_254_740_993,
                         current_rate_card.id(),
                         QuotaServiceTier::Fast,
+                        Some(25),
                     )
                     .expect("quota cost"),
                 ),
@@ -348,7 +355,6 @@ mod tests {
             Some("Primary Codex".into()),
             Some("work-oauth".into()),
             Some("DIRECT".into()),
-            &current_rate_card,
         );
 
         let json = serde_json::to_value(response).expect("request log response JSON");
@@ -380,21 +386,23 @@ mod tests {
     }
 
     #[test]
-    fn historical_quota_cost_omits_the_current_exchange_rate() {
-        let response = RequestQuotaCostResponse::new(
-            RequestQuotaCost::new(
-                QuotaCostUnit::CodexCredits,
-                42,
-                "historical-card",
-                QuotaServiceTier::Standard,
-            )
-            .expect("quota cost"),
-            &CodexQuotaRateCard::default(),
-        );
+    fn historical_quota_cost_preserves_its_recorded_exchange_rate() {
+        for credits_per_usd in [None, Some(30)] {
+            let response = RequestQuotaCostResponse::from(
+                RequestQuotaCost::new(
+                    QuotaCostUnit::CodexCredits,
+                    42,
+                    "historical-card",
+                    QuotaServiceTier::Standard,
+                    credits_per_usd,
+                )
+                .expect("quota cost"),
+            );
 
-        let json = serde_json::to_value(response).expect("quota cost response JSON");
-        assert_eq!(json["amount_nanos"], "42");
-        assert_eq!(json["rate_card"], "historical-card");
-        assert!(json["credits_per_usd"].is_null());
+            let json = serde_json::to_value(response).expect("quota cost response JSON");
+            assert_eq!(json["amount_nanos"], "42");
+            assert_eq!(json["rate_card"], "historical-card");
+            assert_eq!(json["credits_per_usd"], serde_json::json!(credits_per_usd));
+        }
     }
 }

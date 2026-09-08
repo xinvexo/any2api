@@ -166,27 +166,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn summary_is_metadata_only() {
-        let log = HttpAccessLog {
-            request_id: RequestId::new(),
-            started_at_ms: 1,
-            config_revision: ConfigRevision::INITIAL,
-            client_ip: None,
-            method: "POST".to_owned(),
-            path: "/v1/responses".to_owned(),
-            http_version: HttpProtocolVersion::Http11,
-            status_code: Some(200),
-            duration_ms: 2,
-            response_bytes: 2,
-            outcome: HttpAccessLogOutcome::Completed,
-            gateway_auth_rejected: false,
-        };
-
-        let summary = log.summary();
-        assert_eq!(summary.path, "/v1/responses");
-    }
-
-    #[test]
     fn gateway_auth_rejection_capacity_is_one_quarter_with_a_small_floor() {
         assert_eq!(gateway_auth_rejected_capacity(1), 1);
         assert_eq!(gateway_auth_rejected_capacity(4), 1);

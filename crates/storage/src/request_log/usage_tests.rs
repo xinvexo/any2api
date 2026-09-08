@@ -171,7 +171,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         .expect("append request logs");
 
     let usage = store
-        .list_upstream_credential_usage()
+        .list_upstream_credential_usage(&[credential_id.into(), oauth_account_id.into()])
         .await
         .expect("upstream usage");
     assert_eq!(usage.len(), 2);
@@ -213,6 +213,21 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     let oauth_newest = oauth.window_slots.last().expect("oauth newest");
     assert_eq!(oauth_newest.total_requests, 2);
     assert_eq!(oauth_newest.successful_requests, 1);
+
+    for expected in [&provider, &oauth] {
+        let scoped = store
+            .list_upstream_credential_usage(&[expected.id, expected.id])
+            .await
+            .expect("scoped usage");
+        assert_eq!(scoped, vec![(*expected).clone()]);
+    }
+    assert!(
+        store
+            .list_upstream_credential_usage(&[])
+            .await
+            .expect("empty selection")
+            .is_empty()
+    );
 }
 
 fn align_now() -> u64 {

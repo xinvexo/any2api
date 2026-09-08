@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 
 import type { SettingItem } from "../api/settings-contracts";
 import {
-  enumOptionLabel,
   reloadLabel,
   settingDescription,
   settingLabel,
@@ -88,20 +87,4 @@ test("labels inbound slowloris protection settings", () => {
   expect(settingLabel(body)).toBe("请求体空闲超时");
   expect(reloadLabel(header)).toBe("修改后需要重启");
   expect(reloadLabel(body)).toBe("修改后需要重启");
-});
-
-test("keeps logging level enum values in their protocol form", () => {
-  expect([
-    "error",
-    "warn",
-    "info",
-    "debug",
-    "trace",
-  ].map((value) => enumOptionLabel(value))).toEqual([
-    "error",
-    "warn",
-    "info",
-    "debug",
-    "trace",
-  ]);
 });

@@ -1,3 +1,10 @@
+import type { ActiveRequestLogResponse } from "@/shared/api/generated/ActiveRequestLogResponse";
+import type { RequestLogListResponse } from "@/shared/api/generated/RequestLogListResponse";
+import type { RequestLogDetailResponse } from "@/shared/api/generated/RequestLogDetailResponse";
+import type { RequestLogResponse } from "@/shared/api/generated/RequestLogResponse";
+import type { RequestQuotaCostResponse } from "@/shared/api/generated/RequestQuotaCostResponse";
+import type { RequestTelemetryResponse } from "@/shared/api/generated/RequestTelemetryResponse";
+
 import {
   parseRequestAttempt,
   parseRequestLogOutcome,
@@ -126,7 +133,7 @@ export interface RequestLogDetail {
 }
 
 export function parseRequestLogList(value: unknown): RequestLogList {
-  const record = readRecord(value);
+  const record = readRecord<RequestLogListResponse>(value);
   const activeItems = readArray(record.active_items).map(parseActiveRequestLog);
   const activeTotal = readNonNegativeInteger(record.active_total);
   const items = readArray(record.items).map(parseRequestLog);
@@ -152,7 +159,7 @@ export function parseRequestLogList(value: unknown): RequestLogList {
 }
 
 function parseActiveRequestLog(value: unknown): ActiveRequestLog {
-  const record = readRecord(value);
+  const record = readRecord<ActiveRequestLogResponse>(value);
   if (record.state !== "processing") {
     throw invalidResponse();
   }
@@ -183,7 +190,7 @@ function parseActiveRequestLog(value: unknown): ActiveRequestLog {
 }
 
 export function parseRequestLogDetail(value: unknown): RequestLogDetail {
-  const record = readRecord(value);
+  const record = readRecord<RequestLogDetailResponse>(value);
   return {
     request: parseRequestLog(record.request),
     attempts: readArray(record.attempts).map(parseRequestAttempt),
@@ -192,7 +199,7 @@ export function parseRequestLogDetail(value: unknown): RequestLogDetail {
 }
 
 function parseRequestLog(value: unknown): RequestLog {
-  const record = readRecord(value);
+  const record = readRecord<RequestLogResponse>(value);
   const statusCode = readStatusCode(record.status_code);
   const outcome = parseRequestLogOutcome(record.outcome);
   if (outcome === "success" && (statusCode < 200 || statusCode >= 300)) {
@@ -237,7 +244,7 @@ function parseRequestQuotaCost(value: unknown): RequestQuotaCost | null {
   if (value === null) {
     return null;
   }
-  const record = readRecord(value);
+  const record = readRecord<RequestQuotaCostResponse>(value);
   if (record.unit !== "codex_credits") {
     throw invalidResponse();
   }
@@ -251,7 +258,7 @@ function parseRequestQuotaCost(value: unknown): RequestQuotaCost | null {
 }
 
 function parseTelemetry(value: unknown): RequestTelemetryMetrics {
-  const record = readRecord(value);
+  const record = readRecord<RequestTelemetryResponse>(value);
   return {
     queuedRecords: readNonNegativeInteger(record.queued_records),
     inFlightRecords: readNonNegativeInteger(record.in_flight_records),
@@ -274,11 +281,11 @@ function readOperation(value: unknown): RequestLogOperation {
   throw invalidResponse();
 }
 
-function readRecord(value: unknown): Record<string, unknown> {
+function readRecord<T extends object>(value: unknown): T {
   if (typeof value !== "object" || value === null) {
     throw invalidResponse();
   }
-  return value as Record<string, unknown>;
+  return value as T;
 }
 
 function readArray(value: unknown): unknown[] {
@@ -288,18 +295,18 @@ function readArray(value: unknown): unknown[] {
   return value;
 }
 
-function readString(value: unknown): string {
+function readString(value: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw invalidResponse();
   }
   return value;
 }
 
-function readNullableString(value: unknown): string | null {
+function readNullableString(value: string | null): string | null {
   return value === null ? null : readString(value);
 }
 
-function readCursor(value: unknown): string | null {
+function readCursor(value: string | null): string | null {
   const cursor = readNullableString(value);
   if (cursor !== null && cursor.length > 1_024) {
     throw invalidResponse();
@@ -307,7 +314,7 @@ function readCursor(value: unknown): string | null {
   return cursor;
 }
 
-function readNullableDisplayString(value: unknown): string | null {
+function readNullableDisplayString(value: string | null): string | null {
   if (value === null) {
     return null;
   }
@@ -318,14 +325,14 @@ function readNullableDisplayString(value: unknown): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-function readBoolean(value: unknown): boolean {
+function readBoolean(value: boolean): boolean {
   if (typeof value !== "boolean") {
     throw invalidResponse();
   }
   return value;
 }
 
-function readNullableBoolean(value: unknown): boolean | null {
+function readNullableBoolean(value: boolean | null): boolean | null {
   return value === null ? null : readBoolean(value);
 }
 
@@ -344,21 +351,21 @@ function readSpeedTier(value: unknown): RequestSpeedTier {
   return tier;
 }
 
-function readNonNegativeDecimalString(value: unknown): string {
+function readNonNegativeDecimalString(value: string): string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/u.test(value)) {
     throw invalidResponse();
   }
   return value;
 }
 
-function readNonNegativeInteger(value: unknown): number {
+function readNonNegativeInteger(value: number): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw invalidResponse();
   }
   return value;
 }
 
-function readPositiveInteger(value: unknown): number {
+function readPositiveInteger(value: number): number {
   const number = readNonNegativeInteger(value);
   if (number === 0) {
     throw invalidResponse();
@@ -366,15 +373,15 @@ function readPositiveInteger(value: unknown): number {
   return number;
 }
 
-function readNullablePositiveInteger(value: unknown): number | null {
+function readNullablePositiveInteger(value: number | null): number | null {
   return value === null ? null : readPositiveInteger(value);
 }
 
-function readNullableInteger(value: unknown): number | null {
+function readNullableInteger(value: number | null): number | null {
   return value === null ? null : readNonNegativeInteger(value);
 }
 
-function readStatusCode(value: unknown): number {
+function readStatusCode(value: number): number {
   const status = readNonNegativeInteger(value);
   if (status < 100 || status > 599) {
     throw invalidResponse();

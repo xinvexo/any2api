@@ -39,6 +39,7 @@ mod query_indexes;
 mod removed_reliability_setting_overrides;
 mod request_attempt_routing_diagnostics;
 mod request_attempt_transport_stream_diagnostics;
+mod request_cost_exchange_rate;
 mod request_log_alpha_search;
 mod request_log_cache_write_tokens;
 mod request_usage_aggregate_indexes;
@@ -132,6 +133,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (44, "open provider endpoint kind".to_owned()),
             (45, "persist official client versions".to_owned()),
             (46, "add gateway api key rate limit".to_owned()),
+            (47, "persist request cost exchange rate".to_owned()),
         ]
     );
 

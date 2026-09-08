@@ -3,6 +3,7 @@ use any2api_runtime::api::PublishedSnapshot;
 use serde::Serialize;
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub(super) struct RequestLogFilterOptionsResponse {
     public_models: Vec<String>,
     gateway_api_keys: Vec<StableFilterOption>,
@@ -42,6 +43,7 @@ impl RequestLogFilterOptionsResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct StableFilterOption {
     id: String,
     label: String,

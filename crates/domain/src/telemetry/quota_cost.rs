@@ -51,6 +51,7 @@ pub struct RequestQuotaCost {
     pub amount_nanos: u64,
     pub rate_card: String,
     pub service_tier: QuotaServiceTier,
+    pub credits_per_usd: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,6 +62,7 @@ pub struct RequestQuotaCostRate {
     input_nanos_per_million: u64,
     cached_input_nanos_per_million: u64,
     output_nanos_per_million: u64,
+    credits_per_usd: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,6 +79,7 @@ impl RequestQuotaCostRates {
                 fast.service_tier != QuotaServiceTier::Fast
                     || fast.unit != standard.unit
                     || fast.rate_card != standard.rate_card
+                    || fast.credits_per_usd != standard.credits_per_usd
             })
         {
             return None;
@@ -106,15 +109,17 @@ impl RequestQuotaCostRate {
         input_nanos_per_million: u64,
         cached_input_nanos_per_million: u64,
         output_nanos_per_million: u64,
+        credits_per_usd: u64,
     ) -> Option<Self> {
         let rate_card = rate_card.into();
-        valid_rate_card(&rate_card).then_some(Self {
+        (valid_rate_card(&rate_card) && valid_exchange_rate(credits_per_usd)).then_some(Self {
             rate_card,
             unit,
             service_tier,
             input_nanos_per_million,
             cached_input_nanos_per_million,
             output_nanos_per_million,
+            credits_per_usd,
         })
     }
 
@@ -150,6 +155,7 @@ impl RequestQuotaCostRate {
             amount_nanos,
             self.rate_card.clone(),
             self.service_tier,
+            Some(self.credits_per_usd),
         )
     }
 }
@@ -161,9 +167,12 @@ impl RequestQuotaCost {
         amount_nanos: u64,
         rate_card: impl Into<String>,
         service_tier: QuotaServiceTier,
+        credits_per_usd: Option<u64>,
     ) -> Option<Self> {
         let rate_card = rate_card.into();
-        if !valid_rate_card(&rate_card) {
+        if !valid_rate_card(&rate_card)
+            || credits_per_usd.is_some_and(|rate| !valid_exchange_rate(rate))
+        {
             return None;
         }
         Some(Self {
@@ -171,8 +180,13 @@ impl RequestQuotaCost {
             amount_nanos,
             rate_card,
             service_tier,
+            credits_per_usd,
         })
     }
+}
+
+fn valid_exchange_rate(value: u64) -> bool {
+    (1..=crate::MAX_CODEX_CREDITS_PER_USD).contains(&value)
 }
 
 fn valid_rate_card(value: &str) -> bool {
@@ -194,6 +208,7 @@ mod tests {
                 42,
                 "codex_credits_2026_08_11",
                 QuotaServiceTier::Fast,
+                Some(25),
             )
             .is_some()
         );
@@ -203,6 +218,7 @@ mod tests {
                 42,
                 " invalid",
                 QuotaServiceTier::Standard,
+                None,
             )
             .is_none()
         );
@@ -242,6 +258,7 @@ mod tests {
             250,
             0,
             0,
+            25,
         )
         .expect("rate");
         assert!(
@@ -261,6 +278,7 @@ mod tests {
             input_nanos_per_million,
             0,
             0,
+            25,
         )
         .expect("rate")
     }

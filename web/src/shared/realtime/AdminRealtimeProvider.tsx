@@ -42,6 +42,8 @@ export function AdminRealtimeProvider({
     connected: false,
     stale: true,
   });
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
+  const reconnect = useCallback(() => setConnectionGeneration((value) => value + 1), []);
   const canRefresh = onAuthRefresh !== undefined;
 
   const clearSnapshotStaleTimer = useCallback(() => {
@@ -251,9 +253,9 @@ export function AdminRealtimeProvider({
       snapshotStaleRef.current = true;
       setStatus({ connected: false, stale: true });
     };
-  }, [authenticated, canRefresh, clearSnapshotStaleTimer, ensureSourceListener]);
+  }, [authenticated, canRefresh, clearSnapshotStaleTimer, connectionGeneration, ensureSourceListener]);
 
-  const value = useMemo(() => ({ subscribe, status }), [status, subscribe]);
+  const value = useMemo(() => ({ subscribe, status, reconnect }), [status, subscribe, reconnect]);
   return <AdminRealtimeContext.Provider value={value}>{children}</AdminRealtimeContext.Provider>;
 }
 

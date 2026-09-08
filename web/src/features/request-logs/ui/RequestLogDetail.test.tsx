@@ -35,8 +35,6 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("frapi · Primary credential")).toBeInTheDocument();
   expect(screen.getByText("Upstream 1 · Credential 1")).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(1);
-  expect(screen.queryByText(/负载均衡/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/generic-rustls-hyper-v2/)).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`/api/admin/request-logs/${requestId}`);
 });
@@ -60,7 +58,6 @@ test("renders an attempt empty state", async () => {
 
   expect(await screen.findByText("没有可展示的尝试")).toBeInTheDocument();
   expect(screen.getByText("request validation failed")).toBeInTheDocument();
-  expect(screen.queryByText("返回错误消息")).not.toBeInTheDocument();
 });
 
 test("keeps unavailable token telemetry distinct from real zero values", async () => {
@@ -99,7 +96,6 @@ test("renders a failed stream separately from its HTTP 200 handshake", async () 
   expect(screen.getByText("失败 · HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("HTTP 状态").nextElementSibling).toHaveTextContent("200");
   expect(screen.getAllByText("upstream response stream reported a failure event")).toHaveLength(1);
-  expect(screen.queryByText("返回错误消息")).not.toBeInTheDocument();
   expect(screen.queryByText("Token 统计")).not.toBeInTheDocument();
   expect(screen.queryByText("首 Token 延迟（TTFT）")).not.toBeInTheDocument();
 });

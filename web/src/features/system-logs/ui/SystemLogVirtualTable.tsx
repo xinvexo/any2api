@@ -45,7 +45,7 @@ export function SystemLogVirtualTable({
   const itemIds = useMemo(() => items.map((item) => item.requestId), [items]);
 
   return (
-    <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
+    <div className="h-full min-h-0 overflow-x-auto [scrollbar-gutter:stable]">
       <div role="table" aria-label="系统日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[60rem] flex-col">
         <div role="rowgroup" aria-label="系统日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
           <div role="row" aria-rowindex={1} className={cn(gridClass, "text-[11px] font-medium text-tertiary")}>

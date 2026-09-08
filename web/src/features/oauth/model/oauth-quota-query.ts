@@ -19,7 +19,7 @@ export function oauthQuotaQueryOptions(accountId: string) {
     queryKey: oauthQueryKeys.quota(accountId),
     // This read only loads the latest SQLite snapshot, so mounted account rows
     // can restore quota without contacting a Provider.
-    queryFn: () => getOAuthAccountQuota(accountId),
+    queryFn: ({ signal }) => getOAuthAccountQuota(accountId, signal),
     gcTime: OAUTH_QUOTA_CACHE_GC_TIME_MS,
     retry: false,
     staleTime: Infinity,

@@ -34,6 +34,13 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     record.request.status_code = 401;
     record.request.error_class = Some(any2api_domain::ErrorClass::Authentication);
     record.request.error_message = Some("upstream authentication failed".into());
+    record.request.quota_cost = any2api_domain::RequestQuotaCost::new(
+        any2api_domain::QuotaCostUnit::CodexCredits,
+        268_750_000,
+        "recorded-rate-card",
+        any2api_domain::QuotaServiceTier::Standard,
+        Some(25),
+    );
     record.attempts[0].error_class = Some(any2api_domain::ErrorClass::Authentication);
     record.attempts[0].error_message = Some("upstream returned HTTP 401 (authentication)".into());
     record.attempts[0].status_code = Some(401);
@@ -73,6 +80,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .expect("list logs");
     assert_eq!(listed.items.len(), 1);
     assert_eq!(listed.items[0].request_id, request_id);
+    assert_eq!(listed.items[0].quota_cost, record.request.quota_cost);
     assert_eq!(
         listed.items[0].client_ip,
         "2001:db8::1"
@@ -95,6 +103,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .expect("get log")
         .expect("stored log");
     assert_eq!(loaded.request.request_id, request_id);
+    assert_eq!(loaded.request.quota_cost, record.request.quota_cost);
     assert_eq!(loaded.attempts.len(), 1);
     assert_eq!(loaded.attempts[0].attempt_no, 1);
     assert_eq!(loaded.attempts[0].route_target_id, None);

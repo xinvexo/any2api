@@ -209,6 +209,7 @@ fn record(
                     amount,
                     RATE_CARD,
                     QuotaServiceTier::Standard,
+                    None,
                 )
                 .expect("quota cost")
             }),

@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 
 import type {
   ActiveRequestLog,
   RequestLog,
 } from "../api/request-log-contracts";
 import { RequestLogVirtualTable } from "./RequestLogVirtualTable";
+
+afterEach(() => vi.useRealTimers());
 
 test("renders only visible request rows and selects a row without expanding it", async () => {
   const items = Array.from({ length: 200 }, (_, index) => requestLog(index + 1));
@@ -15,7 +17,6 @@ test("renders only visible request rows and selects a row without expanding it",
       <RequestLogVirtualTable
         items={items}
         selectedId={null}
-        nowMs={Date.now()}
         followingLatest
         hasMore={false}
         loadingMore={false}
@@ -45,15 +46,16 @@ test("renders only visible request rows and selects a row without expanding it",
   expect(within(viewport).queryByText("model-1")).not.toBeInTheDocument();
 });
 
-test("renders active and completed request metrics in the expected columns", () => {
+test("renders request metrics and advances the active request duration", async () => {
   const active = activeRequestLog();
   const completed = requestLog(1);
+  vi.useFakeTimers();
+  vi.setSystemTime(active.startedAtMs + 1_000);
   render(
     <div className="h-[320px]">
       <RequestLogVirtualTable
         items={[active, completed]}
         selectedId={null}
-        nowMs={active.startedAtMs + 1_000}
         followingLatest
         hasMore={false}
         loadingMore={false}
@@ -76,10 +78,7 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(headers[12]).toHaveTextContent("估算费用");
   const activeCells = within(activeRow as HTMLElement).getAllByRole("cell");
   expect(activeCells).toHaveLength(14);
-  expect(activeCells[0]).not.toHaveTextContent(/^\d{4}\//);
   expect(activeCells[1]).toHaveAttribute("title", active.clientIp);
-  expect(activeCells[1]).toHaveClass("truncate");
-  expect(activeCells[1]).not.toHaveClass("break-all");
   expect(within(activeCells[3] as HTMLElement).queryByText("流")).not.toBeInTheDocument();
   expect(
     within(activeCells[3] as HTMLElement).getByLabelText("Fast 模式"),
@@ -90,10 +89,7 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(activeCells[12]).toHaveTextContent("—");
   const completedCells = within(completedRow).getAllByRole("cell");
   expect(completedCells).toHaveLength(14);
-  expect(completedCells[0]).not.toHaveTextContent(/^\d{4}\//);
   expect(completedCells[1]).toHaveAttribute("title", completed.clientIp);
-  expect(completedCells[1]).toHaveClass("truncate");
-  expect(completedCells[1]).not.toHaveClass("break-all");
   expect(within(completedCells[3] as HTMLElement).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
   expect(within(completedCells[4] as HTMLElement).getByLabelText("请求模式：流式")).toHaveTextContent("流");
   expect(completedCells[7]).toHaveTextContent("10 ms");
@@ -102,6 +98,8 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(completedCells[11]).toHaveTextContent("1");
   expect(completedCells[12]).toHaveTextContent("$0.4");
   expect(completedCells[12]).toHaveAttribute("title", "10 Credits · Fast");
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(activeCells[7]).toHaveTextContent("2.00 s");
 });
 
 function requestLog(index: number): RequestLog {

@@ -141,6 +141,7 @@ impl GatewayApiKeyUsageRepository for BlockingRepository {
 impl UpstreamCredentialUsageRepository for BlockingRepository {
     async fn list_upstream_credential_usage(
         &self,
+        _ids: &[any2api_domain::RoutingCredentialId],
     ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
         Ok(Vec::new())
     }

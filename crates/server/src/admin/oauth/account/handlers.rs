@@ -89,7 +89,15 @@ async fn accounts_response(
     state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
 ) -> Json<OAuthAccountCollectionResponse> {
-    let usage = upstream_usage::load(state).await;
+    let usage = upstream_usage::load(
+        state,
+        snapshot
+            .oauth_accounts()
+            .accounts()
+            .iter()
+            .map(|account| account.id().into()),
+    )
+    .await;
     let model_catalogs = match state.oauth() {
         Some(oauth) => match oauth.model_catalogs_for_accounts(snapshot).await {
             Ok(catalogs) => catalogs,
@@ -120,17 +128,4 @@ pub(in crate::admin::oauth) fn parse_id(
 ) -> Result<any2api_domain::OAuthAccountId, AdminApiError> {
     any2api_domain::OAuthAccountId::from_str(value)
         .map_err(|_| AdminApiError::invalid_request("OAuth account id is invalid"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mutation_ack_is_snapshot_only_and_synchronous() {
-        let _: fn(
-            &any2api_runtime::api::PublishedSnapshot,
-            Option<&any2api_runtime::api::OAuthService>,
-        ) -> Json<OAuthAccountMutationResponse> = mutation_response;
-    }
 }

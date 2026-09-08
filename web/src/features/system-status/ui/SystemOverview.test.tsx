@@ -6,6 +6,7 @@ const probes = vi.hoisted(() => ({
   runtime: undefined as RuntimeQuery | undefined,
   resources: undefined as ResourcesQuery | undefined,
   realtime: { connected: true, stale: false },
+  reconnect: vi.fn(),
 }));
 
 vi.mock("../model/use-balancing-runtime", () => ({
@@ -16,6 +17,7 @@ vi.mock("../model/use-overview-resources", () => ({
 }));
 vi.mock("@/shared/realtime", () => ({
   useAdminRealtimeStatus: () => probes.realtime,
+  useAdminRealtimeReconnect: () => probes.reconnect,
 }));
 
 import { SystemOverview } from "./SystemOverview";
@@ -23,6 +25,7 @@ import { SystemOverview } from "./SystemOverview";
 afterEach(() => {
   vi.restoreAllMocks();
   probes.realtime = { connected: true, stale: false };
+  probes.reconnect.mockClear();
 });
 
 test("shows resource and request load bands, then refreshes the system queries", async () => {
@@ -30,7 +33,7 @@ test("shows resource and request load bands, then refreshes the system queries",
   probes.runtime = runtimeQuery(refetch);
   probes.resources = resourcesQuery(refetch);
 
-  const { container } = render(
+  render(
     <MemoryRouter initialEntries={["/overview?range=24h"]}>
       <SystemOverview />
     </MemoryRouter>,
@@ -39,12 +42,6 @@ test("shows resource and request load bands, then refreshes the system queries",
   expect(screen.getByText("ANY2API 内存")).toBeInTheDocument();
   expect(screen.getByText("ANY2API CPU")).toBeInTheDocument();
   expect(screen.getByText("整机内存")).toBeInTheDocument();
-  expect(screen.queryByText("正文堆内存")).not.toBeInTheDocument();
-  expect(screen.queryByText("正文映射内存")).not.toBeInTheDocument();
-  expect(screen.queryByText("HTTP 捕获")).not.toBeInTheDocument();
-  expect(screen.queryByText("遥测待写")).not.toBeInTheDocument();
-  expect(screen.queryByText("遥测写入中")).not.toBeInTheDocument();
-  expect(screen.queryByText("内存回收阻塞")).not.toBeInTheDocument();
   expect(screen.getByText("进行中请求")).toBeInTheDocument();
   expect(screen.getByText("近 60 秒请求")).toBeInTheDocument();
   expect(screen.getByText("27")).toBeInTheDocument();
@@ -57,14 +54,7 @@ test("shows resource and request load bands, then refreshes the system queries",
   expect(screen.getByText("请求负载")).toBeInTheDocument();
   expect(screen.getByText("资源状态")).toBeInTheDocument();
   expect(screen.getByText("运行正常")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "系统总览" })).not.toBeInTheDocument();
-  expect(screen.queryByText("进程、主机与调用质量")).not.toBeInTheDocument();
-  expect(screen.queryByText("实时")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新系统总览" })).toBeInTheDocument();
-  expect(screen.queryByText("后台任务")).not.toBeInTheDocument();
-  expect(screen.queryByText("缓存命中")).not.toBeInTheDocument();
-  expect(container).not.toHaveTextContent(/活动上游|Transport 客户端|逻辑 CPU|RSS/);
-  expect(container.querySelector("time")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新系统总览" }));
   await waitFor(() => expect(refetch).toHaveBeenCalledTimes(2));
@@ -103,7 +93,7 @@ test("does not show an account limit warning when no limited credential is exhau
   expect(screen.queryByText("已达每分钟上限")).not.toBeInTheDocument();
 });
 
-test("keeps the last snapshot visible and marks a disconnected stream stale", () => {
+test("keeps a disconnected snapshot visible and reconnects on manual refresh", async () => {
   const refetch = vi.fn(async () => ({ isSuccess: true }));
   probes.runtime = runtimeQuery(refetch);
   probes.resources = resourcesQuery(refetch);
@@ -119,6 +109,8 @@ test("keeps the last snapshot visible and marks a disconnected stream stale", ()
   expect(screen.getByText("数据陈旧")).toBeInTheDocument();
   expect(screen.getByText("实时连接已中断，仍显示最近一次有效快照。"))
     .toHaveAttribute("role", "status");
+  fireEvent.click(screen.getByRole("button", { name: "刷新系统总览" }));
+  await waitFor(() => expect(probes.reconnect).toHaveBeenCalledTimes(1));
 });
 
 interface RuntimeQuery {

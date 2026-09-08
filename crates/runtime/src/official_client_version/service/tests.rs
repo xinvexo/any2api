@@ -17,16 +17,17 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use tempfile::tempdir;
-use tokio::sync::Barrier;
+use tokio::sync::{Barrier, Semaphore};
 
 use super::{OfficialClientVersionService, unix_timestamp};
 use crate::{
     configuration::{PublishedSnapshot, SnapshotStore},
+    lifecycle::ProcessLifecycle,
     registry::RuntimeRegistry,
 };
 
 #[tokio::test]
-async fn initialize_fetches_missing_versions_concurrently_then_persists_and_publishes() {
+async fn refresh_fetches_missing_versions_concurrently_then_persists_and_publishes() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("versions.sqlite3"))
@@ -46,10 +47,11 @@ async fn initialize_fetches_missing_versions_concurrently_then_persists_and_publ
     )
     .await;
 
-    tokio::time::timeout(std::time::Duration::from_secs(2), service.initialize())
+    service.initialize().await.expect("local initialization");
+    assert_eq!(transport.calls.load(Ordering::Acquire), 0);
+    tokio::time::timeout(std::time::Duration::from_secs(2), service.synchronize())
         .await
-        .expect("version sources are fetched concurrently")
-        .expect("initialization");
+        .expect("version sources are fetched concurrently");
 
     assert_eq!(transport.calls.load(Ordering::Acquire), 3);
     assert_current_version(&providers, ProviderKind::Codex, "9.8.7");
@@ -102,7 +104,9 @@ async fn initialize_loads_last_known_good_and_retains_it_when_refresh_fails() {
     .await;
 
     service.initialize().await.expect("initialization");
-
+    assert_eq!(transport.calls.load(Ordering::Acquire), 0);
+    assert_current_version(&providers, ProviderKind::Codex, "1.2.3");
+    service.synchronize().await;
     assert_eq!(transport.calls.load(Ordering::Acquire), 1);
     assert_current_version(&providers, ProviderKind::Codex, "1.2.3");
     assert_eq!(
@@ -112,6 +116,58 @@ async fn initialize_loads_last_known_good_and_retains_it_when_refresh_fails() {
             .expect("persisted version"),
         vec![stored]
     );
+}
+
+#[tokio::test]
+async fn background_refresh_publishes_ready_versions_while_another_source_is_waiting() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("background-versions.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let providers = versioned_providers(&[ProviderKind::Codex, ProviderKind::Grok]);
+    let transport = Arc::new(ConcurrentVersionTransport {
+        grok_gate: Some(Semaphore::new(0)),
+        ..ConcurrentVersionTransport::new(2)
+    });
+    let service = build_service(Arc::clone(&providers), transport.clone(), storage).await;
+    tokio::time::timeout(std::time::Duration::from_secs(2), service.initialize())
+        .await
+        .expect("local initialization does not wait for a version source")
+        .expect("initialization");
+
+    let lifecycle = ProcessLifecycle::new();
+    assert!(service.start(&lifecycle));
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !service
+            .fetched_at_by_provider
+            .lock()
+            .expect("version state")
+            .contains_key(&ProviderKind::Codex)
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("ready provider is published immediately");
+    assert_current_version(&providers, ProviderKind::Codex, "9.8.7");
+    assert!(
+        providers
+            .get(ProviderKind::Grok)
+            .and_then(|driver| driver.official_client_version())
+            .and_then(|versioned| versioned.current_official_client_version())
+            .is_none()
+    );
+
+    lifecycle.begin_draining();
+    lifecycle.close_background_tasks();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        lifecycle.wait_for_background_tasks(),
+    )
+    .await
+    .expect("shutdown cancels the pending version request");
 }
 
 fn versioned_providers(kinds: &[ProviderKind]) -> Arc<ProviderRegistry> {
@@ -153,6 +209,7 @@ fn assert_current_version(providers: &ProviderRegistry, provider: ProviderKind, 
 struct ConcurrentVersionTransport {
     barrier: Barrier,
     calls: AtomicUsize,
+    grok_gate: Option<Semaphore>,
 }
 
 impl ConcurrentVersionTransport {
@@ -160,6 +217,7 @@ impl ConcurrentVersionTransport {
         Self {
             barrier: Barrier::new(source_count),
             calls: AtomicUsize::new(0),
+            grok_gate: None,
         }
     }
 }
@@ -176,7 +234,12 @@ impl TransportManager for ConcurrentVersionTransport {
         let body = match request.uri.host().expect("source host") {
             "releases.openai.com" => Bytes::from_static(br#"{"tag_name":"rust-v9.8.7"}"#),
             "downloads.claude.ai" => Bytes::from_static(b"8.7.6\n"),
-            "x.ai" => Bytes::from_static(b"7.6.5\n"),
+            "x.ai" => {
+                if let Some(gate) = &self.grok_gate {
+                    let _permit = gate.acquire().await.expect("Grok release");
+                }
+                Bytes::from_static(b"7.6.5\n")
+            }
             host => panic!("unexpected source host: {host}"),
         };
         Ok(TransportResponse {

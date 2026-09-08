@@ -13,7 +13,18 @@ async fn current_usage_summaries_use_covering_indexes_without_temporary_grouping
         .await
         .expect("storage");
 
-    let upstream = explain(&store, UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL).await;
+    let upstream = sqlx::query_as::<_, (i64, i64, i64, String)>(AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL}"
+    )))
+    .bind(r#"["00000000-0000-0000-0000-000000000001"]"#)
+    .bind(r#"["00000000-0000-0000-0000-000000000002"]"#)
+    .fetch_all(store.pool())
+    .await
+    .expect("scoped usage query plan")
+    .into_iter()
+    .map(|(_, _, _, detail)| detail)
+    .collect::<Vec<_>>()
+    .join("\n");
     assert!(
         upstream.contains("COVERING INDEX request_attempts_credential_idx"),
         "{upstream}"

@@ -9,6 +9,7 @@ use serde::Serialize;
 use super::dto::RequestLogOutcome;
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub(super) struct RequestAttemptResponse {
     attempt_no: u32,
     route_target_id: Option<String>,
@@ -102,6 +103,7 @@ fn resolve_provider_endpoint(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct RequestAttemptTransportResponse {
     wire_profile_id: String,
     wire_profile_version: u16,
@@ -135,6 +137,7 @@ impl From<RequestAttemptTransport> for RequestAttemptTransportResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 struct RequestAttemptStreamTimingResponse {
     first_upstream_frame_ms: Option<u64>,
     stream_commit_ms: Option<u64>,

@@ -21,7 +21,6 @@ import {
 interface RequestLogVirtualTableProps {
   items: readonly RequestLogFeedItem[];
   selectedId: string | null;
-  nowMs: number;
   followingLatest: boolean;
   hasMore: boolean;
   loadingMore: boolean;
@@ -34,7 +33,6 @@ interface RequestLogVirtualTableProps {
 export function RequestLogVirtualTable({
   items,
   selectedId,
-  nowMs,
   followingLatest,
   hasMore,
   loadingMore,
@@ -46,7 +44,7 @@ export function RequestLogVirtualTable({
   const itemIds = useMemo(() => items.map((item) => item.requestId), [items]);
 
   return (
-    <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
+    <div className="h-full min-h-0 overflow-x-auto [scrollbar-gutter:stable]">
       <div role="table" aria-label="请求日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[82.5rem] flex-col">
         <div role="rowgroup" aria-label="请求日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
           <div role="row" aria-rowindex={1} className={cn(requestLogGridClass, "text-[11px] font-medium text-tertiary")}>
@@ -84,7 +82,6 @@ export function RequestLogVirtualTable({
                 item={item}
                 ariaRowIndex={index + 2}
                 selected={selectedId === item.requestId}
-                nowMs={nowMs}
                 animation={entryAnimations?.get(item.requestId)}
                 onSelect={onSelect}
               />
@@ -105,14 +102,12 @@ function RequestLogFeedTableRow({
   item,
   ariaRowIndex,
   selected,
-  nowMs,
   animation,
   onSelect,
 }: {
   item: RequestLogFeedItem;
   ariaRowIndex: number;
   selected: boolean;
-  nowMs: number;
   animation: ListEntryAnimation | undefined;
   onSelect: (requestId: string) => void;
 }) {
@@ -147,7 +142,7 @@ function RequestLogFeedTableRow({
     >
       <RequestAttemptMarker attemptCount={item.attemptCount} />
       {isActiveRequestLog(item) ? (
-        <ActiveRequestLogTableCells log={item} nowMs={nowMs} />
+        <ActiveRequestLogTableCells log={item} />
       ) : (
         <RequestLogTableCells log={item} />
       )}

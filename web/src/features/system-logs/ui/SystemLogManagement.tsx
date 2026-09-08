@@ -11,7 +11,7 @@ import { useSystemLogs } from "../model/use-system-logs";
 import { SystemLogDetailDrawer } from "./SystemLogDetailDrawer";
 import { SystemLogList } from "./SystemLogList";
 import { notify } from "@/shared/notifications";
-import { useAdminRealtimeStatus } from "@/shared/realtime";
+import { useAdminRealtimeReconnect, useAdminRealtimeStatus } from "@/shared/realtime";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
@@ -26,6 +26,7 @@ export function SystemLogManagement() {
   const query = useSystemLogs(showAdminOperations, followingLatest);
   const clearMutation = useClearSystemLogs();
   const realtime = useAdminRealtimeStatus();
+  const reconnect = useAdminRealtimeReconnect();
   const entryAnimations = useListEntryAnimations(
     query.items,
     systemLogEntryId,
@@ -40,11 +41,12 @@ export function SystemLogManagement() {
       if (!await refreshLatest()) {
         return;
       }
+      if (!realtime.connected) reconnect();
       notify.success("系统日志已刷新");
     } catch {
       notify.danger("系统日志刷新失败");
     }
-  }, [refreshLatest]);
+  }, [reconnect, realtime.connected, refreshLatest]);
 
   const loadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) void fetchNextPage();

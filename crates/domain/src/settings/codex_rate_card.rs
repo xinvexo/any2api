@@ -92,6 +92,7 @@ impl CodexQuotaRateCard {
             rate.input_nanos_per_million,
             rate.cached_input_nanos_per_million,
             rate.output_nanos_per_million,
+            self.credits_per_usd,
         )
     }
 
@@ -224,6 +225,7 @@ mod tests {
             )
             .expect("complete usage");
         assert_eq!(cost.amount_nanos, 268_750_000);
+        assert_eq!(cost.credits_per_usd, Some(25));
         assert_eq!(cost.rate_card, card.id());
         assert_eq!(cost.service_tier, QuotaServiceTier::Standard);
 

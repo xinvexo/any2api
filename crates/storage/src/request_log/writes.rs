@@ -24,14 +24,14 @@ pub(super) async fn insert_request_log(
          provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
          error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
          output_tokens, cache_read_tokens, cache_creation_tokens, quota_cost_unit, quota_cost_nanos, \
-         quota_cost_rate_card, quota_service_tier, requested_speed_tier, effective_speed_tier, \
+         quota_cost_rate_card, quota_service_tier, quota_credits_per_usd, requested_speed_tier, effective_speed_tier, \
          telemetry_process_id, telemetry_sequence, is_stream) VALUES (?, ?, ?, ?, \
          (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
          (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-         ?, ?, ?, ?, ?)",
+         ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -60,6 +60,7 @@ pub(super) async fn insert_request_log(
     .bind(quota_cost.map(|cost| i64::try_from(cost.amount_nanos).expect("validated nano cost")))
     .bind(quota_cost.map(|cost| cost.rate_card.as_str()))
     .bind(quota_cost.map(|cost| cost.service_tier.as_str()))
+    .bind(optional_i64(quota_cost.and_then(|cost| cost.credits_per_usd))?)
     .bind(log.requested_speed_tier.map(|tier| tier.as_str()))
     .bind(log.effective_speed_tier.map(|tier| tier.as_str()))
     .bind(telemetry_process_id)
@@ -97,6 +98,7 @@ fn validate_quota_cost(
             cost.amount_nanos,
             cost.rate_card.clone(),
             cost.service_tier,
+            cost.credits_per_usd,
         )
         .is_none()
     {

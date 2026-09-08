@@ -14,7 +14,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("reloads active snapshots through the shared admin event stream", async () => {
+test("coalesces quota events into one reload of active snapshots", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   let reads = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -43,6 +43,8 @@ test("reloads active snapshots through the shared admin event stream", async () 
 
   act(() => {
     FakeEventSource.instances[0]?.emit("oauth_quota_changed");
+    FakeEventSource.instances[0]?.emit("oauth_quota_changed");
+    FakeEventSource.instances[0]?.emit("oauth_quota_changed");
   });
   expect(await screen.findByText("snapshot 2")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -52,10 +54,10 @@ test("reloads active snapshots through the shared admin event stream", async () 
   act(() => {
     FakeEventSource.instances[0]?.emit("oauth_refresh_diagnostic_changed");
   });
-  expect(invalidate).toHaveBeenCalledWith({
+  await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
     queryKey: ["oauth", "accounts"],
     refetchType: "active",
-  });
+  }));
 
   const source = FakeEventSource.instances[0];
   view.unmount();

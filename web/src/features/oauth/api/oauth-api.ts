@@ -124,9 +124,10 @@ export function deleteOAuthAccount(
   ).then(parseOAuthAccountMutationResponse);
 }
 
-export function getOAuthAccountQuota(id: string) {
+export function getOAuthAccountQuota(id: string, signal?: AbortSignal) {
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}/quota`,
+    { signal },
   ).then(parseNullableOAuthQuotaSnapshot);
 }
 

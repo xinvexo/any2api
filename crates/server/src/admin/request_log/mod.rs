@@ -1,6 +1,8 @@
 mod active_dto;
 mod attempt_dto;
 mod dto;
+#[cfg(test)]
+pub(super) use dto::export_bindings;
 mod filter_options;
 mod handlers;
 mod query;

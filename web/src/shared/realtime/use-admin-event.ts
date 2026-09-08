@@ -19,6 +19,7 @@ export interface AdminRealtimeStatus {
 export interface AdminRealtimeContextValue {
   subscribe: (eventName: AdminEventName, callback: AdminEventCallback) => () => void;
   status: AdminRealtimeStatus;
+  reconnect: () => void;
 }
 
 export const AdminRealtimeContext = createContext<AdminRealtimeContextValue | null>(null);
@@ -42,6 +43,10 @@ export function useAdminEvent(
 
 export function useAdminRealtimeStatus() {
   return useAdminRealtimeContext().status;
+}
+
+export function useAdminRealtimeReconnect() {
+  return useAdminRealtimeContext().reconnect;
 }
 
 function useAdminRealtimeContext() {
