@@ -229,21 +229,12 @@ export function presentRequestQuotaCost(cost: RequestQuotaCost | null) {
   }
   const amountNanos = BigInt(cost.amountNanos);
   const credits = formatCreditNanos(amountNanos);
-  const tier = cost.serviceTier === "fast" ? "快速档" : "标准档";
-  const exchange = cost.creditsPerUsd === null
-    ? null
-    : `${cost.creditsPerUsd} Credits = $1`;
+  const tier = cost.serviceTier === "fast" ? "Fast" : "Standard";
   return {
     value: cost.creditsPerUsd === null
       ? `${credits} Credits`
       : formatCreditNanosAsUsd(amountNanos, cost.creditsPerUsd),
-    detail: [
-      "本地估算",
-      `${credits} Credits`,
-      exchange,
-      `费率卡 ${cost.rateCard}`,
-      tier,
-    ].filter((item) => item !== null).join(" · "),
+    detail: `${credits} Credits · ${tier}`,
   };
 }
 

@@ -101,7 +101,7 @@ test("renders active and completed request metrics in the expected columns", () 
   expect(completedCells[10]).toHaveTextContent("0");
   expect(completedCells[11]).toHaveTextContent("1");
   expect(completedCells[12]).toHaveTextContent("$0.4");
-  expect(completedCells[12]).toHaveAttribute("title", expect.stringContaining("本地估算"));
+  expect(completedCells[12]).toHaveAttribute("title", "10 Credits · Fast");
 });
 
 function requestLog(index: number): RequestLog {

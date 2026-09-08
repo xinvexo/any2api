@@ -31,7 +31,7 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
   expect(screen.getByText("本地估算费用").nextElementSibling).toHaveTextContent("$0.4");
-  expect(screen.getByText(/费率卡 codex-rate-2026-08/)).toBeInTheDocument();
+  expect(screen.getByText("10 Credits · Fast")).toBeInTheDocument();
   expect(screen.getByText("frapi · Primary credential")).toBeInTheDocument();
   expect(screen.getByText("Upstream 1 · Credential 1")).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(1);

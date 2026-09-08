@@ -18,18 +18,18 @@ test("formats request-list time like the compact system log table", () => {
   expect(formatLogListTime(localTime)).toBe("08/20 15:54:34");
 });
 
-test("presents quota cost in dollars with exact billing context", () => {
+test("presents quota cost in dollars with credits and English tier", () => {
   const cost = presentRequestQuotaCost({
     unit: "codex_credits",
     amountNanos: "248427278000",
     rateCard: "codex-rate-2026-08",
-    serviceTier: "fast",
+    serviceTier: "standard",
     creditsPerUsd: 25,
   });
 
   expect(cost).toEqual({
     value: "$9.9371",
-    detail: "本地估算 · 248.4273 Credits · 25 Credits = $1 · 费率卡 codex-rate-2026-08 · 快速档",
+    detail: "248.4273 Credits · Standard",
   });
 });
 

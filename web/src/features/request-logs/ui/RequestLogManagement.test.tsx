@@ -46,7 +46,7 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
   expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
   expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
-  expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", expect.stringContaining("本地估算"));
+  expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", "10 Credits · Fast");
   expect(screen.getAllByText("请求中").length).toBeGreaterThan(0);
   expect(screen.queryByLabelText(/展开 codex-live/)).not.toBeInTheDocument();
 
