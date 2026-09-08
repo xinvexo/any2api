@@ -37,7 +37,7 @@ export function CodexRateModelRow({
     >
       <div className="flex items-end gap-2">
         <label htmlFor={nameId} className="min-w-0 flex-1">
-          <span className="mb-1 block text-[11px] font-medium text-secondary">模型名称</span>
+          <span className="mb-1 block text-xs font-medium text-secondary">模型名称</span>
           <Select
             id={nameId}
             className="font-mono"
@@ -55,7 +55,7 @@ export function CodexRateModelRow({
             onValueChange={(model) => onChange({ ...value, model })}
           />
           {nameError ? (
-            <span id={`${nameId}-error`} className="mt-1 block text-[10px] text-danger" role="alert">
+            <span id={`${nameId}-error`} className="mt-1 block text-xs text-danger" role="alert">
               {nameError}
             </span>
           ) : null}
@@ -72,7 +72,7 @@ export function CodexRateModelRow({
       </div>
 
       <div className="mt-3 border-t border-subtle pt-3">
-        <p className="mb-2 text-[11px] font-medium text-secondary">标准档</p>
+        <p className="mb-2 text-xs font-medium text-secondary">标准档</p>
         <CodexRateTierFields
           localId={value.localId}
           modelLabel={modelLabel}
@@ -88,7 +88,7 @@ export function CodexRateModelRow({
         <div className="mb-2 flex items-center justify-between gap-3">
           <label
             htmlFor={`${value.localId}-fast-enabled`}
-            className="text-[11px] font-medium text-secondary"
+            className="text-xs font-medium text-secondary"
           >
             快速档
           </label>

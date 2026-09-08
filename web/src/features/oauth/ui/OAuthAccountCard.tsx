@@ -91,7 +91,7 @@ export function OAuthAccountCard({
                 key={badge.key}
                 aria-label={`账号状态：${badge.label}`}
                 className={cn(
-                  "inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-[10px] font-medium leading-4",
+                  "inline-flex shrink-0 items-center rounded-full px-1.5 py-px text-xs font-medium leading-4",
                   badge.tone === "success" && "bg-success/10 text-success",
                   badge.tone === "warning" && "bg-warning/12 text-warning",
                   badge.tone === "danger" && "bg-danger/10 text-danger",
@@ -104,7 +104,7 @@ export function OAuthAccountCard({
           <p className="mt-0.5 truncate text-[12px] text-secondary" title={presentation.subtitle}>
             {presentation.subtitle}
           </p>
-          <p className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-secondary">
+          <p className="mt-1 flex min-w-0 items-center gap-1 text-xs text-secondary">
             <Network size={11} className="shrink-0" aria-hidden="true" />
             <span className="truncate" title={proxyLabel}>{proxyLabel}</span>
           </p>
@@ -116,7 +116,7 @@ export function OAuthAccountCard({
               aria-label={`账号套餐：${planBadge.label}`}
               title={planBadge.label}
               className={cn(
-                "inline-flex max-w-28 items-center truncate rounded-full border px-1.5 py-px text-[10px] font-semibold leading-4",
+                "inline-flex max-w-28 items-center truncate rounded-full border px-1.5 py-px text-xs font-semibold leading-4",
                 planBadgeClassName(planBadge.label),
               )}
             >
@@ -139,7 +139,7 @@ export function OAuthAccountCard({
       <div className="px-3 py-2">
         <div>
           {presentation.metrics.length > 0 ? (
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px]">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
               {presentation.metrics.map((metric) => (
                 <span key={metric.key} className="inline-flex min-w-0 items-baseline gap-1">
                   <span className="shrink-0 text-secondary">{metric.label}</span>
@@ -167,7 +167,7 @@ export function OAuthAccountCard({
         <div className="flex min-w-0 items-center justify-between gap-1 border-t border-subtle/50 px-0 py-2 sm:py-1">
           {lastUpdatedAt === null ? null : (
             <span
-              className="min-w-0 truncate text-[10px] tabular-nums text-tertiary"
+              className="min-w-0 truncate text-xs tabular-nums text-secondary"
               title={`最后更新 ${formatUpdatedAt(lastUpdatedAt)}`}
             >
               最后更新 {formatUpdatedAt(lastUpdatedAt)}

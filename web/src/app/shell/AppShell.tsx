@@ -20,7 +20,7 @@ const SIDEBAR_COLLAPSED = "w-[72px]";
 const SIDEBAR_STORAGE_KEY = "any2api.sidebar-collapsed";
 /** Header icon controls: pill hover, not circular. */
 const HEADER_ICON_BUTTON =
-  "focus-ring inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-secondary transition-colors hover:bg-surface-hover hover:text-primary";
+  "focus-ring inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-secondary transition-colors hover:bg-surface-hover hover:text-primary pointer-coarse:min-h-10";
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);

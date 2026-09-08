@@ -69,37 +69,33 @@ test("renders request metrics and advances the active request duration", async (
   const activeRow = screen.getByText("请求中").closest("[role='row']");
   const completedRow = screen.getByRole("row", { name: "查看请求 model-1" });
   const headers = screen.getAllByRole("columnheader");
-  expect(headers[4]).toHaveTextContent("流式");
-  expect(headers[7]).toHaveTextContent("总耗时");
-  expect(headers[8]).toHaveTextContent("首字");
-  expect(headers[9]).toHaveTextContent("输入");
-  expect(headers[10]).toHaveTextContent("缓存命中");
-  expect(headers[11]).toHaveTextContent("输出");
-  expect(headers[12]).toHaveTextContent("估算费用");
+  const column = (name: string) => headers.findIndex((header) => header.textContent === name);
   const activeCells = within(activeRow as HTMLElement).getAllByRole("cell");
-  expect(activeCells).toHaveLength(14);
-  expect(activeCells[1]).toHaveAttribute("title", active.clientIp);
-  expect(within(activeCells[3] as HTMLElement).queryByText("流")).not.toBeInTheDocument();
+  expect(activeCells).toHaveLength(headers.length);
+  expect(activeCells[column("客户端 IP")]).toHaveAttribute("title", active.clientIp);
+  expect(within(activeCells[column("模型")]!).queryByText("流")).not.toBeInTheDocument();
   expect(
-    within(activeCells[3] as HTMLElement).getByLabelText("Fast 模式"),
+    within(activeCells[column("模型")]!).getByLabelText("Fast 模式"),
   ).toHaveTextContent("Fast");
-  expect(activeCells[4]).toHaveTextContent("—");
-  expect(activeCells[7]).toHaveTextContent("1.00 s");
-  expect(activeCells[8]).toHaveTextContent("—");
-  expect(activeCells[12]).toHaveTextContent("—");
+  expect(activeCells[column("结果")]).toHaveTextContent("请求中");
+  expect(activeCells[column("总耗时")]).toHaveTextContent("1.00 s");
+  expect(activeCells[column("首字")]).toHaveTextContent("—");
+  expect(activeCells[column("估算费用")]).toHaveTextContent("—");
   const completedCells = within(completedRow).getAllByRole("cell");
-  expect(completedCells).toHaveLength(14);
-  expect(completedCells[1]).toHaveAttribute("title", completed.clientIp);
-  expect(within(completedCells[3] as HTMLElement).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
-  expect(within(completedCells[4] as HTMLElement).getByLabelText("请求模式：流式")).toHaveTextContent("流");
-  expect(completedCells[7]).toHaveTextContent("10 ms");
-  expect(completedCells[8]).toHaveTextContent("2 ms");
-  expect(completedCells[10]).toHaveTextContent("0");
-  expect(completedCells[11]).toHaveTextContent("1");
-  expect(completedCells[12]).toHaveTextContent("$0.4");
-  expect(completedCells[12]).toHaveAttribute("title", "10 Credits · Fast");
+  expect(completedCells).toHaveLength(headers.length);
+  expect(completedCells[column("客户端 IP")]).toHaveAttribute("title", completed.clientIp);
+  const model = within(completedCells[column("模型")]!);
+  expect(model.getByLabelText("Fast 模式")).toHaveTextContent("Fast");
+  expect(model.getByLabelText("请求模式：流式")).toHaveTextContent("流");
+  expect(model.getByLabelText("思考深度：high")).toHaveTextContent("high");
+  expect(completedCells[column("总耗时")]).toHaveTextContent("10 ms");
+  expect(completedCells[column("首字")]).toHaveTextContent("2 ms");
+  expect(completedCells[column("缓存命中")]).toHaveTextContent("0");
+  expect(completedCells[column("输出")]).toHaveTextContent("1");
+  expect(completedCells[column("估算费用")]).toHaveTextContent("$0.4");
+  expect(completedCells[column("估算费用")]).toHaveAttribute("title", "10 Credits · Fast");
   await act(async () => vi.advanceTimersByTimeAsync(1_000));
-  expect(activeCells[7]).toHaveTextContent("2.00 s");
+  expect(activeCells[column("总耗时")]).toHaveTextContent("2.00 s");
 });
 
 function requestLog(index: number): RequestLog {
@@ -112,7 +108,7 @@ function requestLog(index: number): RequestLog {
     ingressProtocol: "openai_responses",
     operation: "responses",
     publicModel: `model-${index}`,
-    thinkingLevel: null,
+    thinkingLevel: "high",
     providerEndpointId: null,
     providerEndpointName: null,
     credentialId: null,

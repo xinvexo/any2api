@@ -63,7 +63,7 @@ export function RequestUsageStats({
       ref={rootRef}
       className={cn("flex min-w-0 max-w-full items-center gap-2.5", className)}
     >
-      <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
+      <div className="flex shrink-0 items-center gap-x-2 text-xs tabular-nums">
         <span className="sr-only">统计单位：{unitLabel}</span>
         <span className="font-medium text-request-usage-success-text">
           成功 {formatCount(usage.successfulRequests)}

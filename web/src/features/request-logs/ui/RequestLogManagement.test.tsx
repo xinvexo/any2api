@@ -40,7 +40,7 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   );
 
   expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
-  expect(screen.getByRole("columnheader", { name: "流式" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "估算费用" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "输入" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "缓存命中" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
@@ -64,11 +64,11 @@ test("shows compact metrics and opens request details in a drawer", async () => 
   });
   expect(screen.queryByRole("table", { name: "请求日志表格" })).not.toBeInTheDocument();
   const mobileList = screen.getByRole("list", { name: "请求日志列表" });
-  const completedCard = within(mobileList).getByRole("button", { name: "查看请求 claude-test" });
+  const completedCard = within(mobileList).getByRole("article", { name: "请求 claude-test" });
   expect(within(completedCard).getByLabelText("请求模式：流式")).toHaveTextContent("流");
   expect(within(completedCard).getByLabelText("Fast 模式")).toHaveTextContent("Fast");
   expect(within(completedCard).getByText("费用 $0.4")).toHaveAttribute("title", "10 Credits · Fast");
-  fireEvent.doubleClick(completedCard);
+  fireEvent.click(within(completedCard).getByRole("button", { name: "查看请求 claude-test" }));
   const drawer = await screen.findByRole("dialog", { name: "请求详情" });
   expect(within(drawer).getByText("Gateway API Key")).toBeInTheDocument();
   expect(within(drawer).getByText("上游凭据")).toBeInTheDocument();

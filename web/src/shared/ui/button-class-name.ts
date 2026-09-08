@@ -13,8 +13,8 @@ const variants: Record<ButtonVariant, string> = {
     "hover:bg-control-hover active:bg-control-active",
   ].join(" "),
   ghost: [
-    "bg-control text-primary",
-    "hover:bg-control-hover active:bg-control-active",
+    "bg-transparent text-secondary",
+    "hover:bg-control-hover hover:text-primary active:bg-control-active",
   ].join(" "),
   danger: "bg-danger/10 text-danger hover:bg-danger/14 active:bg-danger/18",
   dangerSolid: [
@@ -43,6 +43,7 @@ export function buttonClassName({
 }: ButtonClassNameOptions = {}) {
   return cn(
     "focus-ring inline-flex w-auto shrink-0 items-center justify-center font-medium tracking-tight",
+    "pointer-coarse:min-h-10 pointer-coarse:min-w-10",
     "transition-[color,background-color,filter,opacity] duration-150",
     "disabled:pointer-events-none disabled:opacity-40",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-current",

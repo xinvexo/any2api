@@ -65,7 +65,7 @@ export function CodexRateCardForm({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-subtle py-3 text-[11px] text-tertiary">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-subtle py-3 text-xs text-secondary">
         <p>默认 <span className="text-secondary">{summarizeCard(defaultCard)}</span></p>
         <p>覆盖 <span className="text-secondary">{overrideCard ? summarizeCard(overrideCard) : "未设置"}</span></p>
         <p>生效 <span className="text-secondary">{summarizeCard(effectiveCard)}</span></p>
@@ -77,7 +77,7 @@ export function CodexRateCardForm({
             美元换算
           </h2>
           <label htmlFor="codex-credits-per-usd" className="flex items-center gap-2">
-            <span className="shrink-0 text-[11px] text-secondary">Credits / USD</span>
+            <span className="shrink-0 text-xs text-secondary">Credits / USD</span>
             <input
               id="codex-credits-per-usd"
               className={controlClass(Boolean(errors.creditsPerUsd), "w-24 tabular-nums")}
@@ -93,7 +93,7 @@ export function CodexRateCardForm({
           </label>
         </div>
         {errors.creditsPerUsd ? (
-          <span id="codex-credits-per-usd-error" className="mt-1 block text-[10px] text-danger" role="alert">
+          <span id="codex-credits-per-usd-error" className="mt-1 block text-xs text-danger" role="alert">
             {errors.creditsPerUsd}
           </span>
         ) : null}
@@ -105,7 +105,7 @@ export function CodexRateCardForm({
             <h2 id="codex-model-rates-heading" className="text-[14px] font-semibold tracking-tight">
               模型费率
             </h2>
-            <p className="mt-0.5 text-[11px] text-tertiary">Credits / 百万 Token</p>
+            <p className="mt-0.5 text-xs text-secondary">Credits / 百万 Token</p>
           </div>
           <Button variant="secondary" size="sm" disabled={disabled || !canAddModel} onClick={addModel}>
             <Plus size={14} />
@@ -113,7 +113,7 @@ export function CodexRateCardForm({
           </Button>
         </div>
         {errors.models ? <p className="mt-3 text-[12px] text-danger" role="alert">{errors.models}</p> : null}
-        <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,32rem),1fr))] gap-3">
+        <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,28rem),1fr))] gap-3">
           {value.models.map((model) => (
             <CodexRateModelRow
               key={model.localId}

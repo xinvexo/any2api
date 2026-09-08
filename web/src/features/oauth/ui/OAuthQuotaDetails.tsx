@@ -60,7 +60,7 @@ export function OAuthQuotaDetails({
         />
       ))}
       {windows.length === 0 && quota.tokenBalance === null ? (
-        <p className="text-[11px] text-tertiary">
+        <p className="text-xs text-secondary">
           {quota.rateLimit?.limitReached
             ? "上游报告额度已用尽"
             : isGrok
@@ -107,7 +107,7 @@ function TokenBalanceBar({
     : Math.min(100, Math.max(0, balance.remaining / balance.limit * 100));
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="min-w-0 truncate text-secondary">Token 余额 · 上游真实观测</span>
         <span className={cn("shrink-0 font-semibold tabular-nums", remainingTone(remainingPercent))}>
           {balance.remaining.toLocaleString()} / {balance.limit.toLocaleString()}
@@ -143,7 +143,7 @@ function QuotaValue({
   detail?: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 text-[11px]">
+    <div className="flex items-baseline justify-between gap-2 text-xs">
       <span className="text-secondary">{label}</span>
       <span className="min-w-0 truncate font-medium tabular-nums text-primary" title={detail ?? value}>
         {value}
@@ -192,7 +192,7 @@ function QuotaWindowBar({
   const reset = window.resetAt === null ? null : formatCompactTime(window.resetAt);
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+      <div className="flex items-baseline justify-between gap-2 text-xs">
         <span className="min-w-0 truncate text-secondary">{label}</span>
         <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-secondary">
           {estimate ? <QuotaEstimate estimate={estimate} rateCard={rateCard} /> : null}

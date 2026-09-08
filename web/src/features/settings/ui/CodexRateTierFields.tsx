@@ -29,13 +29,13 @@ export function CodexRateTierFields({
 }: CodexRateTierFieldsProps) {
   const tierLabel = tier === "standard" ? "标准" : "快速";
   return (
-    <div className="grid gap-1.5 sm:grid-cols-3">
+    <div className="grid grid-cols-3 gap-1.5">
       {FIELDS.map(({ key, label }) => {
         const error = errors[tierFieldKey(localId, tier, key)];
         const inputId = `${localId}-${tier}-${key}`;
         return (
           <label key={key} htmlFor={inputId} className="min-w-0">
-            <span className="mb-1 block text-[11px] text-tertiary">{label}</span>
+            <span className="mb-1 block text-xs text-secondary">{label}</span>
             <input
               id={inputId}
               className={controlClass(Boolean(error), "h-7 tabular-nums")}
@@ -49,7 +49,7 @@ export function CodexRateTierFields({
               onChange={(event) => onChange({ ...value, [key]: event.target.value })}
             />
             {error ? (
-              <span id={`${inputId}-error`} className="mt-1 block text-[10px] text-danger" role="alert">
+              <span id={`${inputId}-error`} className="mt-1 block text-xs text-danger" role="alert">
                 {error}
               </span>
             ) : null}

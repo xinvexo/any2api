@@ -22,7 +22,7 @@ export function ThemeSelector({
     <div className={cn("flex items-center gap-3", !compact && "justify-between")}>
       {compact ? null : <span className="text-xs font-medium text-tertiary">外观</span>}
       <div
-        className="app-glass-chip relative isolate flex h-9 items-center rounded-[10px] p-1"
+        className="app-glass-chip relative isolate flex h-9 items-center rounded-[10px] p-1 pointer-coarse:h-11"
         role="group"
         aria-label="外观主题"
       >
@@ -35,7 +35,7 @@ export function ThemeSelector({
             key={optionMode}
             type="button"
             className={cn(
-              "focus-ring relative z-10 inline-flex h-7 items-center justify-center rounded-full px-2.5 text-tertiary transition-colors",
+              "focus-ring relative z-10 inline-flex h-7 items-center justify-center rounded-full px-2.5 text-tertiary transition-colors pointer-coarse:h-9",
               "hover:text-primary",
               mode === optionMode && "text-primary",
             )}

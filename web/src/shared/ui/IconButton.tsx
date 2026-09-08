@@ -30,6 +30,7 @@ export function IconButton({
       aria-label={label}
       className={cn(
         "focus-ring inline-flex shrink-0 items-center justify-center transition-colors duration-150",
+        "pointer-coarse:min-h-10 pointer-coarse:min-w-10",
         "disabled:pointer-events-none disabled:opacity-40",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         size === "sm" ? "size-6 rounded-[6px]" : "size-8 rounded-[8px]",

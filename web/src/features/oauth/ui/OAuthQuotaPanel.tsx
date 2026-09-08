@@ -199,14 +199,14 @@ export function OAuthQuotaPanel({
       className="mt-2 border-t border-subtle/50 pt-2"
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-medium text-secondary">{providerName} 额度</p>
+        <p className="text-xs font-medium text-secondary">{providerName} 额度</p>
         <div className="flex items-center gap-0.5">
           {canReset && quota ? (
             <>
               <button
                 type="button"
                 className={cn(
-                  "mr-1 appearance-none bg-transparent p-0 text-[10px] tabular-nums text-tertiary",
+                  "mr-1 appearance-none bg-transparent p-0 text-xs tabular-nums text-secondary pointer-coarse:min-h-10",
                   resetCreditExpiry
                     && "focus-ring cursor-help rounded-[3px] border-b border-dotted border-current outline-none",
                 )}
@@ -281,10 +281,10 @@ export function OAuthQuotaPanel({
           provider={provider}
         />
       ) : (
-        <p className="mt-1.5 text-[11px] text-tertiary">额度尚未刷新</p>
+        <p className="mt-1.5 text-xs text-secondary">额度尚未刷新</p>
       )}
       {showError && visibleError ? (
-        <p className="mt-1.5 text-[11px] text-danger" role="alert">
+        <p className="mt-1.5 text-xs text-danger" role="alert">
           {visibleError}
         </p>
       ) : null}

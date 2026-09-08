@@ -144,7 +144,7 @@ export function RequestLogManagement() {
                 )
               }
               ariaLabel="请求日志列表"
-              estimateItemHeight={72}
+              estimateItemHeight={160}
               getItemClassName={(item) => listEntryAnimationClass(entryAnimations.get(item.requestId))}
             />
             <IntersectionSentinel

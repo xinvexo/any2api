@@ -8,11 +8,7 @@ import {
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
-import {
-  RequestFastBadge,
-  RequestModeBadges,
-  RequestStreamBadge,
-} from "./RequestModeBadges";
+import { RequestModeBadges } from "./RequestModeBadges";
 import { RequestAttemptMarker } from "./RequestAttemptMarker";
 import { RequestLogTableCell as Cell } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
@@ -29,29 +25,24 @@ export const ActiveRequestLogCard = memo(function ActiveRequestLogCard({
     <article className="log-entry-processing relative min-h-[4.5rem] min-w-0 rounded-[8px] bg-accent/5 px-3 py-2.5">
       <RequestAttemptMarker attemptCount={log.attemptCount} />
       <div className="relative z-10 flex min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary" title={model}>
+          {model}
+        </span>
+        <StatusBadge />
+      </div>
+      <div className="relative z-10 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
         <time
-          className="shrink-0 text-[11px] tabular-nums text-tertiary"
+          className="shrink-0 text-xs tabular-nums text-secondary"
           dateTime={new Date(log.startedAtMs).toISOString()}
         >
           {formatLogListTime(log.startedAtMs)}
         </time>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="min-w-0 truncate text-[13px] font-semibold text-primary">
-            {model}
-          </span>
-          <RequestModeBadges
-            isStream={log.isStream}
-            requestedSpeedTier={log.requestedSpeedTier}
-          />
-        </span>
-        <StatusBadge />
+        <RequestModeBadges isStream={log.isStream} requestedSpeedTier={log.requestedSpeedTier} thinkingLevel={log.thinkingLevel} />
       </div>
-      <div className="relative z-10 mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-secondary">
-        <span className="shrink-0 tabular-nums"><RequestElapsed startedAtMs={log.startedAtMs} /></span>
-        <span className="min-w-0 flex-1 truncate text-right">
-          {upstreamSource(log).displayName}
-        </span>
+      <div className="relative z-10 mt-2 text-xs tabular-nums text-secondary">
+        耗时 <RequestElapsed startedAtMs={log.startedAtMs} />
       </div>
+      <p className="relative z-10 mt-1.5 break-all border-t border-subtle/60 pt-2 text-xs text-secondary">{upstreamSource(log).displayName}</p>
     </article>
   );
 });
@@ -74,27 +65,19 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
         {source.kind === "none" ? (
           <span className="text-tertiary">未选上游</span>
         ) : (
-          <span className={cn("inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium", upstreamKindTone(source.kind))}>
+          <span className={cn("inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-xs font-medium", upstreamKindTone(source.kind))}>
             {source.displayName}
           </span>
         )}
       </Cell>
-      <Cell className="flex items-center gap-1.5 font-medium text-primary">
-        <span className="min-w-0 truncate">{model}</span>
-        <RequestFastBadge requestedSpeedTier={log.requestedSpeedTier} />
+      <Cell className="space-y-0.5" title={model}>
+        <span className="block truncate font-medium leading-4 text-primary">{model}</span>
+        <RequestModeBadges isStream={log.isStream} requestedSpeedTier={log.requestedSpeedTier} thinkingLevel={log.thinkingLevel} />
       </Cell>
-      <Cell>
-        {log.isStream === null ? (
-          <span className="text-tertiary">—</span>
-        ) : (
-          <RequestStreamBadge isStream={log.isStream} />
-        )}
-      </Cell>
-      <Cell>{log.thinkingLevel ?? "—"}</Cell>
+      <Cell className="tabular-nums text-secondary">—</Cell>
       <Cell><StatusBadge /></Cell>
       <Cell className="tabular-nums text-secondary"><RequestElapsed startedAtMs={log.startedAtMs} /></Cell>
       <Cell className="tabular-nums text-secondary">—</Cell>
-      <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
       <Cell className="text-secondary">—</Cell>
@@ -105,7 +88,7 @@ export const ActiveRequestLogTableCells = memo(function ActiveRequestLogTableCel
 
 function StatusBadge() {
   return (
-    <span className={cn("inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", processingTone())}>
+    <span className={cn("inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", processingTone())}>
       请求中
     </span>
   );

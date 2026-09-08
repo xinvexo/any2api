@@ -25,16 +25,14 @@ export function SlidingKindNav<Value extends string>({
   disabled = false,
   onSelect,
 }: SlidingKindNavProps<Value>) {
-  const optionCount = Math.max(options.length, 1);
   return (
     <nav aria-label={ariaLabel} className="min-w-0">
       <ul
-        className="relative isolate grid gap-1 rounded-[12px] bg-surface-muted/55 p-1 sm:flex sm:flex-col sm:gap-1.5 sm:bg-transparent sm:p-0"
-        style={{ gridTemplateColumns: `repeat(${optionCount}, minmax(0, 1fr))` }}
+        className="page-tabs relative isolate flex gap-1 overflow-x-auto rounded-[12px] bg-surface-muted/55 p-1 xl:flex-col xl:gap-1.5 xl:overflow-x-visible xl:bg-transparent xl:p-0"
       >
         <SlidingSelectionIndicator
           selected={selected}
-          className="rounded-[10px] bg-nav-active sm:rounded-[12px]"
+          className="rounded-[10px] bg-nav-active xl:rounded-[12px]"
         />
 
         {options.map((option) => {
@@ -44,7 +42,7 @@ export function SlidingKindNav<Value extends string>({
             <li
               key={option.value}
               data-sliding-selection-item={option.value}
-              className="relative z-10 min-w-0"
+              className="relative z-10 min-w-0 shrink-0 grow xl:grow-0"
             >
               <button
                 type="button"
@@ -52,7 +50,7 @@ export function SlidingKindNav<Value extends string>({
                 disabled={disabled}
                 onClick={() => onSelect(option.value)}
                 className={cn(
-                  "group focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors duration-200 sm:h-11 sm:gap-2.5 sm:rounded-[12px] sm:px-3",
+                  "group focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors duration-200 pointer-coarse:min-h-10 xl:h-11 xl:gap-2.5 xl:rounded-[12px] xl:px-3",
                   "disabled:pointer-events-none disabled:opacity-50",
                   active ? "text-nav-active-fg" : "text-secondary hover:text-primary",
                 )}
@@ -64,12 +62,12 @@ export function SlidingKindNav<Value extends string>({
                     active ? "text-primary" : "text-secondary group-hover:text-primary",
                   )}
                 />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight sm:text-[14px]">
+                <span className="min-w-0 flex-1 whitespace-nowrap text-[13px] font-semibold tracking-tight xl:truncate xl:text-[14px]">
                   {option.label}
                 </span>
                 <span
                   className={cn(
-                    "shrink-0 tabular-nums text-[11px] font-medium transition-colors duration-200 sm:text-[12px]",
+                    "shrink-0 tabular-nums text-xs font-medium transition-colors duration-200",
                     active ? "text-secondary" : "text-tertiary group-hover:text-secondary",
                   )}
                 >

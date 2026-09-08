@@ -6,7 +6,7 @@ import { cn } from "@/shared/lib/cn";
  * Shared by 上游提供 / 认证文件 so route switches keep the same chrome geometry.
  *
  * Mobile column order: toolbarStart → kindNav → toolbarEnd → content
- * Desktop grid:
+ * Wide desktop grid:
  *   row1: [empty] | start … end
  *   row2: kind    | content
  * The content row consumes the remaining panel height on both breakpoints.
@@ -14,9 +14,10 @@ import { cn } from "@/shared/lib/cn";
 const KIND_SPLIT_GRID_CLASS = cn(
   "grid h-full min-h-0 grid-cols-1 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-2.5",
   "[grid-template-areas:'start'_'kind'_'end'_'content']",
-  "sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:grid-rows-[auto_minmax(0,1fr)] sm:gap-x-5 sm:gap-y-3",
-  "sm:[grid-template-areas:'._start_end'_'kind_content_content']",
-  "lg:grid-cols-[14rem_minmax(0,1fr)_auto]",
+  "sm:grid-cols-[minmax(0,1fr)_auto] sm:grid-rows-[auto_auto_minmax(0,1fr)] sm:gap-x-5 sm:gap-y-3",
+  "sm:[grid-template-areas:'start_end'_'kind_kind'_'content_content']",
+  "xl:grid-cols-[14rem_minmax(0,1fr)_auto] xl:grid-rows-[auto_minmax(0,1fr)]",
+  "xl:[grid-template-areas:'._start_end'_'kind_content_content']",
 );
 
 interface KindSplitLayoutProps {

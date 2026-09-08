@@ -235,7 +235,7 @@ function SelectControl<T extends SelectValue>({
         disabled={disabled}
         data-value={String(value)}
         className={cn(
-          "focus-ring flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px]",
+          "focus-ring flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] pointer-coarse:min-h-10",
           "bg-control py-0 pl-2.5 pr-3.5 text-left text-[12px] text-primary transition-colors hover:bg-control-hover",
           "disabled:cursor-not-allowed disabled:opacity-50",
           invalid && "border border-danger/50 bg-danger/[0.05]",
@@ -289,7 +289,7 @@ function SelectControl<T extends SelectValue>({
                     disabled={option.disabled}
                     title={option.label}
                     className={cn(
-                      "flex min-h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[12px]",
+                      "flex min-h-8 w-full items-center gap-2 rounded-[6px] px-2 text-left text-[12px] pointer-coarse:min-h-10",
                       "disabled:cursor-not-allowed disabled:opacity-40",
                       active ? "bg-control-hover text-primary" : "text-primary",
                     )}

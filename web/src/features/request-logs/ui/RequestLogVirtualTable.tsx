@@ -45,22 +45,20 @@ export function RequestLogVirtualTable({
 
   return (
     <div className="h-full min-h-0 overflow-x-auto [scrollbar-gutter:stable]">
-      <div role="table" aria-label="请求日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[82.5rem] flex-col">
+      <div role="table" aria-label="请求日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[76rem] flex-col">
         <div role="rowgroup" aria-label="请求日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
-          <div role="row" aria-rowindex={1} className={cn(requestLogGridClass, "text-[11px] font-medium text-tertiary")}>
+          <div role="row" aria-rowindex={1} className={cn(requestLogGridClass, "text-xs font-medium text-secondary")}>
             <Header>时间</Header>
             <Header>客户端 IP</Header>
             <Header>令牌</Header>
             <Header>模型</Header>
-            <Header>流式</Header>
-            <Header>思考</Header>
+            <Header>估算费用</Header>
             <Header>结果</Header>
             <Header>总耗时</Header>
             <Header>首字</Header>
             <Header>输入</Header>
             <Header>缓存命中</Header>
             <Header>输出</Header>
-            <Header>估算费用</Header>
             <Header>TPS</Header>
           </div>
         </div>

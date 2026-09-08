@@ -1,7 +1,7 @@
 import { cn } from "@/shared/lib/cn";
 
 const controlClassName =
-  "focus-ring h-8 w-full rounded-[8px] border border-subtle bg-surface px-2.5 text-[12px] text-primary transition-colors placeholder:text-tertiary hover:border-strong disabled:bg-surface-muted disabled:opacity-60";
+  "focus-ring h-8 w-full rounded-[8px] border border-subtle bg-surface px-2.5 text-[12px] text-primary transition-colors placeholder:text-tertiary hover:border-strong disabled:bg-surface-muted disabled:opacity-60 pointer-coarse:min-h-10";
 
 export function controlClass(invalid = false, className?: string) {
   return cn(
