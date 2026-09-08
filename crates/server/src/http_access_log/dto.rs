@@ -16,12 +16,12 @@ impl SystemLogListResponse {
     pub(super) fn new(
         logs: LogBatch<HttpAccessLogSummary>,
         metrics: RequestTelemetryMetrics,
-        show_admin_operations: bool,
+        scope: &str,
     ) -> Self {
         let next_cursor = logs
             .next_cursor
             .as_ref()
-            .map(|cursor| LogCursorScope::System(show_admin_operations).encode(cursor));
+            .map(|cursor| LogCursorScope::System(scope).encode(cursor));
         let has_more = next_cursor.is_some();
         Self {
             items: logs

@@ -2,6 +2,8 @@ mod level_filter;
 mod policy;
 mod writer;
 
+pub(super) use writer::segments::{is_managed_file, managed_files};
+
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},

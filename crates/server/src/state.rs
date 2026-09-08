@@ -12,6 +12,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct AppState {
+    runtime_logs: Option<Arc<dyn crate::runtime_log::RuntimeLogSource>>,
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
@@ -87,6 +88,7 @@ impl AppState {
     ) -> Self {
         let zstd_decoder = ZstdDecoder::new(runtime.lifecycle());
         Self {
+            runtime_logs: None,
             snapshots,
             runtime,
             publisher,
@@ -107,6 +109,19 @@ impl AppState {
     pub fn with_oauth(mut self, oauth: Arc<OAuthService>) -> Self {
         self.oauth = Some(oauth);
         self
+    }
+
+    #[must_use]
+    pub fn with_runtime_logs(
+        mut self,
+        source: Arc<dyn crate::runtime_log::RuntimeLogSource>,
+    ) -> Self {
+        self.runtime_logs = Some(source);
+        self
+    }
+
+    pub(crate) fn runtime_logs(&self) -> Option<&dyn crate::runtime_log::RuntimeLogSource> {
+        self.runtime_logs.as_deref()
     }
 
     #[must_use]

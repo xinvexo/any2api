@@ -17,7 +17,7 @@ use super::{
     public_request_components::build_public_request_components_with_telemetry, web_assets,
 };
 use crate::{
-    logging::{AppSnapshotReconciler, BootstrapTracing, FileLogging},
+    logging::{AppSnapshotReconciler, BootstrapTracing, FileLogReader, FileLogging},
     self_update::{LifecycleUpdateTaskExecutor, RestartSignal},
     shutdown,
 };
@@ -154,7 +154,8 @@ pub(super) async fn run(
                 application_updates,
                 Arc::new(restart.clone()),
             ),
-        ),
+        )
+        .with_runtime_logs(Arc::new(FileLogReader::new(settings.log_directory))),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)

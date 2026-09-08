@@ -69,7 +69,7 @@ test("hides admin operations through a fresh server-side feed", async () => {
 
   fireEvent.click(filter);
   await waitFor(() => {
-    expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true);
+    expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true, {});
   });
   expect(filter).not.toBeChecked();
   expect(window.localStorage.getItem(SYSTEM_LOG_ADMIN_OPERATIONS_STORAGE_KEY)).toBe("false");
@@ -81,7 +81,18 @@ test("restores the persisted admin activity preference", () => {
   render(<SystemLogManagement />);
 
   expect(screen.getByRole("switch", { name: "显示管理操作" })).not.toBeChecked();
-  expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true);
+  expect(useSystemLogsMock).toHaveBeenLastCalledWith(false, true, {});
+});
+
+test("applies HTTP filters to a fresh feed and resets them", async () => {
+  render(<SystemLogManagement />);
+  fireEvent.change(screen.getByRole("spinbutton", { name: "HTTP 状态码" }), { target: { value: "401" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "客户端 IP 筛选" }), { target: { value: "203.0.113.8" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "请求路径筛选" }), { target: { value: "/v1/" } });
+  fireEvent.submit(screen.getByRole("form", { name: "HTTP 访问筛选" }));
+  await waitFor(() => expect(useSystemLogsMock).toHaveBeenLastCalledWith(true, true, { statusCode: "401", clientIp: "203.0.113.8", path: "/v1/" }));
+  fireEvent.click(screen.getByRole("button", { name: "重置" }));
+  await waitFor(() => expect(useSystemLogsMock).toHaveBeenLastCalledWith(true, true, {}));
 });
 
 test("uses clear-record wording for the destructive log action", async () => {
@@ -89,7 +100,7 @@ test("uses clear-record wording for the destructive log action", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "清空记录" }));
 
-  expect(await screen.findByRole("alertdialog", { name: "清空全部系统日志？" }))
+  expect(await screen.findByRole("alertdialog", { name: "清空全部 HTTP 访问日志？" }))
     .toBeInTheDocument();
   expect(screen.getByRole("button", { name: "清空" })).toBeInTheDocument();
 });

@@ -1,5 +1,5 @@
 use any2api_domain::{
-    HttpAccessLog, HttpAccessLogSummary, LogBatch, LogCursor, RequestId,
+    HttpAccessLog, HttpAccessLogFilter, HttpAccessLogSummary, LogBatch, LogCursor, RequestId,
     gateway_auth_rejected_capacity,
 };
 use async_trait::async_trait;
@@ -54,7 +54,7 @@ pub trait HttpAccessLogRepository: Send + Sync {
     async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        show_admin_operations: bool,
+        filter: &HttpAccessLogFilter,
         cursor: Option<LogCursor>,
         limit: u32,
     ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError>;
@@ -140,11 +140,11 @@ impl HttpAccessLogRepository for SqliteStore {
     async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        show_admin_operations: bool,
+        filter: &HttpAccessLogFilter,
         cursor: Option<LogCursor>,
         limit: u32,
     ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
-        cursor::list(self, since_ms, show_admin_operations, cursor, limit).await
+        cursor::list(self, since_ms, filter, cursor, limit).await
     }
 
     async fn get_http_access_log(

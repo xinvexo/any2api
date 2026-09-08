@@ -20,6 +20,7 @@ mod request_log;
 mod request_usage;
 mod revision;
 mod route_inspection;
+mod runtime_log;
 mod settings;
 mod upstream_usage;
 
@@ -55,6 +56,7 @@ fn protected_routes() -> Router<AppState> {
         .merge(provider::routes())
         .merge(request_log::routes())
         .merge(route_inspection::routes())
+        .merge(runtime_log::routes())
         .merge(crate::http_access_log::routes())
         .merge(settings::routes())
 }

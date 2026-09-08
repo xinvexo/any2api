@@ -20,10 +20,10 @@ pub(super) struct ActiveFile {
     pub(super) file: File,
 }
 
-pub(in crate::logging::file) struct ManagedFile {
-    pub(in crate::logging::file) path: PathBuf,
-    pub(in crate::logging::file) modified: SystemTime,
-    pub(in crate::logging::file) bytes: u64,
+pub(in crate::logging) struct ManagedFile {
+    pub(in crate::logging) path: PathBuf,
+    pub(in crate::logging) modified: SystemTime,
+    pub(in crate::logging) bytes: u64,
 }
 
 pub(super) fn open_segment(directory: &Path, date: String) -> io::Result<ActiveFile> {
@@ -49,7 +49,7 @@ pub(super) fn open_segment(directory: &Path, date: String) -> io::Result<ActiveF
     unreachable!("u32 segment sequence is exhaustive")
 }
 
-pub(in crate::logging::file) fn managed_files(
+pub(in crate::logging) fn managed_files(
     directory: &Path,
     active: Option<&Path>,
 ) -> io::Result<Vec<ManagedFile>> {
@@ -72,7 +72,7 @@ pub(in crate::logging::file) fn managed_files(
     Ok(files)
 }
 
-pub(super) fn is_managed_file(path: &Path) -> bool {
+pub(in crate::logging) fn is_managed_file(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };

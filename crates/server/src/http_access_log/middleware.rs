@@ -108,7 +108,12 @@ pub(crate) async fn record(
         completion.exclude();
         return response;
     }
-    response.map(|body| Body::new(AccessLogBody::new(body, completion)))
+    let content_length = response
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
+    response.map(|body| Body::new(AccessLogBody::new(body, completion, content_length)))
 }
 
 fn protocol_version(version: Version) -> HttpProtocolVersion {

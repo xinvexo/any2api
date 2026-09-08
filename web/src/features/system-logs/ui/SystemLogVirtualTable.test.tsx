@@ -26,21 +26,19 @@ test("renders only the visible system log rows", async () => {
   expect(screen.getByRole("columnheader", { name: "客户端 IP" })).toBeInTheDocument();
   expect(within(viewport).getByText("/system/1")).toBeInTheDocument();
   expect(within(viewport).queryByText("/system/200")).not.toBeInTheDocument();
-  const clientIp = within(viewport).getAllByTitle("2600:1900:4030:9fdd::")[0];
-  expect(clientIp).toHaveTextContent("2600:1900:4030:9fdd::");
-  expect(clientIp).toHaveClass("break-all");
-  expect(clientIp).not.toHaveClass("truncate");
+  const clientIp = within(viewport).getAllByTitle("203.0.113.8")[0];
+  expect(clientIp).toHaveTextContent("203.0.113.8");
   expect(within(viewport).getAllByRole("row").length).toBeLessThan(40);
 
   const firstRow = within(viewport).getByText("/system/1").closest("[role='row']");
   expect(firstRow).not.toBeNull();
   expect(firstRow).toHaveAttribute("aria-rowindex", "2");
-  fireEvent.click(firstRow!);
-  expect(onSelect).not.toHaveBeenCalled();
+  fireEvent.click(within(firstRow as HTMLElement).getByRole("button", { name: "查看 HTTP 请求详情 /system/1" }));
+  expect(onSelect).toHaveBeenCalledWith("request-1");
   fireEvent.doubleClick(firstRow!);
   expect(onSelect).toHaveBeenCalledWith("request-1");
 
-  viewport.scrollTop = 7_800;
+  viewport.scrollTop = 9_800;
   fireEvent.scroll(viewport);
 
   await waitFor(() => expect(within(viewport).getByText("/system/200")).toBeInTheDocument());
@@ -54,7 +52,7 @@ function systemLog(index: number): SystemLog {
     requestId: `request-${index}`,
     startedAtMs: 1_700_000_000_000 + index,
     configRevision: 1,
-    clientIp: "2600:1900:4030:9fdd::",
+    clientIp: "203.0.113.8",
     method: "GET",
     path: `/system/${index}`,
     httpVersion: "HTTP/1.1",

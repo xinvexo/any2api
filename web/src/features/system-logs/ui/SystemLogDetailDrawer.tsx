@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import type { SystemLogDetail } from "../api/system-log-contracts";
 import {
@@ -10,6 +11,7 @@ import {
 import { useSystemLog } from "../model/use-system-log";
 import { Button } from "@/shared/ui/Button";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
+import { buttonClassName } from "@/shared/ui/button-class-name";
 
 export function SystemLogDetailDrawer({
   requestId,
@@ -24,7 +26,7 @@ export function SystemLogDetailDrawer({
   return (
     <SideDrawer
       open={requestId !== null}
-      title="HTTP 请求元数据"
+      title="HTTP 访问详情"
       description={log ? `${log.method} ${log.path}` : "正在读取系统日志详情"}
       onClose={onClose}
       wide
@@ -63,12 +65,12 @@ function DetailContent({ detail }: { detail: SystemLogDetail }) {
       </dl>
 
       <div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-tertiary">完整 URI</p>
+        <p className="text-[12px] font-medium text-secondary">完整请求路径</p>
         <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-[10px] bg-surface-muted/70 p-3 font-mono text-[12px] leading-5 text-primary [overflow-wrap:anywhere]">
           {log.path}
         </pre>
       </div>
-
+      {detail.hasRequestLog ? <Link className={buttonClassName({ variant: "secondary" })} to={`/logs/${encodeURIComponent(log.requestId)}`}>查看模型请求详情</Link> : null}
     </div>
   );
 }

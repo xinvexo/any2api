@@ -27,7 +27,7 @@ pub(super) async fn list(
     let logs = telemetry
         .list_http_access_logs(
             query.batch.since_ms,
-            query.show_admin_operations,
+            &query.filter,
             query.batch.cursor,
             LOG_BATCH_SIZE,
         )
@@ -39,7 +39,7 @@ pub(super) async fn list(
     Ok(Json(SystemLogListResponse::new(
         logs,
         telemetry.metrics(),
-        query.show_admin_operations,
+        &query.scope,
     )))
 }
 
@@ -58,7 +58,13 @@ pub(super) async fn get(
             AdminApiError::system_log_unavailable()
         })?
         .ok_or_else(AdminApiError::system_log_not_found)?;
-    Ok(Json(record.into()))
+    let has_request_log = state
+        .request_telemetry()
+        .get(request_id)
+        .await
+        .map_err(|_| AdminApiError::system_log_unavailable())?
+        .is_some();
+    Ok(Json(SystemLogDetailResponse::new(record, has_request_log)))
 }
 
 pub(super) async fn clear(

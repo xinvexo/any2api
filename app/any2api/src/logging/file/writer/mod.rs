@@ -15,7 +15,7 @@ use segments::{ActiveFile, date_key, open_segment};
 mod diagnostics;
 mod directory;
 mod retention;
-mod segments;
+pub(super) mod segments;
 
 #[cfg(test)]
 pub(super) use segments::managed_files;

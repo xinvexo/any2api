@@ -12,6 +12,7 @@ mod request_body_timeout;
 mod request_lifecycle;
 mod response_security_headers;
 mod router;
+mod runtime_log;
 mod state;
 mod web_assets;
 mod web_security_headers;

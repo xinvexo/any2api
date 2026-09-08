@@ -27,14 +27,14 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
   expect(parseClearSystemLogsResult({ deleted: 42 }).deleted).toBe(42);
 });
 
-test("keeps the detail contract metadata-only", () => {
+test("parses the linked model request on an HTTP detail", () => {
   const detail = parseSystemLogDetail({
     log: systemLog("/v1/responses"),
+    has_request_log: true,
   });
 
   expect(detail.log.path).toBe("/v1/responses");
-  expect(detail).toEqual({ log: expect.objectContaining({ method: "GET" }) });
-  expect("exchange" in detail).toBe(false);
+  expect(detail.hasRequestLog).toBe(true);
 });
 
 test("rejects unknown outcomes and invalid batch metadata", () => {

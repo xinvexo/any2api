@@ -16,7 +16,16 @@ export interface SystemLog {
 
 export interface SystemLogDetail {
   log: SystemLog;
+  hasRequestLog: boolean;
 }
+
+export interface SystemLogFilters {
+  statusCode?: string;
+  clientIp?: string;
+  path?: string;
+}
+
+export const EMPTY_SYSTEM_LOG_FILTERS: SystemLogFilters = {};
 
 interface SystemLogTelemetry {
   queuedRecords: number;
@@ -62,7 +71,7 @@ export function parseClearSystemLogsResult(value: unknown): ClearSystemLogsResul
 
 export function parseSystemLogDetail(value: unknown): SystemLogDetail {
   const record = readRecord(value);
-  return { log: parseSystemLog(record.log) };
+  return { log: parseSystemLog(record.log), hasRequestLog: readBoolean(record.has_request_log) };
 }
 
 function parseSystemLog(value: unknown): SystemLog {

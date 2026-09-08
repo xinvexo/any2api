@@ -66,7 +66,7 @@ impl HttpAccessLogRepository for BlockingRepository {
     async fn list_http_access_logs(
         &self,
         _since_ms: u64,
-        _show_admin_operations: bool,
+        _filter: &any2api_domain::HttpAccessLogFilter,
         _cursor: Option<LogCursor>,
         limit: u32,
     ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {

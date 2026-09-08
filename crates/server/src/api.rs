@@ -4,5 +4,9 @@ pub use crate::admin_auth::{
 };
 pub use crate::client_address::{ClientAddressError, ClientConnection};
 pub use crate::router::build_router;
+pub use crate::runtime_log::{
+    RuntimeLogEntry, RuntimeLogLevel, RuntimeLogPage, RuntimeLogQuery, RuntimeLogSource,
+    runtime_log_summary,
+};
 pub use crate::state::{AppServices, AppState};
 pub use crate::web_assets::{EmbeddedWebAsset, WebAssets};

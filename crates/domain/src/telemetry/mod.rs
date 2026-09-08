@@ -8,8 +8,9 @@ mod speed_tier;
 mod token_usage;
 
 pub use http_access_log::{
-    GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog, HttpAccessLogOutcome,
-    HttpAccessLogSummary, HttpProtocolVersion, gateway_auth_rejected_capacity,
+    GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog, HttpAccessLogFilter,
+    HttpAccessLogOutcome, HttpAccessLogSummary, HttpProtocolVersion,
+    gateway_auth_rejected_capacity,
 };
 pub use log_batch::{LogBatch, LogCursor, LogCursorPosition};
 pub use quota_cost::{

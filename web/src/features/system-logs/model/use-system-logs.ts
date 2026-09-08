@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
 import { getSystemLogs } from "../api/system-log-api";
-import type { SystemLog, SystemLogList } from "../api/system-log-contracts";
+import { EMPTY_SYSTEM_LOG_FILTERS, type SystemLog, type SystemLogFilters, type SystemLogList } from "../api/system-log-contracts";
 import {
   MAX_CACHED_SYSTEM_BATCHES,
   MAX_CACHED_SYSTEM_LOGS,
@@ -18,15 +18,16 @@ import { useRealtimeCursorFeed } from "@/shared/realtime/use-realtime-cursor-fee
 export function useSystemLogs(
   showAdminOperations: boolean,
   followingLatest: boolean,
+  filters: SystemLogFilters = EMPTY_SYSTEM_LOG_FILTERS,
 ) {
   const fetchPage = useCallback(
     (cursor: string | null, signal?: AbortSignal) =>
-      getSystemLogs(showAdminOperations, cursor, signal),
-    [showAdminOperations],
+      getSystemLogs(showAdminOperations, cursor, signal, filters),
+    [showAdminOperations, filters],
   );
   const feed = useRealtimeCursorFeed<SystemLog, SystemLogList, SystemLogFeed>({
-    queryKey: systemLogQueryKeys.list(showAdminOperations),
-    scope: showAdminOperations ? "with-admin" : "without-admin",
+    queryKey: systemLogQueryKeys.list(showAdminOperations, filters),
+    scope: JSON.stringify([showAdminOperations, filters]),
     followingLatest,
     fetchPage,
     knownIds: systemLogIds,

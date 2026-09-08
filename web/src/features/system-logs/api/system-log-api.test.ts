@@ -49,6 +49,7 @@ function listResponse() {
 
 function detailResponse() {
   return {
+    has_request_log: true,
     log: {
       request_id: "11111111-1111-4111-8111-111111111111",
       started_at_ms: 1_700_000_000_000,

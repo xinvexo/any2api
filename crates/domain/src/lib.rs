@@ -70,8 +70,8 @@ pub use settings::{
 };
 pub use telemetry::{
     ActiveRequestLog, CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,
-    HttpAccessLogOutcome, HttpAccessLogSummary, HttpProtocolVersion, LogBatch, LogCursor,
-    LogCursorPosition, MAX_QUOTA_RATE_CARD_CHARS, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
+    HttpAccessLogFilter, HttpAccessLogOutcome, HttpAccessLogSummary, HttpProtocolVersion, LogBatch,
+    LogCursor, LogCursorPosition, MAX_QUOTA_RATE_CARD_CHARS, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
     MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT, MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS,
     QuotaCostUnit, QuotaServiceTier, RequestAttempt, RequestAttemptFailureScope,
     RequestAttemptOutcome, RequestAttemptRetryDecision, RequestAttemptStreamTiming,

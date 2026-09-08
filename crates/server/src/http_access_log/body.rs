@@ -132,14 +132,21 @@ pub(super) struct AccessLogBody {
     inner: Body,
     completion: Option<AccessLogCompletion>,
     response_bytes: u64,
+    expected_bytes: Option<u64>,
 }
 
 impl AccessLogBody {
-    pub(super) fn new(inner: Body, completion: AccessLogCompletion) -> Self {
+    pub(super) fn new(
+        inner: Body,
+        completion: AccessLogCompletion,
+        content_length: Option<u64>,
+    ) -> Self {
+        let expected_bytes = content_length.or_else(|| inner.size_hint().exact());
         Self {
             inner,
             completion: Some(completion),
             response_bytes: 0,
+            expected_bytes,
         }
     }
 
@@ -188,11 +195,14 @@ impl HttpBody for AccessLogBody {
 
 impl Drop for AccessLogBody {
     fn drop(&mut self) {
-        let outcome = if self.inner.is_end_stream() {
-            HttpAccessLogOutcome::Completed
-        } else {
-            HttpAccessLogOutcome::Cancelled
-        };
+        // Hyper can stop polling once a known-length body has been sent, without
+        // asking the inner stream for its final None frame.
+        let outcome =
+            if self.inner.is_end_stream() || self.expected_bytes == Some(self.response_bytes) {
+                HttpAccessLogOutcome::Completed
+            } else {
+                HttpAccessLogOutcome::Cancelled
+            };
         self.finish(outcome);
     }
 }

@@ -4,8 +4,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use any2api_domain::{
-    CompletedRequestLog, HttpAccessLog, HttpAccessLogSummary, LogBatch, LogCursor, RequestId,
-    RequestLog, RequestLogFilter,
+    CompletedRequestLog, HttpAccessLog, HttpAccessLogFilter, HttpAccessLogSummary, LogBatch,
+    LogCursor, RequestId, RequestLog, RequestLogFilter,
 };
 use any2api_storage::api::{
     GatewayApiKeyUsageSummary, RequestLogOverview, RequestLogOverviewRange, StorageError,
@@ -45,14 +45,14 @@ impl RequestTelemetry {
     pub async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        show_admin_operations: bool,
+        filter: &HttpAccessLogFilter,
         cursor: Option<LogCursor>,
         limit: u32,
     ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
-                    .list_http_access_logs(since_ms, show_admin_operations, cursor, limit)
+                    .list_http_access_logs(since_ms, filter, cursor, limit)
                     .await
             }
             None => Ok(LogBatch::empty()),

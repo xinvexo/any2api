@@ -2,6 +2,25 @@ use std::{fmt, net::IpAddr};
 
 use crate::{ConfigRevision, RequestId};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HttpAccessLogFilter {
+    pub show_admin_operations: bool,
+    pub status_code: Option<u16>,
+    pub client_ip: Option<IpAddr>,
+    pub path: Option<String>,
+}
+
+impl Default for HttpAccessLogFilter {
+    fn default() -> Self {
+        Self {
+            show_admin_operations: true,
+            status_code: None,
+            client_ip: None,
+            path: None,
+        }
+    }
+}
+
 /// Gateway authentication rejections may use at most this share of bounded
 /// telemetry capacity, leaving normal request history at higher priority.
 pub const GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR: u64 = 4;

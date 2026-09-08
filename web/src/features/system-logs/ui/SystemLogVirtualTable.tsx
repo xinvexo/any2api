@@ -1,4 +1,6 @@
 import { useMemo, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 import type { SystemLog } from "../api/system-log-contracts";
 import {
@@ -15,9 +17,9 @@ import {
   type ListEntryAnimation,
 } from "@/shared/ui/useListEntryAnimations";
 
-const ROW_HEIGHT = 44;
+const ROW_HEIGHT = 52;
 const gridClass =
-  "grid w-full grid-cols-[7rem_11rem_3.5rem_minmax(13rem,1fr)_3rem_4.5rem_4rem_4.5rem_4rem] items-center gap-x-2 px-2";
+  "grid w-full grid-cols-[7rem_3.5rem_minmax(10rem,1fr)_7.5rem_3.5rem_4rem_2.5rem] items-center gap-x-2 px-2";
 
 interface SystemLogVirtualTableProps {
   items: readonly SystemLog[];
@@ -46,10 +48,10 @@ export function SystemLogVirtualTable({
 
   return (
     <div className="h-full min-h-0 overflow-x-auto [scrollbar-gutter:stable]">
-      <div role="table" aria-label="系统日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[60rem] flex-col">
+      <div role="table" aria-label="系统日志表格" aria-rowcount={items.length + 1} className="flex h-full min-w-[43rem] flex-col">
         <div role="rowgroup" aria-label="系统日志表头" className="shrink-0 overflow-y-scroll border-b border-subtle [scrollbar-gutter:stable]">
-          <div role="row" aria-rowindex={1} className={cn(gridClass, "text-[11px] font-medium text-tertiary")}>
-            <Header>时间</Header><Header>客户端 IP</Header><Header>方法</Header><Header>请求 URI</Header><Header>状态</Header><Header>协议</Header><Header>耗时</Header><Header>响应</Header><Header>结果</Header>
+          <div role="row" aria-rowindex={1} className={cn(gridClass, "text-[12px] font-medium text-secondary")}>
+            <Header>时间</Header><Header>状态</Header><Header>请求路径</Header><Header>客户端 IP</Header><Header>耗时</Header><Header>响应</Header><Header><span className="sr-only">详情</span></Header>
           </div>
         </div>
         <AnchoredVirtualRows
@@ -108,28 +110,20 @@ function SystemLogRow({
       title="双击查看详情"
       className={cn(
         gridClass,
-        "compact-row-surface compact-row-surface-hover focus-ring h-11 cursor-pointer rounded-[8px] text-[12px] outline-none",
+        "compact-row-surface compact-row-surface-hover focus-ring h-[52px] cursor-pointer rounded-[8px] text-[12px] outline-none",
         selected && "compact-row-surface-selected",
         listEntrySurfaceAnimationClass(animation),
       )}
       onDoubleClick={() => onSelect(log.requestId)}
-      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(log.requestId); } }}
+      onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelect(log.requestId); } }}
     >
       <Cell className="tabular-nums text-secondary">{formatSystemLogTime(log.startedAtMs)}</Cell>
-      <Cell
-        truncate={false}
-        className="break-all font-mono leading-4 text-secondary"
-        title={log.clientIp ?? "未知"}
-      >
-        {log.clientIp ?? "未知"}
-      </Cell>
-      <Cell className="font-mono font-semibold">{log.method}</Cell>
-      <Cell className="font-mono" title={log.path}>{log.path}</Cell>
-      <Cell className={cn("font-mono font-semibold", statusTone(log))}>{log.statusCode ?? "—"}</Cell>
-      <Cell className="font-mono text-secondary">{log.httpVersion}</Cell>
+      <Cell truncate={false} className={cn("flex flex-col gap-0.5", statusTone(log))} title={`${log.httpVersion} · ${outcomeLabel(log.outcome)}`}><span className="font-mono font-semibold">{log.statusCode ?? "—"}</span>{log.outcome !== "completed" ? <span className="text-[11px]">{outcomeLabel(log.outcome)}</span> : null}</Cell>
+      <Cell title={`${log.method} ${log.path}`} truncate={false} className="flex min-w-0 items-center gap-2"><span className="shrink-0 rounded bg-surface-muted px-1.5 py-1 font-mono text-[11px] text-secondary">{log.method}</span><span className="truncate font-mono">{log.path}</span></Cell>
+      <Cell className="font-mono text-secondary" title={log.clientIp ?? "未知"}>{log.clientIp ?? "未知"}</Cell>
       <Cell className="tabular-nums text-secondary">{formatDuration(log.durationMs)}</Cell>
       <Cell className="tabular-nums text-secondary">{formatBytes(log.responseBytes)}</Cell>
-      <Cell className="text-secondary">{outcomeLabel(log.outcome)}</Cell>
+      <Cell truncate={false}><RowActionButton label={`查看 HTTP 请求详情 ${log.path}`} onClick={() => onSelect(log.requestId)}><ChevronRight size={14} /></RowActionButton></Cell>
     </div>
   );
 }

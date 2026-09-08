@@ -14,6 +14,67 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn runtime_logs_require_admin_auth_and_forward_filters_to_the_diagnostic_source() {
+    use any2api_server::api::{
+        RuntimeLogEntry, RuntimeLogLevel, RuntimeLogPage, RuntimeLogQuery, RuntimeLogSource,
+    };
+    #[derive(Default)]
+    struct Source(std::sync::Mutex<Option<RuntimeLogQuery>>);
+    #[async_trait::async_trait]
+    impl RuntimeLogSource for Source {
+        async fn list(&self, query: RuntimeLogQuery) -> std::io::Result<RuntimeLogPage> {
+            *self.0.lock().unwrap() = Some(query);
+            Ok(RuntimeLogPage {
+                items: vec![RuntimeLogEntry {
+                    id: "entry-1".into(),
+                    timestamp: "2026-09-08T03:00:00Z".into(),
+                    level: RuntimeLogLevel::Warn,
+                    module: "oauth".into(),
+                    target: "any2api_runtime::oauth".into(),
+                    message: "OAuth account token refresh failed".into(),
+                    summary: "账号凭据刷新失败".into(),
+                    fields: [("refresh_reason".into(), "Rejected".into())].into(),
+                }],
+                next_cursor: None,
+            })
+        }
+    }
+    let fixture = TestApplication::new().await;
+    let source = Arc::new(Source::default());
+    let state = fixture.state().with_runtime_logs(source.clone());
+    let raw = any2api_server::api::build_router(state.clone(), fixture.directory().join("web"));
+    assert_eq!(
+        send(&raw, Method::GET, "/api/admin/runtime-logs")
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    let (_directory, app, _storage) = fixture.into_router_with_state(state);
+    let response = send(
+        &app,
+        Method::GET,
+        "/api/admin/runtime-logs?level=warn&module=oauth&search=Rejected",
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.json["items"][0]["summary"], "账号凭据刷新失败");
+    assert_eq!(
+        response.json["items"][0]["fields"]["refresh_reason"],
+        "Rejected"
+    );
+    let query = source.0.lock().unwrap().take().unwrap();
+    assert_eq!(query.level, Some(RuntimeLogLevel::Warn));
+    assert_eq!(query.module.as_deref(), Some("oauth"));
+    assert_eq!(query.search.as_deref(), Some("Rejected"));
+    assert_eq!(
+        send(&app, Method::GET, "/api/admin/runtime-logs?level=invalid")
+            .await
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
 async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     let fixture = TestApplication::new().await;
     let storage = fixture.storage();
@@ -45,7 +106,12 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     assert!(initial_events.contains("event: overview_snapshot\n"));
     assert_eq!(
         storage
-            .list_http_access_logs(0, true, None, 100)
+            .list_http_access_logs(
+                0,
+                &any2api_domain::HttpAccessLogFilter::default(),
+                None,
+                100
+            )
             .await
             .expect("HTTP access logs after SSE connect")
             .items
@@ -142,7 +208,12 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
-        .list_http_access_logs(0, true, None, 100)
+        .list_http_access_logs(
+            0,
+            &any2api_domain::HttpAccessLogFilter::default(),
+            None,
+            100,
+        )
         .await
         .expect("remaining HTTP access logs");
     assert!(remaining.items.is_empty());
@@ -166,7 +237,12 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     let epoch_after_denied = *system_log_changes.borrow_and_update();
     assert!(epoch_after_denied > epoch_before_denied);
     let denied_logs = storage
-        .list_http_access_logs(0, true, None, 100)
+        .list_http_access_logs(
+            0,
+            &any2api_domain::HttpAccessLogFilter::default(),
+            None,
+            100,
+        )
         .await
         .expect("denied SSE access log");
     assert_eq!(denied_logs.items[0].path, "/api/admin/events");
@@ -199,7 +275,7 @@ async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
     wait_for_log_count(storage.as_ref(), 1).await;
 
     let logs = storage
-        .list_http_access_logs(0, true, None, 10)
+        .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 10)
         .await
         .expect("mapped loopback system logs");
     assert_eq!(logs.items.len(), 1);
@@ -251,6 +327,64 @@ async fn system_log_detail_never_exposes_raw_client_http_exchange() {
     assert!(!serialized.contains("raw-gateway-key"));
     assert!(!serialized.contains("raw-query-value"));
 
+    telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn known_length_file_responses_distinguish_completion_from_cancellation() {
+    use any2api_domain::HttpAccessLogOutcome;
+
+    let fixture = TestApplication::new().await;
+    let assets = fixture.directory().join("web/assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("small.txt"), vec![b'x'; 1024]).unwrap();
+    std::fs::write(assets.join("large.txt"), vec![b'x'; 256 * 1024]).unwrap();
+    let storage = fixture.storage();
+    let (_directory, app, telemetry) = build_test_app(fixture).await;
+    for (file, read_all, outcome) in [
+        ("small.txt", true, HttpAccessLogOutcome::Completed),
+        ("large.txt", false, HttpAccessLogOutcome::Cancelled),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/assets/{file}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let id: RequestId = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let expected: u64 = response.headers()["content-length"]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut body = response.into_body();
+        let mut received = 0;
+        loop {
+            let frame = body.frame().await.unwrap().unwrap();
+            received += frame.into_data().unwrap().len() as u64;
+            if !read_all || received == expected {
+                break;
+            }
+        }
+        if !read_all {
+            assert!(received < expected);
+        }
+        // The HTTP writer stops after Content-Length bytes without a final poll.
+        drop(body);
+        wait_for_log_detail(storage.as_ref(), id).await;
+        let log = storage.get_http_access_log(id).await.unwrap().unwrap();
+        assert_eq!(log.outcome, outcome);
+        assert_eq!(log.response_bytes, received);
+    }
     telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -384,7 +518,12 @@ async fn collect_response(response: axum::response::Response) -> TestResponse {
 async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
     for _ in 0..200 {
         if storage
-            .list_http_access_logs(0, true, None, 100)
+            .list_http_access_logs(
+                0,
+                &any2api_domain::HttpAccessLogFilter::default(),
+                None,
+                100,
+            )
             .await
             .expect("HTTP access logs")
             .items

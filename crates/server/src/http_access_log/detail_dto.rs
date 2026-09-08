@@ -6,12 +6,16 @@ use super::dto::SystemLogResponse;
 #[derive(Serialize)]
 pub(super) struct SystemLogDetailResponse {
     log: SystemLogResponse,
+    has_request_log: bool,
 }
 
-impl From<HttpAccessLog> for SystemLogDetailResponse {
-    fn from(value: HttpAccessLog) -> Self {
+impl SystemLogDetailResponse {
+    pub(super) fn new(value: HttpAccessLog, has_request_log: bool) -> Self {
         let log = value.summary().into();
-        Self { log }
+        Self {
+            log,
+            has_request_log,
+        }
     }
 }
 
@@ -23,20 +27,23 @@ mod tests {
 
     #[test]
     fn detail_never_returns_raw_exchange_data() {
-        let response = SystemLogDetailResponse::from(HttpAccessLog {
-            request_id: RequestId::new(),
-            started_at_ms: 1,
-            config_revision: ConfigRevision::INITIAL,
-            client_ip: None,
-            method: "POST".to_owned(),
-            path: "/v1/responses".to_owned(),
-            http_version: HttpProtocolVersion::Http11,
-            status_code: Some(200),
-            duration_ms: 1,
-            response_bytes: 2,
-            outcome: HttpAccessLogOutcome::Completed,
-            gateway_auth_rejected: false,
-        });
+        let response = SystemLogDetailResponse::new(
+            HttpAccessLog {
+                request_id: RequestId::new(),
+                started_at_ms: 1,
+                config_revision: ConfigRevision::INITIAL,
+                client_ip: None,
+                method: "POST".to_owned(),
+                path: "/v1/responses".to_owned(),
+                http_version: HttpProtocolVersion::Http11,
+                status_code: Some(200),
+                duration_ms: 1,
+                response_bytes: 2,
+                outcome: HttpAccessLogOutcome::Completed,
+                gateway_auth_rejected: false,
+            },
+            true,
+        );
 
         let json = serde_json::to_value(response).expect("detail JSON");
         assert_eq!(json["log"]["path"], "/v1/responses");
