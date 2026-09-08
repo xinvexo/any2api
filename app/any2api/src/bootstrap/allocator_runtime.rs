@@ -1,7 +1,35 @@
-use any2api_memory_reclaimer::mark_current_thread_as_mimalloc_pool_worker;
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
+
+use any2api_memory_reclaimer::{
+    collect_current_thread, mark_current_thread_as_mimalloc_pool_worker,
+};
+
+const WORKER_RECLAIM_INTERVAL: Duration = Duration::from_secs(30);
+
+thread_local! {
+    static LAST_RECLAIM: Cell<Option<Instant>> = const { Cell::new(None) };
+}
 
 pub(super) fn install(builder: &mut tokio::runtime::Builder) {
     builder.on_thread_start(mark_current_thread_as_mimalloc_pool_worker);
+    builder.on_thread_park(reclaim_idle_worker);
+}
+
+fn reclaim_idle_worker() {
+    LAST_RECLAIM.with(|last| {
+        let now = Instant::now();
+        if last
+            .get()
+            .is_some_and(|previous| now.duration_since(previous) < WORKER_RECLAIM_INTERVAL)
+        {
+            return;
+        }
+        last.set(Some(now));
+        collect_current_thread();
+    });
 }
 
 #[cfg(test)]

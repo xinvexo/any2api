@@ -2,11 +2,11 @@ mod mimalloc;
 mod platform;
 mod transparent_huge_pages;
 
-pub use mimalloc::mark_current_thread_as_mimalloc_pool_worker;
+pub use mimalloc::{collect_current_thread, mark_current_thread_as_mimalloc_pool_worker};
 pub use transparent_huge_pages::disable_for_current_process as disable_transparent_huge_pages;
 
 pub fn relieve_native_allocator_pressure() {
-    mimalloc::collect_unused_pages();
+    collect_current_thread();
     platform::relieve_native_allocator_pressure();
 }
 

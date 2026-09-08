@@ -16,9 +16,8 @@ pub fn mark_current_thread_as_mimalloc_pool_worker() {
     unsafe { mi_thread_set_in_threadpool() };
 }
 
-pub(crate) fn collect_unused_pages() {
-    // SAFETY: mimalloc documents this process allocator maintenance call as
-    // thread-safe. `true` asks it to purge unused pages aggressively; no Rust
-    // pointer crosses the FFI boundary.
+pub fn collect_current_thread() {
+    // SAFETY: mimalloc collects the calling thread's unused pages and checks
+    // shared arenas. No Rust pointer crosses the FFI boundary.
     unsafe { libmimalloc_sys::mi_collect(true) };
 }

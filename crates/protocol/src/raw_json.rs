@@ -237,6 +237,15 @@ impl<'de> Visitor<'de> for RawObjectFieldsVisitor {
 }
 
 pub(crate) fn raw_array(bytes: &[u8]) -> Option<Vec<&RawValue>> {
+    // Skip other shapes before Serde constructs an error containing the entire string.
+    if bytes
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        != Some(b'[')
+    {
+        return None;
+    }
     serde_json::from_slice(bytes).ok()
 }
 
