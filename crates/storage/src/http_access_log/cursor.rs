@@ -1,6 +1,4 @@
-use any2api_domain::{
-    HttpAccessLogFilter, HttpAccessLogSummary, LogBatch, LogCursor, LogCursorPosition,
-};
+use any2api_domain::{HttpAccessLogSummary, LogBatch, LogCursor, LogCursorPosition};
 use sqlx::AssertSqlSafe;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
@@ -22,19 +20,15 @@ pub(crate) const HIDE_ADMIN_OPERATIONS_PREDICATE: &str = "\
 pub(super) const SYSTEM_LOG_BATCH_COLUMNS: &str = "request_id, started_at_ms, config_revision, client_ip, \
     method, path, http_version, status_code, duration_ms, response_bytes, outcome";
 
-const ACCESS_FILTER_PREDICATE: &str = "(? IS NULL OR status_code = ?) AND \
-    (? IS NULL OR client_ip = ?) AND (? IS NULL OR instr(path, ?) > 0)";
-
 pub(super) async fn list(
     store: &SqliteStore,
     since_ms: u64,
-    filter: &HttpAccessLogFilter,
+    show_admin_operations: bool,
     cursor: Option<LogCursor>,
     limit: u32,
 ) -> Result<LogBatch<HttpAccessLogSummary>, StorageError> {
     let since_ms = to_i64(since_ms)?;
-    let client_ip = filter.client_ip.map(|address| address.to_string());
-    let admin_operations_predicate = if filter.show_admin_operations {
+    let admin_operations_predicate = if show_admin_operations {
         "TRUE"
     } else {
         HIDE_ADMIN_OPERATIONS_PREDICATE
@@ -47,17 +41,11 @@ pub(super) async fn list(
                 "SELECT started_at_ms, request_id FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
-                 AND ({admin_operations_predicate}) AND ({ACCESS_FILTER_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT 1"
             );
             let row = sqlx::query_as::<_, (i64, String)>(AssertSqlSafe(statement))
                 .bind(since_ms)
-                .bind(filter.status_code)
-                .bind(filter.status_code)
-                .bind(&client_ip)
-                .bind(&client_ip)
-                .bind(&filter.path)
-                .bind(&filter.path)
                 .fetch_optional(&mut *transaction)
                 .await?;
             let Some((started_at_ms, request_id)) = row else {
@@ -79,19 +67,13 @@ pub(super) async fn list(
                 "SELECT {SYSTEM_LOG_BATCH_COLUMNS} FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
-                 AND ({admin_operations_predicate}) AND ({ACCESS_FILTER_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  AND (started_at_ms, request_id) <= (?, ?) \
                  AND (started_at_ms, request_id) < (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
             );
             sqlx::query_as::<_, HttpAccessLogSummaryRow>(AssertSqlSafe(statement))
                 .bind(since_ms)
-                .bind(filter.status_code)
-                .bind(filter.status_code)
-                .bind(&client_ip)
-                .bind(&client_ip)
-                .bind(&filter.path)
-                .bind(&filter.path)
                 .bind(anchor_started_at_ms)
                 .bind(anchor.request_id())
                 .bind(to_i64(before.started_at_ms())?)
@@ -105,18 +87,12 @@ pub(super) async fn list(
                 "SELECT {SYSTEM_LOG_BATCH_COLUMNS} FROM http_access_logs \
                  INDEXED BY http_access_logs_summary_filter_idx \
                  WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
-                 AND ({admin_operations_predicate}) AND ({ACCESS_FILTER_PREDICATE}) \
+                 AND ({admin_operations_predicate}) \
                  AND (started_at_ms, request_id) <= (?, ?) \
                  ORDER BY started_at_ms DESC, request_id DESC LIMIT ?"
             );
             sqlx::query_as::<_, HttpAccessLogSummaryRow>(AssertSqlSafe(statement))
                 .bind(since_ms)
-                .bind(filter.status_code)
-                .bind(filter.status_code)
-                .bind(&client_ip)
-                .bind(&client_ip)
-                .bind(&filter.path)
-                .bind(&filter.path)
                 .bind(anchor_started_at_ms)
                 .bind(anchor.request_id())
                 .bind(fetch_limit)

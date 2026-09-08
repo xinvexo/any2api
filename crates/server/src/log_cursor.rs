@@ -16,14 +16,16 @@ pub(crate) struct LogBatchRequest {
 #[derive(Clone, Copy)]
 pub(crate) enum LogCursorScope<'a> {
     Request(&'a str),
-    System(&'a str),
+    System(bool),
 }
 
 impl LogCursorScope<'_> {
     fn prefix(self) -> String {
         match self {
             Self::Request(fingerprint) => format!("r4.{fingerprint}"),
-            Self::System(filters) => format!("s6.{filters}"),
+            Self::System(show_admin_operations) => {
+                format!("s5.{}", u8::from(show_admin_operations))
+            }
         }
     }
 
@@ -54,9 +56,9 @@ impl LogCursorScope<'_> {
 
 pub(crate) fn validate_system_log_batch(
     cursor: Option<String>,
-    filters: &str,
+    show_admin_operations: bool,
 ) -> Option<LogBatchRequest> {
-    validate_log_batch(cursor, LogCursorScope::System(filters))
+    validate_log_batch(cursor, LogCursorScope::System(show_admin_operations))
 }
 
 pub(crate) fn validate_request_log_batch(
@@ -118,7 +120,7 @@ mod tests {
 
     #[test]
     fn defaults_to_a_fresh_fixed_batch() {
-        let batch = validate_system_log_batch(None, "filters-a").expect("default batch");
+        let batch = validate_system_log_batch(None, true).expect("default batch");
         assert!(batch.cursor.is_none());
     }
 
@@ -135,11 +137,11 @@ mod tests {
         assert_eq!(query.cursor, Some(cursor.clone()));
 
         assert!(validate_request_log_batch(Some(encoded.clone()), "filters-b").is_none());
-        assert!(validate_system_log_batch(Some(encoded), "filters-a").is_none());
+        assert!(validate_system_log_batch(Some(encoded), true).is_none());
 
-        let system_cursor = LogCursorScope::System("filters-a").encode(&cursor);
-        assert!(validate_system_log_batch(Some(system_cursor.clone()), "filters-a").is_some());
-        assert!(validate_system_log_batch(Some(system_cursor), "filters-b").is_none());
+        let system_cursor = LogCursorScope::System(true).encode(&cursor);
+        assert!(validate_system_log_batch(Some(system_cursor.clone()), true).is_some());
+        assert!(validate_system_log_batch(Some(system_cursor), false).is_none());
 
         assert!(
             validate_request_log_batch(

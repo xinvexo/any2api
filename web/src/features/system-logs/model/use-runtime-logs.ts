@@ -1,14 +1,14 @@
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 
-import { getRuntimeLogs, type RuntimeLogFilters } from "../api/runtime-log-api";
+import { getRuntimeLogs } from "../api/runtime-log-api";
 import type { RuntimeLogPage } from "@/shared/api/generated/RuntimeLogPage";
 
-export function useRuntimeLogs(filters: RuntimeLogFilters, followingLatest: boolean) {
+export function useRuntimeLogs(followingLatest: boolean) {
   const client = useQueryClient();
-  const queryKey = ["runtime-logs", filters] as const;
+  const queryKey = ["runtime-logs"] as const;
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam, signal }) => getRuntimeLogs(filters, pageParam, signal),
+    queryFn: ({ pageParam, signal }) => getRuntimeLogs(pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
     maxPages: 10,

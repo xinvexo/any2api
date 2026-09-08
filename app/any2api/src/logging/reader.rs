@@ -79,12 +79,6 @@ fn read_page(directory: &Path, query: &RuntimeLogQuery) -> io::Result<RuntimeLog
     ordered.sort_unstable_by(|a, b| (b.0, &b.1.path).cmp(&(a.0, &a.1.path)));
     let mut page = RuntimeLogPage::default();
     let mut scanned = 0;
-    let search = query
-        .search
-        .as_deref()
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase();
     for (index, (started, segment)) in ordered.iter().enumerate() {
         let name = segment
             .path
@@ -126,9 +120,7 @@ fn read_page(directory: &Path, query: &RuntimeLogQuery) -> io::Result<RuntimeLog
                 if line.last() != Some(&b'\n') {
                     continue;
                 }
-                if let Some(entry) = parse_entry(line, format!("{started}:{name}:{offset}"))
-                    && matches_filter(&entry, query, &search)
-                {
+                if let Some(entry) = parse_entry(line, format!("{started}:{name}:{offset}")) {
                     page.items.push(entry);
                     if page.items.len() == PAGE_SIZE {
                         page.next_cursor =
@@ -245,22 +237,6 @@ fn module_name(target: &str) -> &str {
     } else {
         "runtime"
     }
-}
-
-fn matches_filter(entry: &RuntimeLogEntry, query: &RuntimeLogQuery, search: &str) -> bool {
-    query.level.is_none_or(|level| entry.level == level)
-        && query
-            .module
-            .as_deref()
-            .is_none_or(|module| entry.module == module)
-        && (search.is_empty()
-            || entry.message.to_lowercase().contains(search)
-            || entry.summary.to_lowercase().contains(search)
-            || entry.target.to_lowercase().contains(search)
-            || entry
-                .fields
-                .values()
-                .any(|value| value.to_lowercase().contains(search)))
 }
 
 #[cfg(test)]

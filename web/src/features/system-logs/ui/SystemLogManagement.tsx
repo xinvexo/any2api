@@ -1,7 +1,7 @@
-import { RefreshCw, ScrollText, Search, Trash2 } from "lucide-react";
+import { RefreshCw, ScrollText, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import type { SystemLog, SystemLogFilters } from "../api/system-log-contracts";
+import type { SystemLog } from "../api/system-log-contracts";
 import {
   loadSystemLogAdminOperationsPreference,
   saveSystemLogAdminOperationsPreference,
@@ -17,16 +17,13 @@ import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
 import { Switch } from "@/shared/ui/Switch";
 import { useListEntryAnimations } from "@/shared/ui/useListEntryAnimations";
-import { controlClass } from "@/shared/ui/form-control";
 
 export function SystemLogManagement() {
   const [showAdminOperations, setShowAdminOperations] = useState(loadSystemLogAdminOperationsPreference);
   const [followingLatest, setFollowingLatest] = useState(true);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<SystemLogFilters>({});
-  const [draft, setDraft] = useState({ statusCode: "", clientIp: "", path: "" });
-  const query = useSystemLogs(showAdminOperations, followingLatest, filters);
+  const query = useSystemLogs(showAdminOperations, followingLatest);
   const clearMutation = useClearSystemLogs();
   const realtime = useAdminRealtimeStatus();
   const reconnect = useAdminRealtimeReconnect();
@@ -34,7 +31,7 @@ export function SystemLogManagement() {
     query.items,
     systemLogEntryId,
     systemLogEntryState,
-    `${JSON.stringify([showAdminOperations, filters])}\u0000${query.data ? "ready" : "loading"}`,
+    `${showAdminOperations}\u0000${query.data ? "ready" : "loading"}`,
   );
   const { fetchNextPage, hasNextPage, isFetchingNextPage, refreshLatest } = query;
 
@@ -76,20 +73,6 @@ export function SystemLogManagement() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden" aria-busy={query.isFetching}>
-      <form aria-label="HTTP 访问筛选" className="mb-3 grid shrink-0 grid-cols-2 gap-2 lg:flex" onSubmit={(event) => {
-        event.preventDefault();
-        setFilters({ statusCode: draft.statusCode || undefined, clientIp: draft.clientIp.trim() || undefined, path: draft.path.trim() || undefined });
-        setFollowingLatest(true);
-        setSelectedId(null);
-      }}>
-        <input type="number" min={100} max={599} inputMode="numeric" aria-label="HTTP 状态码" placeholder="状态码，如 401" value={draft.statusCode} onChange={(event) => setDraft({ ...draft, statusCode: event.target.value })} className={controlClass(false, "lg:w-36")} />
-        <input aria-label="客户端 IP 筛选" placeholder="客户端 IP" value={draft.clientIp} onChange={(event) => setDraft({ ...draft, clientIp: event.target.value })} className={controlClass(false, "lg:w-40")} />
-        <div className="col-span-2 flex min-w-0 flex-1 gap-2">
-          <input aria-label="请求路径筛选" placeholder="搜索请求路径" maxLength={256} value={draft.path} onChange={(event) => setDraft({ ...draft, path: event.target.value })} className={controlClass(false, "min-w-0 flex-1")} />
-          <Button type="submit"><Search size={14} />筛选</Button>
-          <Button variant="ghost" onClick={() => { setDraft({ statusCode: "", clientIp: "", path: "" }); setFilters({}); setFollowingLatest(true); setSelectedId(null); }}>重置</Button>
-        </div>
-      </form>
       <header className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-secondary">
           <Toggle id="system-log-admin-operations" label="显示管理操作" checked={showAdminOperations} onChange={handleShowAdminOperationsChange} />
@@ -112,7 +95,7 @@ export function SystemLogManagement() {
       {query.data ? (
         <div className="pt-3 md:min-h-0 md:flex-1">
           {query.items.length === 0 ? (
-            <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center"><ScrollText size={22} className="text-tertiary" /><p className="mt-3 text-[13px] font-medium">暂无符合条件的 HTTP 访问记录</p><p className="mt-2 text-[12px] text-secondary">可调整状态码、客户端 IP 或路径筛选。</p></div>
+            <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center"><ScrollText size={22} className="text-tertiary" /><p className="mt-3 text-[13px] font-medium">暂无 HTTP 访问记录</p></div>
           ) : (
             <SystemLogList
               items={query.items}

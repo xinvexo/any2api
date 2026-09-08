@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { cn } from "@/shared/lib/cn";
 import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
@@ -12,11 +12,12 @@ interface PageTabItem {
 interface PageTabsProps {
   items: readonly PageTabItem[];
   ariaLabel: string;
+  activePath?: string;
 }
 
-export function PageTabs({ items, ariaLabel }: PageTabsProps) {
+export function PageTabs({ items, ariaLabel, activePath }: PageTabsProps) {
   const location = useLocation();
-  const selectedPath = items.find((item) => tabIsActive(location.pathname, item))?.path ?? "";
+  const selectedPath = activePath ?? items.find((item) => tabIsActive(location.pathname, item))?.path ?? "";
 
   return (
     <nav
@@ -28,20 +29,20 @@ export function PageTabs({ items, ariaLabel }: PageTabsProps) {
         className="rounded-full bg-nav-active"
       />
       {items.map((item) => (
-        <NavLink
+        <Link
           key={item.path}
           to={item.path}
-          end={item.end ?? true}
+          aria-current={selectedPath === item.path ? "page" : undefined}
           data-sliding-selection-item={item.path}
           className={cn(
             "focus-ring relative z-10 shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium tracking-tight transition-colors",
-            tabIsActive(location.pathname, item)
+            selectedPath === item.path
               ? "text-nav-active-fg"
               : "text-secondary hover:text-primary",
           )}
         >
           {item.label}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   );

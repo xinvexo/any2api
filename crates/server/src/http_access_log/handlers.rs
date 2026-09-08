@@ -27,7 +27,7 @@ pub(super) async fn list(
     let logs = telemetry
         .list_http_access_logs(
             query.batch.since_ms,
-            &query.filter,
+            query.show_admin_operations,
             query.batch.cursor,
             LOG_BATCH_SIZE,
         )
@@ -39,7 +39,7 @@ pub(super) async fn list(
     Ok(Json(SystemLogListResponse::new(
         logs,
         telemetry.metrics(),
-        &query.scope,
+        query.show_admin_operations,
     )))
 }
 

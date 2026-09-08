@@ -42,7 +42,6 @@ fn pages_retained_events_across_windows_rotation_and_concurrent_appends() {
         directory.path(),
         &RuntimeLogQuery {
             cursor: first.next_cursor,
-            ..Default::default()
         },
     )
     .unwrap();
@@ -53,21 +52,16 @@ fn pages_retained_events_across_windows_rotation_and_concurrent_appends() {
 }
 
 #[test]
-fn filters_diagnostics_and_reads_only_complete_application_events() {
+fn reads_diagnostics_from_complete_application_events() {
     let directory = tempdir().unwrap();
     let active = directory.path().join("any2api-2026-09-08-000000.jsonl");
     let mut text = event("token refreshed", "INFO");
     text.push_str(&event("OAuth refresh failed", "WARN"));
     text.push_str("invalid line\n{\"timestamp\":");
     fs::write(&active, text).unwrap();
-    let query = RuntimeLogQuery {
-        level: Some(RuntimeLogLevel::Warn),
-        module: Some("oauth".into()),
-        search: Some("REJECTED".into()),
-        ..Default::default()
-    };
+    let query = RuntimeLogQuery::default();
     let page = read_page(directory.path(), &query).unwrap();
-    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items.len(), 2);
     assert_eq!(page.items[0].message, "OAuth refresh failed");
     assert_eq!(page.items[0].fields["oauth_account_id"], "account-a");
     assert_eq!(page.items[0].fields["reauthorization_required"], "true");
@@ -76,7 +70,6 @@ fn filters_diagnostics_and_reads_only_complete_application_events() {
             directory.path(),
             &RuntimeLogQuery {
                 cursor: Some("../private.jsonl:0".into()),
-                ..Default::default()
             }
         )
         .is_err()
@@ -100,7 +93,6 @@ fn continues_history_when_retention_removes_the_cursor_segment() {
                     .unwrap()
                     .unix_timestamp_nanos()
             )),
-            ..Default::default()
         },
     )
     .unwrap();
@@ -108,7 +100,7 @@ fn continues_history_when_retention_removes_the_cursor_segment() {
 }
 
 #[test]
-fn reused_segment_numbers_are_sorted_by_their_events_and_chinese_summaries_are_searchable() {
+fn reused_segment_numbers_are_sorted_by_their_events() {
     let directory = tempdir().unwrap();
     fs::write(
         directory.path().join("any2api-2026-09-08-000008.jsonl"),
@@ -124,13 +116,4 @@ fn reused_segment_numbers_are_sorted_by_their_events_and_chinese_summaries_are_s
     let page = read_page(directory.path(), &RuntimeLogQuery::default()).unwrap();
     assert_eq!(page.items[0].summary, "账号凭据刷新失败");
     assert_eq!(page.items[1].message, "old event");
-    let page = read_page(
-        directory.path(),
-        &RuntimeLogQuery {
-            search: Some("刷新失败".into()),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(page.items.len(), 1);
 }

@@ -28,11 +28,9 @@ async fn list(
         .cursor
         .as_ref()
         .is_some_and(|value| value.len() > 1024)
-        || query.module.as_ref().is_some_and(|value| value.len() > 128)
-        || query.search.as_ref().is_some_and(|value| value.len() > 256)
     {
         return Err(AdminApiError::invalid_request(
-            "runtime log filter is too long",
+            "runtime log cursor is too long",
         ));
     }
     let source = state

@@ -19,14 +19,6 @@ export interface SystemLogDetail {
   hasRequestLog: boolean;
 }
 
-export interface SystemLogFilters {
-  statusCode?: string;
-  clientIp?: string;
-  path?: string;
-}
-
-export const EMPTY_SYSTEM_LOG_FILTERS: SystemLogFilters = {};
-
 interface SystemLogTelemetry {
   queuedRecords: number;
   inFlightRecords: number;

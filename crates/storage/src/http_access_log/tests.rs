@@ -14,48 +14,6 @@ mod query_plan;
 const GENEROUS_CAPACITY: HttpAccessLogCapacity = HttpAccessLogCapacity::new(10_000);
 
 #[tokio::test]
-async fn filters_status_ip_and_literal_path_before_pagination() {
-    let directory = tempdir().unwrap();
-    let store = SqliteStore::connect(&directory.path().join("filters.sqlite3"))
-        .await
-        .unwrap();
-    let mut logs = Vec::new();
-    for (at, status, path, ip) in [
-        (100, 401, "/v1/model%name", "203.0.113.8"),
-        (200, 200, "/v1/model%name", "203.0.113.8"),
-        (300, 401, "/v1/model-name", "203.0.113.8"),
-        (400, 401, "/v1/model%name", "203.0.113.9"),
-        (500, 401, "/v1/model%name", "203.0.113.8"),
-    ] {
-        let mut log = record(at, path);
-        log.status_code = Some(status);
-        log.client_ip = Some(ip.parse().unwrap());
-        logs.push(log);
-    }
-    store
-        .append_http_access_logs(logs, GENEROUS_CAPACITY)
-        .await
-        .unwrap();
-    let filter = any2api_domain::HttpAccessLogFilter {
-        status_code: Some(401),
-        client_ip: Some("203.0.113.8".parse().unwrap()),
-        path: Some("model%name".into()),
-        ..Default::default()
-    };
-    let first = store
-        .list_http_access_logs(0, &filter, None, 1)
-        .await
-        .unwrap();
-    assert_eq!(first.items[0].started_at_ms, 500);
-    let second = store
-        .list_http_access_logs(0, &filter, first.next_cursor, 1)
-        .await
-        .unwrap();
-    assert_eq!(second.items[0].started_at_ms, 100);
-    assert!(second.next_cursor.is_none());
-}
-
-#[tokio::test]
 async fn stores_exact_paths_prunes_and_clears_history() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("access-log.sqlite3"))
@@ -72,7 +30,7 @@ async fn stores_exact_paths_prunes_and_clears_history() {
         .await
         .expect("append access logs");
     let page = store
-        .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 10)
+        .list_http_access_logs(0, true, None, 10)
         .await
         .expect("list access logs");
     assert_eq!(page.items, vec![second_summary.clone(), first_summary]);
@@ -100,7 +58,7 @@ async fn stores_exact_paths_prunes_and_clears_history() {
     );
     assert!(
         store
-            .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 10)
+            .list_http_access_logs(0, true, None, 10)
             .await
             .expect("empty access logs")
             .items
@@ -151,24 +109,14 @@ async fn access_log_batches_hide_local_success_noise_and_keep_auditable_traffic(
     assert_eq!(stored_mapped_ip, "127.0.0.1");
 
     let first_page = store
-        .list_http_access_logs(
-            250,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            None,
-            2,
-        )
+        .list_http_access_logs(250, true, None, 2)
         .await
         .expect("first page");
     assert_eq!(first_page.items.len(), 2);
     assert_eq!(first_page.items[1], local_error_summary);
 
     let second_page = store
-        .list_http_access_logs(
-            250,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            first_page.next_cursor,
-            2,
-        )
+        .list_http_access_logs(250, true, first_page.next_cursor, 2)
         .await
         .expect("second page");
     assert_eq!(second_page.items.len(), 1);
@@ -203,36 +151,20 @@ async fn access_log_batches_can_hide_admin_activity_and_web_assets() {
         .expect("append access logs");
 
     let visible = store
-        .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 20)
+        .list_http_access_logs(0, true, None, 20)
         .await
         .expect("unfiltered page");
     assert_eq!(visible.items.len(), 12);
 
     let first_page = store
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter {
-                show_admin_operations: false,
-                ..Default::default()
-            },
-            None,
-            2,
-        )
+        .list_http_access_logs(0, false, None, 2)
         .await
         .expect("first filtered page");
     assert_eq!(first_page.items[0].path, "/v1/responses");
     assert_eq!(first_page.items[1].path, "/assets-not/application.js");
 
     let second_page = store
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter {
-                show_admin_operations: false,
-                ..Default::default()
-            },
-            first_page.next_cursor,
-            2,
-        )
+        .list_http_access_logs(0, false, first_page.next_cursor, 2)
         .await
         .expect("second filtered page");
     assert_eq!(second_page.items[0].path, "/api/administrator");
@@ -264,7 +196,7 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .expect("append initial logs");
 
     let first_page = store
-        .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 2)
+        .list_http_access_logs(0, true, None, 2)
         .await
         .expect("first page");
     assert_eq!(
@@ -286,12 +218,7 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .expect("append concurrent logs");
 
     let second_page = store
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            first_page.next_cursor.clone(),
-            2,
-        )
+        .list_http_access_logs(0, true, first_page.next_cursor.clone(), 2)
         .await
         .expect("second page");
     assert_eq!(
@@ -308,12 +235,7 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .await
         .expect("delete oldest row between pages");
     let third_page = store
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            second_page.next_cursor,
-            2,
-        )
+        .list_http_access_logs(0, true, second_page.next_cursor, 2)
         .await
         .expect("third page");
     assert_eq!(third_page.items[0].request_id, older_id);

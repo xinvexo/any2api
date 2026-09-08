@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { ChevronRight, RefreshCw, Search, ScrollText } from "lucide-react";
+import { ChevronRight, RefreshCw, ScrollText } from "lucide-react";
 
-import type { RuntimeLogFilters } from "../api/runtime-log-api";
-import { eventReason, eventTitle, levelLabels, moduleLabels } from "../model/runtime-log-presentation";
+import { eventReason, eventTitle, moduleLabels } from "../model/runtime-log-presentation";
 import { useRuntimeLogs } from "../model/use-runtime-logs";
 import { RuntimeLogDetailDrawer, RuntimeLogLevelBadge } from "./RuntimeLogDetailDrawer";
 import type { RuntimeLogEntry } from "@/shared/api/generated/RuntimeLogEntry";
-import type { RuntimeLogLevel } from "@/shared/api/generated/RuntimeLogLevel";
 import { cn } from "@/shared/lib/cn";
 import { formatCompactDateTime } from "@/shared/lib/date-time";
 import { notify } from "@/shared/notifications";
@@ -14,24 +12,14 @@ import { Button } from "@/shared/ui/Button";
 import { AnchoredVirtualRows } from "@/shared/ui/AnchoredVirtualRows";
 import { IntersectionSentinel } from "@/shared/ui/IntersectionSentinel";
 import { ScrollToTopButton } from "@/shared/ui/ScrollToTopButton";
-import { Select } from "@/shared/ui/Select";
 import { WindowVirtualList } from "@/shared/ui/WindowVirtualList";
-import { controlClass } from "@/shared/ui/form-control";
 import { useMobileViewport } from "@/shared/ui/use-mobile-viewport";
 
 export function RuntimeLogManagement() {
-  const [filters, setFilters] = useState<RuntimeLogFilters>({});
-  const [search, setSearch] = useState("");
   const [followingLatest, setFollowingLatest] = useState(true);
   const [selected, setSelected] = useState<RuntimeLogEntry | null>(null);
-  const query = useRuntimeLogs(filters, followingLatest);
+  const query = useRuntimeLogs(followingLatest);
   const mobile = useMobileViewport();
-
-  function changeFilters(next: RuntimeLogFilters) {
-    setFilters(next);
-    setFollowingLatest(true);
-    setSelected(null);
-  }
 
   async function refresh() {
     setFollowingLatest(true);
@@ -45,23 +33,16 @@ export function RuntimeLogManagement() {
   };
 
   return <div className="flex min-w-0 flex-1 flex-col md:min-h-0">
-    <form aria-label="运行日志筛选" className="grid shrink-0 grid-cols-2 gap-2 border-b border-subtle pb-3 lg:flex lg:flex-wrap" onSubmit={(event) => { event.preventDefault(); changeFilters({ ...filters, search: search.trim() || undefined }); }}>
-      <Select aria-label="日志级别" value={filters.level ?? ""} options={[{ value: "", label: "全部级别" }, ...Object.entries(levelLabels).map(([value, label]) => ({ value, label }))]} onValueChange={(value) => changeFilters({ ...filters, level: value ? value as RuntimeLogLevel : undefined })} className="w-full lg:w-32" />
-      <Select aria-label="日志模块" value={filters.module ?? ""} options={[{ value: "", label: "全部模块" }, ...Object.entries(moduleLabels).map(([value, label]) => ({ value, label }))]} onValueChange={(value) => changeFilters({ ...filters, module: value || undefined })} className="w-full lg:w-40" />
-      <div className="col-span-2 flex min-w-0 flex-1 gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tertiary" />
-          <input aria-label="搜索运行日志" placeholder="搜索事件、原因或账号 ID" maxLength={256} value={search} onChange={(event) => setSearch(event.target.value)} className={controlClass(false, "pl-9")} />
-        </div>
-        <Button type="submit" variant="secondary">搜索</Button>
-        <Button variant="ghost" onClick={() => { setSearch(""); changeFilters({}); }}>重置</Button>
-        <Button variant="ghost" aria-label="刷新运行日志" title="刷新运行日志" disabled={query.isFetching} onClick={() => void refresh()}><RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} /><span className="hidden sm:inline">刷新</span></Button>
+    <header className="mb-3 flex min-h-8 shrink-0 items-center justify-between gap-3 border-b border-subtle pb-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-secondary">
+        <span>账号授权、额度同步与系统运行事件</span>
+        <span className="flex items-center gap-2" role="status"><span className={cn("h-1.5 w-1.5 rounded-full", query.isError ? "bg-warning" : "bg-success")} />{query.isError ? "同步失败，可刷新重试" : query.automatic ? "每 10 秒更新" : "正在浏览历史"}{query.items.length ? ` · 已加载 ${query.items.length} 条` : ""}</span>
       </div>
-    </form>
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 py-3 text-[12px] text-secondary" role="status">
-      <span>账号授权、额度同步与系统运行事件</span>
-      <span className="flex items-center gap-2"><span className={cn("h-1.5 w-1.5 rounded-full", query.isError ? "bg-warning" : "bg-success")} />{query.isError ? "同步失败，可刷新重试" : query.automatic ? "每 10 秒更新" : "正在浏览历史"}{query.items.length ? ` · 已加载 ${query.items.length} 条` : ""}</span>
-    </div>
+      <Button size="lg" variant="ghost" className="h-9 min-h-9 w-9 rounded-full px-0 md:h-8 md:min-h-8 md:w-auto md:rounded-[7px] md:px-3.5" aria-label="刷新运行日志" title="刷新运行日志" disabled={query.isFetching} onClick={() => void refresh()}>
+        <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
+        <span className="sr-only md:not-sr-only">刷新</span>
+      </Button>
+    </header>
     {query.items.length > 0 ? <div className="min-w-0 md:flex md:min-h-0 md:flex-1 md:flex-col">
       {mobile ? <>
         <IntersectionSentinel onVisibilityChange={setFollowingLatest} />
@@ -70,9 +51,9 @@ export function RuntimeLogManagement() {
       </> : <AnchoredVirtualRows itemIds={query.items.map((entry) => entry.id)} rowHeight={88} followingLatest={followingLatest} hasMore={query.hasNextPage} loadingMore={query.isFetchingNextPage} historyLoaderKey="runtime-log-history" initialWidth={1000} ariaLabel="运行日志列表" onFollowingLatestChange={setFollowingLatest} onLoadMore={loadMore} renderRow={(index) => <RuntimeLogRow entry={query.items[index]!} selected={selected?.id === query.items[index]!.id} onSelect={setSelected} />} renderHistoryLoader={(loading) => <div className="grid h-11 place-items-center"><Button variant="ghost" disabled={loading} onClick={loadMore}>{loading ? "正在加载更早日志" : "加载更早日志"}</Button></div>} />}
     </div> : <div className="flex min-h-64 flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
       <ScrollText size={24} className="text-tertiary" />
-      <p className="text-[13px] font-medium">{query.isPending ? "正在读取运行日志" : query.isError ? "运行日志读取失败" : "暂无符合条件的运行日志"}</p>
+      <p className="text-[13px] font-medium">{query.isPending ? "正在读取运行日志" : query.isError ? "运行日志读取失败" : "暂无运行日志"}</p>
       <p className="max-w-md text-[12px] leading-5 text-secondary">{query.isError ? "请刷新重试。" : "启动、账号刷新和后台任务产生的事件会显示在这里。"}</p>
-      {query.hasNextPage ? <Button disabled={query.isFetching} onClick={loadMore}>继续查找更早日志</Button> : null}
+      {query.hasNextPage ? <Button disabled={query.isFetching} onClick={loadMore}>加载更早日志</Button> : null}
     </div>}
     <ScrollToTopButton visible={!followingLatest} onClick={() => void refresh()} />
     <RuntimeLogDetailDrawer entry={selected} onClose={() => setSelected(null)} />

@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, io};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum RuntimeLogLevel {
@@ -18,9 +18,6 @@ pub enum RuntimeLogLevel {
 #[serde(deny_unknown_fields)]
 pub struct RuntimeLogQuery {
     pub cursor: Option<String>,
-    pub level: Option<RuntimeLogLevel>,
-    pub module: Option<String>,
-    pub search: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

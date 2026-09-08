@@ -14,7 +14,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn runtime_logs_require_admin_auth_and_forward_filters_to_the_diagnostic_source() {
+async fn runtime_logs_require_admin_auth_and_forward_the_history_cursor() {
     use any2api_server::api::{
         RuntimeLogEntry, RuntimeLogLevel, RuntimeLogPage, RuntimeLogQuery, RuntimeLogSource,
     };
@@ -50,12 +50,7 @@ async fn runtime_logs_require_admin_auth_and_forward_filters_to_the_diagnostic_s
         StatusCode::UNAUTHORIZED
     );
     let (_directory, app, _storage) = fixture.into_router_with_state(state);
-    let response = send(
-        &app,
-        Method::GET,
-        "/api/admin/runtime-logs?level=warn&module=oauth&search=Rejected",
-    )
-    .await;
+    let response = send(&app, Method::GET, "/api/admin/runtime-logs?cursor=older").await;
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.json["items"][0]["summary"], "账号凭据刷新失败");
     assert_eq!(
@@ -63,15 +58,7 @@ async fn runtime_logs_require_admin_auth_and_forward_filters_to_the_diagnostic_s
         "Rejected"
     );
     let query = source.0.lock().unwrap().take().unwrap();
-    assert_eq!(query.level, Some(RuntimeLogLevel::Warn));
-    assert_eq!(query.module.as_deref(), Some("oauth"));
-    assert_eq!(query.search.as_deref(), Some("Rejected"));
-    assert_eq!(
-        send(&app, Method::GET, "/api/admin/runtime-logs?level=invalid")
-            .await
-            .status,
-        StatusCode::BAD_REQUEST
-    );
+    assert_eq!(query.cursor.as_deref(), Some("older"));
 }
 
 #[tokio::test]
@@ -106,12 +93,7 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     assert!(initial_events.contains("event: overview_snapshot\n"));
     assert_eq!(
         storage
-            .list_http_access_logs(
-                0,
-                &any2api_domain::HttpAccessLogFilter::default(),
-                None,
-                100
-            )
+            .list_http_access_logs(0, true, None, 100)
             .await
             .expect("HTTP access logs after SSE connect")
             .items
@@ -208,12 +190,7 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            None,
-            100,
-        )
+        .list_http_access_logs(0, true, None, 100)
         .await
         .expect("remaining HTTP access logs");
     assert!(remaining.items.is_empty());
@@ -237,12 +214,7 @@ async fn system_logs_batch_auditable_traffic_and_clear_in_writer_order() {
     let epoch_after_denied = *system_log_changes.borrow_and_update();
     assert!(epoch_after_denied > epoch_before_denied);
     let denied_logs = storage
-        .list_http_access_logs(
-            0,
-            &any2api_domain::HttpAccessLogFilter::default(),
-            None,
-            100,
-        )
+        .list_http_access_logs(0, true, None, 100)
         .await
         .expect("denied SSE access log");
     assert_eq!(denied_logs.items[0].path, "/api/admin/events");
@@ -275,7 +247,7 @@ async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
     wait_for_log_count(storage.as_ref(), 1).await;
 
     let logs = storage
-        .list_http_access_logs(0, &any2api_domain::HttpAccessLogFilter::default(), None, 10)
+        .list_http_access_logs(0, true, None, 10)
         .await
         .expect("mapped loopback system logs");
     assert_eq!(logs.items.len(), 1);
@@ -518,12 +490,7 @@ async fn collect_response(response: axum::response::Response) -> TestResponse {
 async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
     for _ in 0..200 {
         if storage
-            .list_http_access_logs(
-                0,
-                &any2api_domain::HttpAccessLogFilter::default(),
-                None,
-                100,
-            )
+            .list_http_access_logs(0, true, None, 100)
             .await
             .expect("HTTP access logs")
             .items
